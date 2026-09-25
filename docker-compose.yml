@@ -1,0 +1,8 @@
+# Alternativa para Dokploy con el tipo "Docker Compose".
+# Si usas el tipo "Application" con build "Dockerfile", este archivo no es necesario.
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    expose:
+      - "80"
