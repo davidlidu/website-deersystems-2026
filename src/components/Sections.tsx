@@ -636,18 +636,3 @@ export function Footer({ base = '' }: { base?: string }) {
     </footer>
   );
 }
-
-export function FloatingChat() {
-  return (
-    <a
-      className="floating-chat"
-      href={whatsappLink('Hola Nexo 👋 quiero información sobre DeerSystems.')}
-      target="_blank"
-      rel="noopener"
-      aria-label="Escríbenos por WhatsApp"
-    >
-      <img src="/img/nexo-icon.webp" alt="" width={64} height={64} />
-      <span className="floating-chat__label">¿Hablamos?</span>
-    </a>
-  );
-}

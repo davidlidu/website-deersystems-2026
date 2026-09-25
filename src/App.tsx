@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { NexoChat } from './components/NexoChat';
 import { Header } from './components/Header';
 import { Hero } from './components/Hero';
 import { Loader } from './components/Loader';
@@ -6,7 +7,6 @@ import {
   About,
   Automation,
   Contact,
-  FloatingChat,
   Footer,
   Nexo,
   Process,
@@ -67,7 +67,7 @@ export default function App() {
         <Contact />
       </main>
       <Footer />
-      <FloatingChat />
+      <NexoChat />
     </>
   );
 }

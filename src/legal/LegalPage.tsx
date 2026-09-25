@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
+import { NexoChat } from '../components/NexoChat';
 import { Header } from '../components/Header';
-import { FloatingChat, Footer } from '../components/Sections';
+import { Footer } from '../components/Sections';
 
 export const LAST_UPDATE = '25 de septiembre de 2026';
 
@@ -52,7 +53,7 @@ export function LegalPage({ eyebrow, title, intro, sections }: {
         </div>
       </main>
       <Footer base="/" />
-      <FloatingChat />
+      <NexoChat />
     </>
   );
 }
