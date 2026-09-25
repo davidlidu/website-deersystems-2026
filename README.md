@@ -6,7 +6,8 @@ Una sola página en React + Vite + TypeScript con:
 
 - **Loader y hero con orbe de vidrio líquido.** Es una adaptación del *Liquid Orb Editor* (MIT) a la marca. Usa WebGPU/WGSL, pasa a WebGL2 si WebGPU no está disponible y a un orbe estático en CSS como último recurso.
 - **Sistema de diseño** basado en el `DESIGN.md` de VoltAgent ([awesome-design-md](https://github.com/voltagent/awesome-design-md)), adaptado al Manual de Identidad DeerSystems. Ver [`DESIGN.md`](./DESIGN.md).
-- Secciones: Servicios, Automatización, Nexo (agentes de IA), Sectores, Portafolio (12 proyectos), Proceso, Sobre mí y Contacto (el formulario abre WhatsApp).
+- Secciones: Servicios, Automatización, Nexo (agentes de IA), Sectores, Portafolio (12 proyectos), Proceso, Sobre mí y Contacto. El formulario abre WhatsApp, cambia el ejemplo según el servicio elegido y pide aceptar la política de privacidad.
+- Páginas legales: `/privacidad.html` (Ley 1581 de 2012) y `/terminos.html`.
 
 ## Desarrollo
 
@@ -27,6 +28,7 @@ src/
   orb/            Orbe líquido: presets, shaders WGSL/GLSL, renderers, componente React
   components/     Loader, Header, Hero, secciones, marca (isotipo SVG) e iconos
   data/content.ts Proyectos, stack, sectores y WhatsApp
+  legal/          Política de privacidad y Términos y condiciones (privacidad.html, terminos.html)
   styles.css      Tokens y estilos
 brand-src/        Originales de marca (logos, Nexo, foto)
 scripts/          prepare-images.mjs → genera /public/img optimizadas

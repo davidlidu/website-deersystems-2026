@@ -1892,3 +1892,153 @@ p {
     height: 50px;
   }
 }
+
+/* ───────── Consentimiento del formulario ───────── */
+
+.form .form__consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.form .form__consent input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  padding: 0;
+  flex-shrink: 0;
+  accent-color: var(--verde);
+}
+
+.form .form__consent > span {
+  font-weight: 400;
+  color: var(--mute);
+}
+
+.form__consent a,
+.legal__body a {
+  color: var(--cian);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.footer__legal-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.footer__legal-links a:hover {
+  color: var(--verde);
+}
+
+/* ───────── Páginas legales ───────── */
+
+.legal {
+  padding: calc(72px + clamp(40px, 7vw, 88px)) 0 var(--section);
+}
+
+.legal__head {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+  padding-bottom: 40px;
+  margin-bottom: 48px;
+  border-bottom: 1px dashed var(--hairline-strong);
+}
+
+.legal__head .eyebrow {
+  margin: 0;
+}
+
+.legal__date {
+  font-size: 0.8rem;
+}
+
+.legal__layout {
+  display: grid;
+  grid-template-columns: 240px 1fr;
+  gap: clamp(32px, 5vw, 72px);
+  align-items: start;
+}
+
+.legal__toc {
+  position: sticky;
+  top: 96px;
+  font-size: 0.88rem;
+}
+
+.legal__toc > p {
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--verde);
+  margin-bottom: 12px;
+}
+
+.legal__toc ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+  border-left: 1px solid var(--hairline);
+}
+
+.legal__toc a {
+  display: block;
+  padding: 6px 14px;
+  color: var(--mute);
+  transition: color 0.2s;
+}
+
+.legal__toc a:hover {
+  color: var(--ink);
+}
+
+.legal__body {
+  max-width: 720px;
+  display: grid;
+  gap: 40px;
+}
+
+.legal__body section {
+  display: grid;
+  gap: 12px;
+  scroll-margin-top: 96px;
+}
+
+.legal__body h2 .mono {
+  color: var(--verde);
+  font-size: 0.8rem;
+  margin-right: 8px;
+}
+
+.legal__body strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.legal__body ul {
+  margin: 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+}
+
+.legal__body li::marker {
+  color: var(--cian);
+}
+
+@media (max-width: 860px) {
+  .legal__layout {
+    grid-template-columns: 1fr;
+  }
+  .legal__toc {
+    position: static;
+  }
+}

@@ -11,7 +11,7 @@ const LINKS = [
   { href: '#contacto', label: 'Contacto' },
 ];
 
-export function Header() {
+export function Header({ base = '' }: { base?: string }) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -29,12 +29,12 @@ export function Header() {
   return (
     <header className={`header ${scrolled ? 'header--scrolled' : ''} ${open ? 'header--open' : ''}`}>
       <div className="container header__inner">
-        <a href="#inicio" className="header__logo" aria-label="DeerSystems, ir al inicio">
+        <a href={`${base}#inicio`} className="header__logo" aria-label="DeerSystems, ir al inicio">
           <Wordmark size={30} />
         </a>
         <nav className="header__nav" aria-label="Principal">
           {LINKS.map((l) => (
-            <a key={l.href} href={l.href} onClick={() => setOpen(false)}>
+            <a key={l.href} href={`${base}${l.href}`} onClick={() => setOpen(false)}>
               {l.label}
             </a>
           ))}

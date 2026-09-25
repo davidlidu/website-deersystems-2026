@@ -475,7 +475,33 @@ export function About() {
 
 /* ───────────────────────── Contacto ───────────────────────── */
 
-const NEEDS = ['Automatización / IA', 'Sitio web', 'Tienda online', 'Servidores y dominios', 'Mantenimiento', 'Otro'];
+// Cada necesidad trae su propio ejemplo para guiar al usuario en el mensaje.
+const NEEDS = [
+  {
+    label: 'Automatización / IA',
+    placeholder: 'Ej: recibo leads de Instagram y los paso a mano a una hoja de cálculo; quiero que lleguen solos al CRM y reciban respuesta por WhatsApp…',
+  },
+  {
+    label: 'Sitio web',
+    placeholder: 'Ej: necesito un sitio de 4 páginas para mi empresa, con formulario de contacto y botón de WhatsApp. Ya tengo logo y textos…',
+  },
+  {
+    label: 'Tienda online',
+    placeholder: 'Ej: vendo ropa por Instagram y quiero una tienda con unos 80 productos, pagos con PSE y tarjeta, y envíos a todo el país…',
+  },
+  {
+    label: 'Servidores y dominios',
+    placeholder: 'Ej: quiero migrar mi sitio a un VPS, configurar mi dominio y crear correos corporativos para 5 personas…',
+  },
+  {
+    label: 'Mantenimiento',
+    placeholder: 'Ej: tengo un WordPress con WooCommerce que está lento y desactualizado; necesito soporte mensual y copias de seguridad…',
+  },
+  {
+    label: 'Otro',
+    placeholder: 'Cuéntanos qué necesitas y en qué punto está tu proyecto…',
+  },
+];
 
 export function Contact() {
   const [need, setNeed] = useState(NEEDS[0]);
@@ -485,7 +511,7 @@ export function Contact() {
     const data = new FormData(e.currentTarget);
     const msg = [
       `Hola David, soy ${data.get('name')}${data.get('company') ? ` de ${data.get('company')}` : ''}.`,
-      `Me interesa: ${need}.`,
+      `Me interesa: ${need.label}.`,
       data.get('message') ? `${data.get('message')}` : '',
     ]
       .filter(Boolean)
@@ -545,19 +571,26 @@ export function Contact() {
               {NEEDS.map((n) => (
                 <button
                   type="button"
-                  key={n}
+                  key={n.label}
                   className={`chip ${need === n ? 'chip--on' : ''}`}
                   aria-pressed={need === n}
                   onClick={() => setNeed(n)}
                 >
-                  {n}
+                  {n.label}
                 </button>
               ))}
             </div>
           </fieldset>
           <label>
-            <span>Cuéntanos tu proceso</span>
-            <textarea name="message" rows={4} placeholder="Ej: recibo leads de Instagram y los paso a mano a una hoja de cálculo…" />
+            <span>{need.label === 'Automatización / IA' ? 'Cuéntanos tu proceso' : 'Cuéntanos tu proyecto'}</span>
+            <textarea name="message" rows={4} placeholder={need.placeholder} />
+          </label>
+          <label className="form__consent">
+            <input type="checkbox" name="consent" required />
+            <span>
+              Acepto la <a href="/privacidad.html">Política de privacidad</a> y el tratamiento de mis datos para
+              responder a mi solicitud.
+            </span>
           </label>
           <button className="btn btn--primary btn--lg btn--block" type="submit">
             Enviar por WhatsApp <Icon name="arrow" size={18} />
@@ -570,7 +603,8 @@ export function Contact() {
 
 /* ───────────────────────── Footer + chat flotante ───────────────────────── */
 
-export function Footer() {
+/** `base` = '/' en páginas internas (legales) para que las anclas vuelvan al inicio. */
+export function Footer({ base = '' }: { base?: string }) {
   return (
     <footer className="footer">
       <div className="container footer__inner">
@@ -579,11 +613,11 @@ export function Footer() {
           <p className="footer__slogan">Sistemas que conectan, soluciones que simplifican.</p>
         </div>
         <nav className="footer__nav" aria-label="Pie de página">
-          <a href="#servicios">Servicios</a>
-          <a href="#automatizacion">Automatización</a>
-          <a href="#proyectos">Proyectos</a>
-          <a href="#sobre-mi">Sobre mí</a>
-          <a href="#contacto">Contacto</a>
+          <a href={`${base}#servicios`}>Servicios</a>
+          <a href={`${base}#automatizacion`}>Automatización</a>
+          <a href={`${base}#proyectos`}>Proyectos</a>
+          <a href={`${base}#sobre-mi`}>Sobre mí</a>
+          <a href={`${base}#contacto`}>Contacto</a>
         </nav>
         <div className="footer__contact">
           <a href={whatsappLink('Hola David')} target="_blank" rel="noopener">
@@ -594,7 +628,10 @@ export function Footer() {
       </div>
       <div className="container footer__legal">
         <span>© {new Date().getFullYear()} DeerSystems. Todos los derechos reservados.</span>
-        <span className="mono muted">Hecho con React · WebGPU</span>
+        <nav className="footer__legal-links" aria-label="Legal">
+          <a href="/privacidad.html">Política de privacidad</a>
+          <a href="/terminos.html">Términos y condiciones</a>
+        </nav>
       </div>
     </footer>
   );
