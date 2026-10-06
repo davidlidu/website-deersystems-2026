@@ -4,7 +4,7 @@ Panel para publicar las propuestas comerciales en HTML. Cada propuesta queda en 
 
 - `PROP-2026-014 Acmé.html` → `https://propuestas.deersystems.net/prop-2026-014-acme`
 - Acepta un `.html` suelto o un `.zip` con assets (`index.html` en la raíz, o dentro de una única carpeta).
-- No hay listado público: la raíz redirige a deersystems.net y cualquier ruta que no exista devuelve el mismo 404.
+- No hay listado público: la raíz redirige a deersystems.net (o al panel si tienes sesión) y cualquier ruta que no exista devuelve el mismo 404.
 - Las propuestas salen con `noindex` y sin caché, así que un reemplazo se ve de inmediato.
 - El panel (`/admin`) entra con Google. `SUPERADMIN_EMAIL` siempre tiene acceso y es quien autoriza otros correos.
 - Cada propuesta muestra cuántas veces se abrió (no cuenta tus visitas con sesión ni las vistas previas de WhatsApp).

@@ -316,7 +316,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   const url = new URL(req.url ?? '/', PUBLIC_URL);
   const path = url.pathname;
 
-  if (path === '/') return redirect(res, HOME_URL);
+  // La raíz no lista nada: con sesión lleva al panel y al resto lo manda al sitio principal.
+  if (path === '/') return redirect(res, sessionEmail(req) ? '/admin' : HOME_URL);
   if (path === '/healthz') return json(res, 200, { ok: true });
   if (path === '/robots.txt') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
