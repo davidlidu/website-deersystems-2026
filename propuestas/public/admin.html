@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Propuestas · DeerSystems</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#051923" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Montserrat:wght@600;700&display=swap"
+    />
+    <link rel="stylesheet" href="/admin/static/panel.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__in">
+        <a class="wordmark" href="/admin">
+          <img src="/favicon.svg" alt="" />
+          <span><span class="grad">Deer</span>Systems</span>
+        </a>
+        <form class="topbar__user" method="post" action="/auth/logout">
+          <span id="me"></span>
+          <button class="btn btn--outline btn--sm" type="submit">Salir</button>
+        </form>
+      </div>
+    </header>
+
+    <main class="page">
+      <div class="page__head">
+        <p class="eyebrow">Propuestas comerciales</p>
+        <h1>Publica y actualiza <span class="grad">sin cambiar el enlace</span></h1>
+        <p>
+          Sube el <span class="mono">.html</span> de la propuesta, o un <span class="mono">.zip</span> si trae imágenes u
+          otros archivos. La URL sale del nombre del archivo y se mantiene aunque reemplaces el contenido.
+        </p>
+      </div>
+
+      <div id="drop" class="drop" role="button" tabindex="0">
+        <strong>Arrastra la propuesta aquí</strong>
+        <span>o haz clic para elegir un .html o un .zip</span>
+      </div>
+      <input id="file" type="file" accept=".html,.htm,.zip" hidden />
+      <input id="replace-file" type="file" accept=".html,.htm,.zip" hidden />
+
+      <form id="publish" class="publish card" hidden>
+        <div class="publish__file">
+          <span class="mono" id="publish-name"></span>
+          <span class="tag" id="publish-size"></span>
+        </div>
+        <div class="publish__grid">
+          <label class="field">
+            <span class="field__label">URL de la propuesta</span>
+            <span class="input">
+              <span class="input__prefix" id="publish-host"></span>
+              <input id="publish-slug" name="slug" required minlength="3" maxlength="120" autocomplete="off" spellcheck="false" />
+            </span>
+          </label>
+          <label class="field">
+            <span class="field__label">Cliente o nota (solo para ti)</span>
+            <span class="input">
+              <input id="publish-title" name="title" maxlength="200" autocomplete="off" placeholder="Acme S.A.S." />
+            </span>
+          </label>
+        </div>
+        <div class="publish__actions">
+          <button class="btn btn--outline" type="button" id="publish-cancel">Cancelar</button>
+          <button class="btn btn--primary" type="submit" id="publish-submit">Publicar propuesta</button>
+        </div>
+      </form>
+
+      <section class="section">
+        <div class="section__head">
+          <h2>Publicadas</h2>
+          <span class="mono" id="count"></span>
+        </div>
+        <div id="list" class="list"></div>
+      </section>
+
+      <section class="section" id="users-section" hidden>
+        <div class="section__head">
+          <h2>Quién puede entrar</h2>
+          <span class="mono">Login con Google</span>
+        </div>
+        <ul id="users" class="users"></ul>
+        <form id="users-add" class="users__add">
+          <span class="input">
+            <input type="email" name="email" required placeholder="correo@deersystems.net" autocomplete="off" />
+          </span>
+          <button class="btn btn--outline" type="submit">Autorizar</button>
+        </form>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script type="module" src="/admin/static/admin.js"></script>
+  </body>
+</html>

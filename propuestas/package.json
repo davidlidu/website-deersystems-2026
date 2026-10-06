@@ -1,0 +1,21 @@
+{
+  "name": "propuestas-deersystems",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning --watch src/server.ts",
+    "start": "node --disable-warning=ExperimentalWarning src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "typescript": "~6.0.2"
+  }
+}

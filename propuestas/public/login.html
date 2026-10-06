@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Entrar · Propuestas DeerSystems</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#051923" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Montserrat:wght@600;700&display=swap"
+    />
+    <link rel="stylesheet" href="/admin/static/panel.css" />
+  </head>
+  <body>
+    <main class="center">
+      <div class="center__card card">
+        <span class="wordmark">
+          <img src="/favicon.svg" alt="" />
+          <span><span class="grad">Deer</span>Systems</span>
+        </span>
+        <div>
+          <p class="eyebrow">Propuestas comerciales</p>
+          <h1>Panel de propuestas</h1>
+        </div>
+        <p>Entra con la cuenta de Google autorizada para publicar y actualizar propuestas.</p>
+        <p id="error" class="alert" role="alert" hidden></p>
+        <a class="btn btn--primary" href="/auth/google">Entrar con Google</a>
+      </div>
+    </main>
+    <script>
+      const messages = {
+        unauthorized: 'Esa cuenta de Google no está autorizada para entrar.',
+        state: 'La sesión de inicio expiró. Inténtalo de nuevo.',
+        google: 'Google no pudo confirmar tu cuenta. Inténtalo de nuevo.',
+        config: 'Falta configurar las credenciales de Google en el servidor.',
+      };
+      const message = messages[new URLSearchParams(location.search).get('error')];
+      if (message) {
+        const el = document.getElementById('error');
+        el.textContent = message;
+        el.hidden = false;
+      }
+    </script>
+  </body>
+</html>

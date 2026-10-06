@@ -75,6 +75,7 @@ src/
   legal/          Política de privacidad y Términos y condiciones (privacidad.html, terminos.html)
   styles.css      Tokens y estilos
 brand-src/        Originales de marca (logos, Nexo, foto)
+propuestas/       App aparte para propuestas.deersystems.net (ver propuestas/README.md)
 scripts/          prepare-images.mjs → genera /public/img optimizadas
 ```
 
