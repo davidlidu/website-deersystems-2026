@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DeerSystems para agencias · Desarrollo web que tu agencia puede escalar</title>
+<meta name="description" content="El equipo de desarrollo detrás de tu agencia: WordPress, Shopify y React con precios claros, entregas puntuales y mantenimiento continuo. Tú diseñas y vendes; DeerSystems construye y conecta." />
+<meta name="theme-color" content="#051923" />
+<meta name="color-scheme" content="dark" />
+<link rel="canonical" href="https://agencias.deersystems.net/" />
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+<meta property="og:type" content="website" />
+<meta property="og:locale" content="es_CO" />
+<meta property="og:site_name" content="DeerSystems" />
+<meta property="og:title" content="DeerSystems para agencias · Tú diseñas, nosotros construimos" />
+<meta property="og:description" content="WordPress, Shopify y React para agencias: precios claros, entregas puntuales y soporte continuo." />
+<meta property="og:image" content="https://agencias.deersystems.net/img/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Montserrat:wght@600;700&display=swap" />
+<link rel="preconnect" href="https://api.microlink.io" />
+
+<style>
+/* ==========================================================================
+   DeerSystems · Agencias — mismos tokens que el sitio principal (src/styles.css)
+   ========================================================================== */
+:root {
+  --verde: #7ed957;
+  --cian: #00b4d8;
+  --azul: #051923;
+  --violeta: #7209b7;
+  --pizarra: #1e293b;
+  --bruma: #94a3b8;
+  --oro: #ffb703;
+
+  --canvas: var(--azul);
+  --surface: rgba(30, 41, 59, 0.42);
+  --ink: #f2f6f8;
+  --body: #b9c6d2;
+  --mute: var(--bruma);
+  --hairline: rgba(148, 163, 184, 0.16);
+  --hairline-strong: rgba(148, 163, 184, 0.3);
+  --primary: var(--verde);
+  --primary-deep: #62c23c;
+  --on-primary: var(--azul);
+  --grad: linear-gradient(100deg, var(--verde) 0%, #3fcf9c 45%, var(--cian) 100%);
+
+  --font-display: 'Montserrat', system-ui, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', SFMono-Regular, Menlo, Consolas, monospace;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 16px;
+  --container: 1200px;
+  --gutter: clamp(16px, 4vw, 32px);
+  --section: clamp(72px, 10vw, 120px);
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 84px; -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--canvas); color: var(--body);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.65;
+  -webkit-font-smoothing: antialiased; overflow-x: hidden;
+}
+img { max-width: 100%; display: block; }
+a { color: inherit; text-decoration: none; }
+p, h1, h2, h3, h4, ul, dl, dd { margin: 0; }
+ul { padding: 0; list-style: none; }
+::selection { background: var(--verde); color: var(--azul); }
+:focus-visible { outline: 2px solid var(--cian); outline-offset: 3px; border-radius: 4px; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: var(--azul); }
+::-webkit-scrollbar-thumb { background: rgba(148,163,184,.25); border-radius: 4px; }
+
+.container { width: 100%; max-width: calc(var(--container) + var(--gutter) * 2); margin: 0 auto; padding: 0 var(--gutter); }
+.skip-link { position: absolute; left: 16px; top: -60px; z-index: 100; padding: 8px 14px; background: var(--verde); color: var(--azul); border-radius: var(--r-sm); font-weight: 600; }
+.skip-link:focus { top: 12px; }
+
+/* Tipografía */
+.display, .h2, .h3 { font-family: var(--font-display); color: var(--ink); text-wrap: balance; }
+.display { font-size: clamp(2.4rem, 5.6vw, 4.25rem); line-height: 1.04; font-weight: 700; letter-spacing: -0.035em; }
+.h2 { font-size: clamp(2rem, 4vw, 3rem); line-height: 1.1; font-weight: 700; letter-spacing: -0.03em; }
+.h3 { font-size: 1.3rem; line-height: 1.25; font-weight: 600; letter-spacing: -0.01em; }
+.lead { font-size: clamp(1.05rem, 1.4vw, 1.2rem); line-height: 1.65; color: var(--body); max-width: 60ch; font-weight: 300; }
+.mono { font-family: var(--font-mono); font-feature-settings: 'tnum'; }
+.grad { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 10px; margin: 0 0 18px;
+  font-family: var(--font-mono); font-size: 0.78rem; font-weight: 500;
+  letter-spacing: 0.18em; text-transform: uppercase; color: var(--verde);
+}
+.eyebrow .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--verde); box-shadow: 0 0 0 4px rgba(126,217,87,.18); animation: pulse 2.4s var(--ease) infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 8px rgba(126,217,87,0); } }
+
+/* Botones (6px, primario verde con texto oscuro) */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 11px 18px; border-radius: var(--r-sm); font-weight: 600; font-size: .95rem; line-height: 1.2;
+  border: 1px solid transparent; white-space: nowrap; cursor: pointer;
+  transition: background .25s var(--ease), border-color .25s var(--ease), transform .25s var(--ease), box-shadow .25s var(--ease);
+}
+.btn--lg { padding: 14px 22px; font-size: 1rem; }
+.btn--primary { background: var(--primary); color: var(--on-primary); }
+.btn--primary:hover { background: #8fe46a; transform: translateY(-1px); box-shadow: 0 10px 30px -10px rgba(126,217,87,.7); }
+.btn--primary:active { background: var(--primary-deep); transform: none; }
+.btn--outline { border-color: var(--hairline-strong); color: var(--ink); background: rgba(5,25,35,.4); }
+.btn--outline:hover { border-color: var(--cian); color: var(--cian); }
+.btn svg { width: 18px; height: 18px; }
+
+/* Header */
+.header { position: fixed; inset: 0 0 auto; z-index: 50; border-bottom: 1px solid transparent; transition: background .3s var(--ease), border-color .3s var(--ease); }
+.header--scrolled, .header--open { background: rgba(5,25,35,.78); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); border-bottom-color: var(--hairline); }
+.header__inner { display: flex; align-items: center; justify-content: space-between; height: 72px; }
+.wordmark { display: inline-flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; font-size: 1.22rem; letter-spacing: -0.02em; color: var(--ink); }
+.wordmark__deer { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.header__nav { display: flex; align-items: center; gap: 28px; font-size: .92rem; }
+.header__nav a:not(.btn) { color: var(--body); transition: color .2s; }
+.header__nav a:not(.btn):hover { color: var(--ink); }
+.header__cta { padding: 9px 16px; font-size: .88rem; }
+.header__toggle { display: none; background: none; border: 1px solid var(--hairline-strong); border-radius: var(--r-sm); width: 42px; height: 42px; place-items: center; color: var(--ink); }
+.header__toggle svg { width: 22px; height: 22px; }
+
+/* Hero espacial */
+.hero { position: relative; isolation: isolate; overflow: hidden; padding: calc(72px + clamp(48px, 9vw, 112px)) 0 0; background: radial-gradient(120% 90% at 50% 0%, #0a2a3d 0%, #051923 55%, #030e15 100%); }
+.hero__space, .hero__stars { position: absolute; inset: 0; z-index: -1; }
+.hero__stars { width: 100%; height: 100%; display: block; }
+.hero__nebula { position: absolute; inset: 0; z-index: -1; pointer-events: none; filter: blur(2px); }
+.hero__nebula::before, .hero__nebula::after, .hero__nebula i { content: ''; position: absolute; border-radius: 50%; will-change: transform; }
+.hero__nebula::before { width: 70vw; height: 70vw; max-width: 900px; max-height: 900px; right: -18%; top: -30%; background: radial-gradient(closest-side, rgba(114,9,183,.5), rgba(114,9,183,0) 70%); animation: drift 26s ease-in-out infinite alternate; }
+.hero__nebula::after { width: 60vw; height: 60vw; max-width: 760px; max-height: 760px; left: -20%; top: 10%; background: radial-gradient(closest-side, rgba(0,180,216,.34), rgba(0,180,216,0) 70%); animation: drift 32s ease-in-out infinite alternate-reverse; }
+.hero__nebula i { width: 50vw; height: 50vw; max-width: 640px; max-height: 640px; left: 30%; bottom: -35%; background: radial-gradient(closest-side, rgba(126,217,87,.22), rgba(126,217,87,0) 70%); animation: drift 38s ease-in-out infinite alternate; }
+@keyframes drift { to { transform: translate3d(4%, 6%, 0) scale(1.12); } }
+/* Planeta en el horizonte */
+.hero__planet {
+  position: absolute; left: 50%; bottom: 0; z-index: -1; width: min(190vw, 2200px); aspect-ratio: 1; transform: translate(-50%, 86%);
+  border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side at 50% 0%, rgba(0,180,216,.28), rgba(5,25,35,.0) 55%), #04121a;
+  box-shadow: inset 0 3px 0 rgba(126,217,87,.65), inset 0 0 90px 10px rgba(0,180,216,.35), 0 -2px 60px 6px rgba(0,180,216,.45), 0 -30px 160px 30px rgba(114,9,183,.35);
+}
+.hero__inner { position: relative; display: grid; justify-items: center; text-align: center; gap: 24px; padding-bottom: clamp(96px, 14vw, 180px); }
+.hero__inner .eyebrow { margin: 0; padding: 7px 14px; border: 1px solid rgba(126,217,87,.3); border-radius: 999px; background: rgba(5,25,35,.5); backdrop-filter: blur(6px); }
+.hero__inner .lead { margin-inline: auto; }
+.hero__ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 8px; }
+.hero__stats { display: flex; flex-wrap: wrap; justify-content: center; gap: clamp(24px, 5vw, 64px); margin-top: 28px; padding-top: 24px; border-top: 1px dashed var(--hairline-strong); width: min(100%, 720px); }
+.hero__stats div { display: flex; flex-direction: column-reverse; align-items: center; gap: 2px; }
+.hero__stats dt { font-size: .74rem; letter-spacing: .12em; text-transform: uppercase; color: var(--mute); }
+.hero__stats dd { font-family: var(--font-mono); font-size: 1.7rem; font-weight: 500; color: var(--ink); }
+.hero__inner .h-fade { text-shadow: 0 2px 40px rgba(5,25,35,.8); }
+
+/* Secciones */
+.section { padding: var(--section) 0; border-top: 1px dashed var(--hairline); position: relative; }
+.section__head { max-width: 760px; margin-bottom: clamp(32px, 5vw, 56px); }
+.section__head .lead { margin-top: 18px; }
+.sub-title { font-family: var(--font-display); font-weight: 600; color: var(--ink); font-size: 1.05rem; margin: clamp(40px, 6vw, 64px) 0 16px; }
+
+/* Tarjetas con hairline */
+.card { position: relative; background: var(--surface); border: 1px solid var(--hairline); border-radius: var(--r-md); transition: border-color .3s var(--ease), transform .3s var(--ease), background .3s var(--ease); }
+.card:hover { border-color: rgba(0,180,216,.55); transform: translateY(-3px); }
+.grid { display: grid; gap: 16px; }
+.grid--4 { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.grid--3 { grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
+.grid--2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+
+.why { padding: 24px; }
+.why__icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: var(--r-sm); background: rgba(0,180,216,.1); border: 1px solid rgba(0,180,216,.28); color: var(--cian); margin-bottom: 16px; }
+.why__icon svg { width: 20px; height: 20px; }
+.why h4 { font-family: var(--font-display); font-weight: 600; font-size: 1.05rem; color: var(--ink); margin-bottom: 6px; }
+.why p { font-size: .92rem; color: var(--mute); }
+
+/* Stack */
+.stack { display: flex; flex-wrap: wrap; gap: 10px; }
+.chip { display: inline-flex; align-items: center; padding: 8px 14px; border: 1px solid var(--hairline); border-radius: 999px; background: var(--surface); font-family: var(--font-mono); font-size: .8rem; color: var(--body); transition: border-color .25s, color .25s; }
+.chip:hover { border-color: var(--cian); color: var(--cian); }
+.chip--ai { border-color: rgba(178,101,255,.4); color: #c9a0ff; }
+
+/* Planes */
+.plan { padding: 28px; display: flex; flex-direction: column; }
+.plan--featured { border-color: rgba(126,217,87,.45); background: linear-gradient(180deg, rgba(126,217,87,.07), var(--surface) 38%); }
+.plan__tag { align-self: flex-start; font-family: var(--font-mono); font-size: .72rem; letter-spacing: .16em; text-transform: uppercase; color: var(--verde); border: 1px solid rgba(126,217,87,.35); border-radius: 999px; padding: 3px 10px; margin-bottom: 16px; }
+.plan--featured .plan__tag { background: var(--verde); color: var(--azul); border-color: var(--verde); font-weight: 500; }
+.plan h3 { margin-bottom: 8px; }
+.plan__desc { font-size: .92rem; color: var(--mute); margin-bottom: 20px; min-height: 3.2em; }
+.plan__price { font-family: var(--font-mono); font-size: 2rem; font-weight: 500; color: var(--ink); line-height: 1; }
+.plan__price small { font-size: .8rem; color: var(--mute); margin-left: 4px; }
+.plan__usd { font-size: .8rem; color: var(--mute); margin: 8px 0 20px; font-family: var(--font-mono); }
+.plan__list { display: grid; gap: 9px; font-size: .92rem; padding-top: 18px; border-top: 1px dashed var(--hairline-strong); flex: 1; }
+.plan__list li { display: flex; gap: 10px; align-items: flex-start; }
+.plan__list li::before { content: ''; flex: none; width: 14px; height: 14px; margin-top: 5px; background: var(--verde); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12l5 5L20 6'/%3E%3C/svg%3E") center/contain no-repeat; }
+.plan__delivery { margin-top: 22px; font-family: var(--font-mono); font-size: .78rem; color: var(--mute); }
+.plan__delivery b { color: var(--cian); font-weight: 500; }
+
+/* Tabla */
+.table-wrap { overflow-x: auto; border: 1px solid var(--hairline); border-radius: var(--r-md); background: var(--surface); }
+table { width: 100%; border-collapse: collapse; min-width: 560px; }
+th, td { padding: 14px 18px; text-align: left; font-size: .92rem; border-bottom: 1px dashed var(--hairline); }
+thead th { font-family: var(--font-mono); font-weight: 500; font-size: .74rem; letter-spacing: .14em; text-transform: uppercase; color: var(--cian); }
+tbody td:first-child { color: var(--ink); }
+tbody tr:last-child td { border-bottom: 0; font-family: var(--font-mono); color: var(--verde); }
+tbody tr:hover td { background: rgba(0,180,216,.04); }
+.yes { color: var(--verde); font-weight: 600; }
+.no { color: rgba(148,163,184,.4); }
+
+/* Portafolio */
+.port-cat { display: flex; align-items: center; gap: 14px; margin: 40px 0 16px; font-family: var(--font-mono); font-size: .78rem; letter-spacing: .18em; text-transform: uppercase; color: var(--ink); }
+.port-cat:first-of-type { margin-top: 0; }
+.port-cat::after { content: ''; flex: 1; border-top: 1px dashed var(--hairline-strong); }
+.project { display: block; overflow: hidden; }
+.project__thumb { aspect-ratio: 16/10; background: rgba(5,25,35,.7); overflow: hidden; border-bottom: 1px solid var(--hairline); position: relative; }
+.project__thumb img { width: 100%; height: 100%; object-fit: cover; object-position: top; transition: transform .5s var(--ease); }
+.project:hover .project__thumb img { transform: scale(1.04); }
+.project__fallback { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-mono); font-size: .8rem; color: var(--mute); background: radial-gradient(60% 80% at 50% 40%, rgba(0,180,216,.1), transparent); }
+.project__info { padding: 16px 20px 18px; display: grid; gap: 4px; }
+.project__plat { font-family: var(--font-mono); font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--verde); }
+.project__plat--shopify { color: var(--cian); }
+.project__plat--react { color: #b265ff; }
+.project__name { font-family: var(--font-display); font-weight: 600; color: var(--ink); }
+.project__url { font-size: .82rem; color: var(--mute); font-family: var(--font-mono); }
+
+/* Por horas */
+.hours { display: grid; grid-template-columns: auto 1fr; gap: clamp(24px, 5vw, 56px); align-items: center; padding: clamp(24px, 4vw, 40px); border-color: rgba(0,180,216,.35); background: linear-gradient(135deg, rgba(0,180,216,.08), var(--surface) 55%); }
+.hours__price { font-family: var(--font-mono); font-size: clamp(2.4rem, 5vw, 3.4rem); font-weight: 500; color: var(--ink); line-height: 1; white-space: nowrap; }
+.hours__price small { font-size: 1rem; color: var(--mute); }
+.hours__min { margin-top: 10px; font-size: .8rem; color: var(--mute); font-family: var(--font-mono); }
+.hours h3 { margin-bottom: 8px; }
+.hours p + p { margin-top: 10px; }
+.hours strong { color: var(--ink); font-weight: 600; }
+
+/* Mantenimiento */
+.mnt { padding: 28px; }
+.mnt--prem { border-color: rgba(126,217,87,.45); background: linear-gradient(180deg, rgba(126,217,87,.07), var(--surface) 38%); }
+.mnt__price { font-family: var(--font-mono); font-size: 1.8rem; font-weight: 500; color: var(--ink); margin: 14px 0 2px; }
+.mnt__usd { font-family: var(--font-mono); font-size: .8rem; color: var(--mute); margin-bottom: 8px; }
+.mnt__sub { font-size: .92rem; color: var(--mute); }
+.mnt h4 { font-family: var(--font-mono); font-weight: 500; font-size: .72rem; letter-spacing: .16em; text-transform: uppercase; color: var(--cian); margin: 22px 0 8px; padding-top: 14px; border-top: 1px dashed var(--hairline-strong); }
+.mnt li { font-size: .9rem; padding: 3px 0 3px 18px; position: relative; }
+.mnt li::before { content: '→'; position: absolute; left: 0; color: var(--verde); font-family: var(--font-mono); }
+.mnt__no { margin-top: 18px; padding: 12px 14px; font-size: .85rem; color: var(--mute); border-left: 2px solid var(--hairline-strong); background: rgba(5,25,35,.5); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+
+/* Condiciones */
+.note { padding: 22px; }
+.note h4 { font-family: var(--font-mono); font-weight: 500; font-size: .76rem; letter-spacing: .14em; text-transform: uppercase; color: var(--cian); margin-bottom: 10px; }
+.note p { font-size: .92rem; color: var(--mute); }
+.note strong { color: var(--ink); font-weight: 600; }
+
+/* CTA final con orbe */
+.cta { position: relative; overflow: hidden; isolation: isolate; text-align: center; padding: clamp(48px, 8vw, 88px) var(--gutter); border-radius: var(--r-lg); border: 1px solid var(--hairline-strong); background: radial-gradient(70% 120% at 50% 0%, rgba(114,9,183,.35), transparent 70%), radial-gradient(60% 90% at 50% 120%, rgba(0,180,216,.3), transparent 70%), rgba(5,25,35,.6); }
+.cta .h2 { margin-bottom: 16px; }
+.cta .lead { margin: 0 auto 28px; }
+
+/* Footer */
+.footer { border-top: 1px solid var(--hairline); padding: 56px 0 28px; font-size: .9rem; }
+.footer__inner { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 32px; align-items: start; }
+.footer__slogan { margin-top: 14px; color: var(--mute); font-weight: 300; }
+.footer__nav, .footer__contact { display: grid; gap: 10px; }
+.footer a:hover { color: var(--verde); }
+.footer__legal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; margin-top: 48px; padding-top: 20px; border-top: 1px dashed var(--hairline); font-size: .8rem; color: var(--mute); }
+
+/* WhatsApp flotante */
+.wa-float { position: fixed; right: 20px; bottom: 20px; z-index: 40; width: 54px; height: 54px; display: grid; place-items: center; border-radius: 50%; background: var(--primary); color: var(--on-primary); box-shadow: 0 10px 30px -8px rgba(126,217,87,.6); transition: transform .25s var(--ease); }
+.wa-float:hover { transform: translateY(-3px) scale(1.04); }
+.wa-float svg { width: 26px; height: 26px; }
+
+/* Reveal */
+.js [data-reveal] { opacity: 0; transform: translateY(20px); transition: opacity .6s var(--ease), transform .6s var(--ease); transition-delay: var(--d, 0ms); }
+.js [data-reveal].in { opacity: 1; transform: none; }
+
+@media (max-width: 900px) {
+  .header__toggle { display: grid; }
+  .header__nav { position: fixed; inset: 72px 0 0; height: calc(100dvh - 72px); overflow-y: auto; flex-direction: column; align-items: stretch; gap: 0; padding: 16px var(--gutter) 32px; background: var(--canvas); font-size: 1.15rem; border-top: 1px solid var(--hairline); opacity: 0; visibility: hidden; transform: translateY(-8px); transition: opacity .25s var(--ease), transform .25s var(--ease), visibility .25s; }
+  .header__nav a:not(.btn) { padding: 16px 0; border-bottom: 1px dashed var(--hairline); color: var(--ink); font-weight: 500; }
+  .header__cta { margin-top: 24px; padding: 14px; font-size: 1rem; }
+  .header--open { background: var(--canvas); backdrop-filter: none; -webkit-backdrop-filter: none; }
+  .header--open .header__nav { opacity: 1; visibility: visible; transform: none; }
+  .header--scrolled { background: rgba(5,25,35,.96); }
+}
+@media (max-width: 760px) {
+  .footer__inner { grid-template-columns: 1fr; }
+  .hours { grid-template-columns: 1fr; }
+  .hero__planet { transform: translate(-50%, 90%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .hero__nebula::before, .hero__nebula::after, .hero__nebula i, .eyebrow .dot { animation: none; }
+  .js [data-reveal] { opacity: 1; transform: none; transition: none; }
+}
+</style>
+</head>
+<body>
+<a class="skip-link" href="#contenido">Saltar al contenido</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="deer-g" x1="0" y1="160" x2="0" y2="700" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7ED957"/><stop offset=".55" stop-color="#1FB8A8"/><stop offset="1" stop-color="#00B4D8"/>
+    </linearGradient>
+    <g id="deer-half">
+      <path d="M440 392 L270 292 L260 206"/><path d="M340 334 L340 172"/><path d="M340 292 L386 252"/>
+      <path d="M312 372 Q386 372 424 406 Q404 452 364 456 Q318 452 312 372 Z"/>
+      <path d="M404 440 L466 528 Q484 554 512 554"/><path d="M416 492 L422 590 L512 690"/>
+      <circle cx="258" cy="196" r="15" stroke="none" fill="url(#deer-g)"/><circle cx="394" cy="244" r="14" stroke="none" fill="url(#deer-g)"/>
+    </g>
+    <symbol id="deer" viewBox="226 150 572 572">
+      <g fill="none" stroke="url(#deer-g)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+        <use href="#deer-half"/><use href="#deer-half" transform="translate(1024 0) scale(-1 1)"/><path d="M490 490 L544 380"/>
+      </g>
+    </symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-wa" viewBox="0 0 24 24"><path fill="currentColor" d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.14-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.08-.15-.67-1.61-.92-2.2-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.8.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.7.63.71.23 1.36.2 1.87.12.57-.09 1.76-.72 2-1.41.25-.69.25-1.29.17-1.41-.07-.12-.27-.2-.57-.35zM12.05 21.8h-.01a9.87 9.87 0 0 1-5.03-1.38l-.36-.21-3.74.98 1-3.65-.24-.37a9.86 9.86 0 0 1-1.51-5.26c0-5.45 4.44-9.88 9.9-9.88 2.64 0 5.12 1.03 6.99 2.9a9.82 9.82 0 0 1 2.89 6.99c0 5.45-4.44 9.88-9.89 9.88zM20.5 3.46A11.8 11.8 0 0 0 12.05 0C5.5 0 .16 5.33.16 11.89c0 2.1.55 4.14 1.59 5.95L.06 24l6.3-1.65a11.88 11.88 0 0 0 5.68 1.45h.01c6.55 0 11.89-5.33 11.89-11.89 0-3.18-1.24-6.16-3.44-8.45z"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+    <symbol id="i-cms" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 9v11"/></g></symbol>
+    <symbol id="i-grow" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></g></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></g></symbol>
+    <symbol id="i-design" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.7 0-1-.8-1.4-.8-2.3 0-.9.7-1.5 1.7-1.5H17a4 4 0 0 0 4-4C21 7 17 3 12 3z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10" cy="7.5" r="1"/><circle cx="14.5" cy="7.5" r="1"/></g></symbol>
+    <symbol id="i-cart" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11h10.2L20 7H6.2"/><circle cx="9" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></g></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 7.8-8 9-4.8-1.2-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></g></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="M8.2 11l7.6-4M8.2 13l7.6 4"/></g></symbol>
+  </defs>
+</svg>
+
+<header class="header" id="header">
+  <div class="container header__inner">
+    <a href="#inicio" class="wordmark" aria-label="DeerSystems, ir al inicio">
+      <svg width="30" height="30" aria-hidden="true"><use href="#deer"/></svg>
+      <span><span class="wordmark__deer">Deer</span>Systems</span>
+    </a>
+    <nav class="header__nav" id="nav" aria-label="Principal">
+      <a href="#por-que">Por qué nosotros</a>
+      <a href="#wordpress">WordPress</a>
+      <a href="#shopify">Shopify</a>
+      <a href="#proyectos">Proyectos</a>
+      <a href="#mantenimiento">Mantenimiento</a>
+      <a class="btn btn--primary header__cta" href="https://wa.me/573128765844?text=Hola%20David%2C%20tenemos%20una%20agencia%20y%20queremos%20conocer%20tu%20propuesta%20de%20desarrollo." target="_blank" rel="noopener">Agenda una llamada</a>
+    </nav>
+    <button class="header__toggle" id="toggle" aria-label="Abrir menú" aria-expanded="false" aria-controls="nav">
+      <svg><use href="#i-menu"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="contenido">
+
+<!-- HERO -->
+<section id="inicio" class="hero">
+  <div class="hero__space" aria-hidden="true">
+    <div class="hero__nebula"><i></i></div>
+    <canvas class="hero__stars" id="stars"></canvas>
+    <div class="hero__planet"></div>
+  </div>
+  <div class="container hero__inner">
+    <p class="eyebrow" data-reveal><span class="dot"></span> Para agencias · Sistemas que conectan</p>
+    <h1 class="display h-fade" data-reveal>Tú diseñas y vendes. <span class="grad">Nosotros construimos y conectamos.</span></h1>
+    <p class="lead" data-reveal>Somos el equipo de desarrollo detrás de tu agencia: WordPress, Shopify y React entregados a tiempo, con precios claros y soporte continuo, para que tus clientes reciban más y tú te enfoques en crecer.</p>
+    <div class="hero__ctas" data-reveal>
+      <a class="btn btn--primary btn--lg" href="#wordpress">Ver planes <svg><use href="#i-arrow"/></svg></a>
+      <a class="btn btn--outline btn--lg" href="#proyectos">Ver proyectos</a>
+    </div>
+    <dl class="hero__stats" data-reveal>
+      <div><dt>Años desarrollando</dt><dd>10+</dd></div>
+      <div><dt>Sitios en producción</dt><dd>12+</dd></div>
+      <div><dt>Plataformas</dt><dd>3</dd></div>
+    </dl>
+  </div>
+</section>
+
+<!-- POR QUÉ -->
+<section id="por-que" class="section">
+  <div class="container">
+    <div class="section__head" data-reveal>
+      <p class="eyebrow">Tecnologías · Stack</p>
+      <h2 class="h2">Un socio técnico que <span class="grad">entiende tu ritmo</span>.</h2>
+      <p class="lead">Un stack moderno, probado en producción y pensado para que cada proyecto que le entregas a un cliente siga funcionando bien mucho después del lanzamiento.</p>
+    </div>
+    <div class="stack" data-reveal>
+      <span class="chip">WordPress</span><span class="chip">WooCommerce</span><span class="chip">Shopify</span><span class="chip">React</span><span class="chip">Next.js</span>
+      <span class="chip">JavaScript</span><span class="chip">HTML5</span><span class="chip">CSS3</span><span class="chip">API REST</span><span class="chip">Docker</span>
+      <span class="chip">VPS</span><span class="chip">cPanel</span><span class="chip chip--ai">n8n</span><span class="chip chip--ai">IA / LLMs</span>
+    </div>
+  </div>
+</section>
+
+<!-- WORDPRESS -->
+<section id="wordpress" class="section">
+  <div class="container">
+    <div class="section__head" data-reveal>
+      <p class="eyebrow">Plataforma · WordPress</p>
+      <h2 class="h2">Planes de desarrollo <span class="grad">WordPress</span></h2>
+      <p class="lead">El CMS más usado del mundo: presencia digital sólida, blog y catálogos de servicios que tus clientes pueden administrar solos.</p>
+    </div>
+
+    <div class="grid grid--4">
+      <div class="card why" data-reveal><div class="why__icon"><svg><use href="#i-cms"/></svg></div><h4>Fácil de administrar</h4><p>Tus clientes actualizan contenido sin conocimientos técnicos.</p></div>
+      <div class="card why" data-reveal style="--d:60ms"><div class="why__icon"><svg><use href="#i-grow"/></svg></div><h4>Escalable</h4><p>Crece con el negocio: tienda, blog, agendamiento o CRM.</p></div>
+      <div class="card why" data-reveal style="--d:120ms"><div class="why__icon"><svg><use href="#i-search"/></svg></div><h4>Listo para SEO</h4><p>Estructura técnica optimizada para posicionarse en Google.</p></div>
+      <div class="card why" data-reveal style="--d:180ms"><div class="why__icon"><svg><use href="#i-design"/></svg></div><h4>Tu agencia pone el diseño</h4><p>Mockup, layout o guía de marca aprobados antes de iniciar. Nosotros lo hacemos realidad.</p></div>
+    </div>
+
+    <div class="grid grid--3" style="margin-top:16px">
+      <article class="card plan" data-reveal>
+        <span class="plan__tag">Plan A</span>
+        <h3 class="h3">Landing Page</h3>
+        <p class="plan__desc">Una página de alta conversión para captar leads y comunicar la propuesta de valor.</p>
+        <div class="plan__price">$1.000.000<small>COP</small></div>
+        <div class="plan__usd">USD ~$250 · 50% inicio / 50% entrega</div>
+        <ul class="plan__list">
+          <li>1 página · hasta 6 secciones</li><li>Diseño orientado a conversión</li><li>Formulario de captación + notificación</li><li>Píxel Facebook / Google</li><li>SEO básico + WhatsApp flotante</li><li>Capacitación grabada de 1 h</li>
+        </ul>
+        <div class="plan__delivery">Entrega: <b>3–5 días hábiles</b></div>
+      </article>
+      <article class="card plan plan--featured" data-reveal style="--d:80ms">
+        <span class="plan__tag">Plan B · Más pedido</span>
+        <h3 class="h3">Website sin pasarela</h3>
+        <p class="plan__desc">Sitio completo de 4 páginas para una presencia digital sólida, sin pagos en línea.</p>
+        <div class="plan__price">$1.440.000<small>COP</small></div>
+        <div class="plan__usd">USD ~$360 · 50% inicio / 50% entrega</div>
+        <ul class="plan__list">
+          <li>4 páginas: Inicio, Nosotros, Servicios, Contacto</li><li>Menú de navegación + footer</li><li>Google Maps integrado</li><li>Galería o portafolio básico</li><li>Blog activado y configurado</li><li>Todo lo del Plan A incluido</li>
+        </ul>
+        <div class="plan__delivery">Entrega: <b>5–8 días hábiles</b></div>
+      </article>
+      <article class="card plan" data-reveal style="--d:160ms">
+        <span class="plan__tag">Plan C</span>
+        <h3 class="h3">Website con pasarela</h3>
+        <p class="plan__desc">Todo el Plan B más WooCommerce y pasarela de pagos, listo para vender online.</p>
+        <div class="plan__price">$1.680.000<small>COP</small></div>
+        <div class="plan__usd">USD ~$420 · 50% inicio / 50% entrega</div>
+        <ul class="plan__list">
+          <li>WooCommerce configurado</li><li>Pasarela: Wompi, PayU, Mercado Pago o ePayco</li><li>Tarjeta crédito/débito + PSE</li><li>Carga de hasta 50 productos</li><li>Carrito, checkout y confirmación</li><li>Pruebas en sandbox antes del lanzamiento</li>
+        </ul>
+        <div class="plan__delivery">Entrega: <b>7–10 días hábiles</b></div>
+      </article>
+    </div>
+
+    <h3 class="sub-title" data-reveal>Comparativo de planes WordPress</h3>
+    <div class="table-wrap" data-reveal>
+      <table>
+        <thead><tr><th>Característica</th><th>Plan A · Landing</th><th>Plan B · Website</th><th>Plan C · E-commerce</th></tr></thead>
+        <tbody>
+          <tr><td>Páginas desarrolladas</td><td>1</td><td>4</td><td>4</td></tr>
+          <tr><td>Configuración WordPress</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Adaptación de marca</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>SEO básico</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>WhatsApp flotante</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Blog activado</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Google Maps</td><td class="no">—</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Pasarela de pago</td><td class="no">—</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Carga de productos</td><td class="no">—</td><td class="no">—</td><td>Hasta 50</td></tr>
+          <tr><td>Tiempo de entrega</td><td>3–5 días</td><td>5–8 días</td><td>7–10 días</td></tr>
+          <tr><td>Inversión</td><td>$1.000.000 COP</td><td>$1.440.000 COP</td><td>$1.680.000 COP</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- SHOPIFY -->
+<section id="shopify" class="section">
+  <div class="container">
+    <div class="section__head" data-reveal>
+      <p class="eyebrow">Plataforma · Shopify</p>
+      <h2 class="h2">Planes de desarrollo <span class="grad">Shopify</span></h2>
+      <p class="lead">La plataforma de e-commerce líder del mundo, para clientes que quieren vender en línea de forma rápida, segura y escalable.</p>
+    </div>
+
+    <div class="grid grid--4">
+      <div class="card why" data-reveal><div class="why__icon"><svg><use href="#i-cart"/></svg></div><h4>Tienda lista para vender</h4><p>Carrito, checkout y pagos integrados sin configuraciones complejas.</p></div>
+      <div class="card why" data-reveal style="--d:60ms"><div class="why__icon"><svg><use href="#i-shield"/></svg></div><h4>Seguridad garantizada</h4><p>Shopify gestiona servidores y actualizaciones, con 99,9% de uptime.</p></div>
+      <div class="card why" data-reveal style="--d:120ms"><div class="why__icon"><svg><use href="#i-share"/></svg></div><h4>Integración social</h4><p>Facebook, Instagram, Google Shopping y Mercado Libre de forma nativa.</p></div>
+      <div class="card why" data-reveal style="--d:180ms"><div class="why__icon"><svg><use href="#i-design"/></svg></div><h4>Tu agencia pone el diseño</h4><p>Mockup, layout o guía de marca aprobados antes de iniciar.</p></div>
+    </div>
+
+    <div class="grid grid--3" style="margin-top:16px">
+      <article class="card plan" data-reveal>
+        <span class="plan__tag">Básico</span>
+        <h3 class="h3">Catálogo online</h3>
+        <p class="plan__desc">Para mostrar productos con pasarela de pago, sin gestión avanzada de inventario.</p>
+        <div class="plan__price">$1.760.000<small>COP</small></div>
+        <div class="plan__usd">USD ~$440 · 50% inicio / 50% entrega</div>
+        <ul class="plan__list"><li>Hasta 20 productos cargados</li><li>Pasarela de pago configurada</li><li>Integración con redes sociales</li><li>Configuración de envíos básica</li><li>SEO, marca y capacitación</li></ul>
+        <div class="plan__delivery">Entrega: <b>5–8 días hábiles</b></div>
+      </article>
+      <article class="card plan plan--featured" data-reveal style="--d:80ms">
+        <span class="plan__tag">Estándar · Más pedido</span>
+        <h3 class="h3">Tienda completa</h3>
+        <p class="plan__desc">Tienda funcional para negocios con catálogo mediano y ventas activas.</p>
+        <div class="plan__price">$2.240.000<small>COP</small></div>
+        <div class="plan__usd">USD ~$560 · 50% inicio / 50% entrega</div>
+        <ul class="plan__list"><li>Hasta 100 productos cargados</li><li>Personalización parcial del tema</li><li>Pasarela + redes sociales</li><li>Configuración de envíos estándar</li><li>SEO, marca y capacitación</li></ul>
+        <div class="plan__delivery">Entrega: <b>8–12 días hábiles</b></div>
+      </article>
+      <article class="card plan" data-reveal style="--d:160ms">
+        <span class="plan__tag">Avanzado</span>
+        <h3 class="h3">Tienda avanzada</h3>
+        <p class="plan__desc">Para marcas con catálogos grandes que necesitan personalización y lógica avanzada.</p>
+        <div class="plan__price">$2.880.000<small>COP</small></div>
+        <div class="plan__usd">USD ~$720 · 50% inicio / 50% entrega</div>
+        <ul class="plan__list"><li>Más de 100 productos</li><li>Personalización avanzada del tema</li><li>Configuración de envíos avanzada</li><li>Pasarela + redes sociales completas</li><li>SEO, marca y capacitación</li></ul>
+        <div class="plan__delivery">Entrega: <b>12–18 días hábiles</b></div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- PROYECTOS -->
+<section id="proyectos" class="section">
+  <div class="container">
+    <div class="section__head" data-reveal>
+      <p class="eyebrow">Trabajo real · Proyectos</p>
+      <h2 class="h2">Sitios en producción que <span class="grad">hablan por sí solos</span>.</h2>
+      <p class="lead">Proyectos entregados a clientes reales, en distintas industrias y con resultados que se pueden medir.</p>
+    </div>
+    <div id="portfolio"></div>
+  </div>
+</section>
+
+<!-- POR HORAS -->
+<section id="horas" class="section">
+  <div class="container">
+    <div class="section__head" data-reveal>
+      <p class="eyebrow">Servicio flexible</p>
+      <h2 class="h2">Ajustes <span class="grad">por horas</span></h2>
+      <p class="lead">Para sitios WordPress o Shopify que ya existen y necesitan cambios puntuales, sin armar un proyecto completo.</p>
+    </div>
+    <div class="card hours" data-reveal>
+      <div>
+        <div class="hours__price">$50.000<small> / hora</small></div>
+        <div class="hours__min">Mínimo facturable: 1 hora</div>
+      </div>
+      <div>
+        <h3 class="h3">¿Qué cubre el servicio?</h3>
+        <p>Modificaciones de diseño · Actualización de textos e imágenes · Corrección de errores · Optimización de velocidad · Ajuste de plugins · Soporte técnico puntual.</p>
+        <p><strong>Cómo trabajamos:</strong> estimación previa para tu aprobación · cobro según horas reales · reporte detallado de actividades.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MANTENIMIENTO -->
+<section id="mantenimiento" class="section">
+  <div class="container">
+    <div class="section__head" data-reveal>
+      <p class="eyebrow">Servicio continuo · WordPress</p>
+      <h2 class="h2">Mantenimiento que <span class="grad">cuida lo que entregas</span>.</h2>
+      <p class="lead">Después del lanzamiento, planes mensuales para mantener cada sitio seguro, rápido y actualizado. Tu cliente duerme tranquilo y tu agencia suma ingreso recurrente.</p>
+    </div>
+
+    <div class="table-wrap" data-reveal style="margin-bottom:24px">
+      <table>
+        <thead><tr><th>Servicio</th><th>Plan Básico</th><th>Plan Premium</th></tr></thead>
+        <tbody>
+          <tr><td>Actualización WP, temas y plugins</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+          <tr><td>Escaneo de malware</td><td>Básico</td><td>Avanzado + firewall</td></tr>
+          <tr><td>Copias de seguridad</td><td>Semanal</td><td>Semanal auto + manual</td></tr>
+          <tr><td>Optimización de imágenes</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Core Web Vitals</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Actualización de productos/contenidos</td><td>Hasta 15</td><td>Hasta 35</td></tr>
+          <tr><td>Publicación de blogs</td><td class="no">—</td><td>Hasta 5/mes</td></tr>
+          <tr><td>SEO on-page</td><td>Básico</td><td>Avanzado</td></tr>
+          <tr><td>Search Console y monitoreo</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Verificación SSL y licencias</td><td class="no">—</td><td class="yes">✓</td></tr>
+          <tr><td>Informe mensual</td><td>Básico</td><td>Detallado con métricas</td></tr>
+          <tr><td>Inversión mensual</td><td>$280.000 COP · USD $130</td><td>$550.000 COP · USD $210</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="grid grid--2">
+      <article class="card mnt" data-reveal>
+        <span class="plan__tag">Plan Básico</span>
+        <h3 class="h3">Mantenimiento básico</h3>
+        <p class="mnt__sub">Ideal para sitios informativos que requieren estabilidad y actualizaciones puntuales.</p>
+        <div class="mnt__price">$280.000 COP</div>
+        <div class="mnt__usd">USD $130 / mes</div>
+        <h4>Seguridad</h4>
+        <ul><li>Actualización de WordPress, temas y plugins</li><li>Escaneo básico de malware</li><li>Revisión de usuarios y permisos</li><li>Copia de seguridad semanal (archivos + BD)</li></ul>
+        <h4>Rendimiento</h4>
+        <ul><li>Limpieza básica de base de datos</li><li>Revisión general de velocidad</li><li>Ajustes menores de caché</li></ul>
+        <h4>Contenido y SEO</h4>
+        <ul><li>Hasta 15 productos actualizados</li><li>Cambios menores en textos o imágenes</li><li>SEO on-page básico</li></ul>
+        <h4>Informe</h4>
+        <ul><li>Reporte mensual: actualizaciones, backups y ajustes</li></ul>
+        <div class="mnt__no">No incluye: blogs nuevos, velocidad avanzada ni SEO técnico avanzado.</div>
+      </article>
+      <article class="card mnt mnt--prem" data-reveal style="--d:80ms">
+        <span class="plan__tag" style="background:var(--verde);color:var(--azul);border-color:var(--verde)">Plan Premium</span>
+        <h3 class="h3">Mantenimiento premium</h3>
+        <p class="mnt__sub">Para marcas activas con e-commerce que necesitan el sitio siempre optimizado.</p>
+        <div class="mnt__price">$550.000 COP</div>
+        <div class="mnt__usd">USD $210 / mes</div>
+        <h4>Seguridad avanzada</h4>
+        <ul><li>Actualización de WP, temas y plugins</li><li>Escaneo avanzado de malware + firewall</li><li>Revisión de logs del servidor y control de usuarios</li><li>Backups automáticos semanales + respaldo manual</li></ul>
+        <h4>Rendimiento</h4>
+        <ul><li>Limpieza avanzada de base de datos</li><li>Optimización de imágenes</li><li>Ajustes de Core Web Vitals</li><li>Optimización de caché y scripts</li></ul>
+        <h4>Contenido y SEO avanzado</h4>
+        <ul><li>Hasta 35 productos actualizados</li><li>Hasta 5 blogs o contenidos informativos por mes</li><li>SEO on-page avanzado</li><li>Revisión de Search Console</li><li>Preparación para campañas o lanzamientos</li></ul>
+        <h4>Informe detallado</h4>
+        <ul><li>Seguridad, rendimiento, contenidos, métricas clave y recomendaciones</li></ul>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- CONDICIONES -->
+<section id="condiciones" class="section">
+  <div class="container">
+    <div class="section__head" data-reveal>
+      <p class="eyebrow">Condiciones comerciales</p>
+      <h2 class="h2">Reglas claras, <span class="grad">cero sorpresas</span>.</h2>
+      <p class="lead">Una colaboración profesional empieza con acuerdos simples. Así trabajamos con cada agencia.</p>
+    </div>
+    <div class="grid grid--3">
+      <div class="card note" data-reveal><h4>Pagos</h4><p><strong>50% para iniciar</strong> y <strong>50% al entregar</strong> el proyecto terminado. Los ajustes por horas se cobran con cuenta de cobro a cierre de mes, según horas reales.</p></div>
+      <div class="card note" data-reveal style="--d:60ms"><h4>Diseño, mockup o layout</h4><p>El diseño corre <strong>por cuenta de la agencia</strong>. Necesitamos la guía de marca, wireframes o diseño aprobado antes de iniciar el desarrollo.</p></div>
+      <div class="card note" data-reveal style="--d:120ms"><h4>Insumos del cliente</h4><p>Textos, imágenes en alta resolución y logotipo (PNG transparente o vectorial) listos <strong>antes del inicio</strong>.</p></div>
+      <div class="card note" data-reveal><h4>Tiempos de entrega</h4><p>Los plazos aplican desde la recepción de <strong>todos los insumos completos</strong>. Si los materiales se retrasan, los tiempos se amplían en proporción.</p></div>
+      <div class="card note" data-reveal style="--d:60ms"><h4>Pasarela de pagos</h4><p>La agencia o el cliente final crea la cuenta en la pasarela. Nosotros hacemos la <strong>integración técnica</strong> con las credenciales suministradas.</p></div>
+      <div class="card note" data-reveal style="--d:120ms"><h4>Cuenta Shopify</h4><p>El cliente final debe tener una cuenta activa de Shopify. Te apoyamos con la <strong>configuración inicial</strong> si la necesitas.</p></div>
+      <div class="card note" data-reveal><h4>Fuera del alcance</h4><p>Cualquier funcionalidad o cambio no contemplado se <strong>cotiza por separado</strong> y requiere tu aprobación antes de ejecutarse.</p></div>
+      <div class="card note" data-reveal style="--d:60ms"><h4>Impuestos</h4><p>Todos los precios están expresados <strong>antes de IVA (19%)</strong>. Aplica para facturación a empresas colombianas.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section id="contacto" class="section">
+  <div class="container">
+    <div class="cta" data-reveal>
+      <p class="eyebrow"><span class="dot"></span> Hablemos</p>
+      <h2 class="h2">Sumemos un equipo técnico a <span class="grad">tu agencia</span>.</h2>
+      <p class="lead">Cuéntame qué proyectos tienes en cola y te respondo con tiempos y alcance claros, sin rodeos.</p>
+      <a class="btn btn--primary btn--lg" href="https://wa.me/573128765844?text=Hola%20David%2C%20tenemos%20una%20agencia%20y%20queremos%20conocer%20tu%20propuesta%20de%20desarrollo." target="_blank" rel="noopener"><svg><use href="#i-wa"/></svg> Escríbeme por WhatsApp</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="container">
+    <div class="footer__inner">
+      <div>
+        <a href="#inicio" class="wordmark" aria-label="DeerSystems">
+          <svg width="30" height="30" aria-hidden="true"><use href="#deer"/></svg>
+          <span><span class="wordmark__deer">Deer</span>Systems</span>
+        </a>
+        <p class="footer__slogan">Sistemas que conectan, soluciones que simplifican.</p>
+      </div>
+      <nav class="footer__nav" aria-label="Pie">
+        <a href="#wordpress">WordPress</a>
+        <a href="#shopify">Shopify</a>
+        <a href="#mantenimiento">Mantenimiento</a>
+        <a href="#condiciones">Condiciones</a>
+      </nav>
+      <div class="footer__contact">
+        <a href="https://wa.me/573128765844" target="_blank" rel="noopener">+57 312 876 5844</a>
+        <a href="https://deersystems.net" rel="noopener">deersystems.net</a>
+      </div>
+    </div>
+    <div class="footer__legal">
+      <span>© 2026 DeerSystems · Propuesta para agencias</span>
+      <span><a href="https://deersystems.net/privacidad">Privacidad</a> · <a href="https://deersystems.net/terminos">Términos</a></span>
+    </div>
+  </div>
+</footer>
+
+<a class="wa-float" href="https://wa.me/573128765844" target="_blank" rel="noopener" aria-label="Escribir por WhatsApp"><svg><use href="#i-wa"/></svg></a>
+
+<script>
+document.documentElement.classList.add('js');
+
+/* Header */
+(function () {
+  var header = document.getElementById('header'), toggle = document.getElementById('toggle'), nav = document.getElementById('nav');
+  function onScroll() { header.classList.toggle('header--scrolled', window.scrollY > 12); }
+  onScroll(); window.addEventListener('scroll', onScroll, { passive: true });
+  function setOpen(v) {
+    header.classList.toggle('header--open', v);
+    toggle.setAttribute('aria-expanded', v); toggle.setAttribute('aria-label', v ? 'Cerrar menú' : 'Abrir menú');
+    toggle.firstElementChild.firstElementChild.setAttribute('href', v ? '#i-close' : '#i-menu');
+    document.body.style.overflow = v ? 'hidden' : '';
+  }
+  toggle.addEventListener('click', function () { setOpen(!header.classList.contains('header--open')); });
+  nav.addEventListener('click', function (e) { if (e.target.closest('a')) setOpen(false); });
+})();
+
+/* Reveal */
+(function () {
+  var els = document.querySelectorAll('[data-reveal]');
+  if (!('IntersectionObserver' in window)) { els.forEach(function (e) { e.classList.add('in'); }); return; }
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (en) { if (en.isIntersecting) { en.target.classList.add('in'); io.unobserve(en.target); } });
+  }, { threshold: 0.08, rootMargin: '0px 0px -5% 0px' });
+  els.forEach(function (e) { io.observe(e); });
+})();
+
+/* Portafolio */
+(function () {
+  var P = [
+    ['WordPress', 'MercadoLibre Experience', 'mercadolibreexperience.com.co', 'https://mercadolibreexperience.com.co/'],
+    ['WordPress', 'Latam Motos', 'latammotos.com', 'https://latammotos.com/'],
+    ['WordPress', 'Propiedades Nakama', 'propiedadesnakama.com', 'https://propiedadesnakama.com/'],
+    ['WordPress', 'Frotex', 'frotex.com', 'https://frotex.com/'],
+    ['WordPress', 'Made Mármol', 'mademarmol.co', 'https://mademarmol.co/'],
+    ['WordPress', 'LendingSpot', 'lendingspot.net', 'https://lendingspot.net/'],
+    ['Shopify', 'Licores Medellín', 'licoresmedellin.com', 'https://licoresmedellin.com/'],
+    ['Shopify', 'Santiago Corazón', 'santiagocorazon.org', 'https://santiagocorazon.org/'],
+    ['Shopify', 'Tom Lampert', 'tomlampert.com', 'https://tomlampert.com/'],
+    ['React', 'Call to Action Plus', 'calltoactionplus.com', 'https://calltoactionplus.com/'],
+    ['React', 'Hesvor', 'hesvor.com', 'https://www.hesvor.com/'],
+    ['React', 'Primo Team', 'primoteam.com', 'https://primoteam.com/']
+  ];
+  var root = document.getElementById('portfolio'), html = '';
+  ['WordPress', 'Shopify', 'React'].forEach(function (plat) {
+    html += '<div class="port-cat" data-reveal>' + plat + '</div><div class="grid grid--3">';
+    P.filter(function (p) { return p[0] === plat; }).forEach(function (p, i) {
+      var shot = 'https://api.microlink.io/?url=' + encodeURIComponent(p[3]) + '&screenshot=true&meta=false&embed=screenshot.url';
+      html += '<a class="card project" data-reveal style="--d:' + (i % 3) * 70 + 'ms" href="' + p[3] + '" target="_blank" rel="noopener">' +
+        '<div class="project__thumb"><div class="project__fallback">' + p[2] + '</div>' +
+        '<img src="' + shot + '" alt="Captura de ' + p[1] + '" loading="lazy" onerror="this.remove()"></div>' +
+        '<div class="project__info"><span class="project__plat project__plat--' + plat.toLowerCase() + '">' + plat + '</span>' +
+        '<span class="project__name">' + p[1] + '</span><span class="project__url">' + p[2] + '</span></div></a>';
+    });
+    html += '</div>';
+  });
+  root.innerHTML = html;
+  root.querySelectorAll('[data-reveal]').forEach(function (e) { e.classList.add('in'); });
+})();
+
+/* Hero espacial: campo de estrellas con parallax, destellos y estrellas fugaces */
+(function () {
+  var c = document.getElementById('stars'); if (!c) return;
+  var ctx = c.getContext('2d'), reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var W, H, dpr, stars = [], shooters = [], mx = 0, my = 0, tx = 0, ty = 0, raf, visible = true;
+  var COLORS = ['242,246,248', '242,246,248', '0,180,216', '126,217,87', '178,101,255'];
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var r = c.getBoundingClientRect(); W = r.width; H = r.height;
+    c.width = W * dpr; c.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var n = Math.round(W * H / 5500); stars = [];
+    for (var i = 0; i < n; i++) {
+      var z = Math.random();
+      stars.push({ x: Math.random() * W, y: Math.random() * H, z: z, r: 0.3 + z * 1.3,
+        a: 0.25 + Math.random() * 0.75, s: 0.4 + Math.random() * 1.6, p: Math.random() * 6.28,
+        c: COLORS[(Math.random() * COLORS.length) | 0] });
+    }
+  }
+  function spawnShooter() {
+    shooters.push({ x: Math.random() * W * 0.8, y: Math.random() * H * 0.4, vx: 5 + Math.random() * 4, vy: 2 + Math.random() * 2, life: 0, max: 50 + Math.random() * 30 });
+  }
+  function draw(t) {
+    ctx.clearRect(0, 0, W, H);
+    mx += (tx - mx) * 0.04; my += (ty - my) * 0.04;
+    for (var i = 0; i < stars.length; i++) {
+      var s = stars[i], tw = reduce ? 1 : 0.55 + 0.45 * Math.sin(t / 1000 * s.s + s.p);
+      var x = s.x + mx * s.z * 22, y = s.y + my * s.z * 22;
+      ctx.fillStyle = 'rgba(' + s.c + ',' + (s.a * tw).toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(x, y, s.r, 0, 6.2832); ctx.fill();
+      if (s.r > 1.35) { ctx.fillStyle = 'rgba(' + s.c + ',' + (0.08 * tw).toFixed(3) + ')'; ctx.beginPath(); ctx.arc(x, y, s.r * 4, 0, 6.2832); ctx.fill(); }
+    }
+    for (var j = shooters.length - 1; j >= 0; j--) {
+      var h = shooters[j]; h.x += h.vx; h.y += h.vy; h.life++;
+      var k = 1 - h.life / h.max, g = ctx.createLinearGradient(h.x, h.y, h.x - h.vx * 14, h.y - h.vy * 14);
+      g.addColorStop(0, 'rgba(242,246,248,' + k + ')'); g.addColorStop(1, 'rgba(0,180,216,0)');
+      ctx.strokeStyle = g; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(h.x, h.y); ctx.lineTo(h.x - h.vx * 14, h.y - h.vy * 14); ctx.stroke();
+      if (h.life > h.max) shooters.splice(j, 1);
+    }
+    if (!reduce && Math.random() < 0.006 && shooters.length < 2) spawnShooter();
+  }
+  function loop(t) { if (visible) draw(t); raf = requestAnimationFrame(loop); }
+
+  resize(); window.addEventListener('resize', resize);
+  if (reduce) { draw(0); return; }
+  window.addEventListener('pointermove', function (e) { tx = e.clientX / innerWidth - 0.5; ty = e.clientY / innerHeight - 0.5; }, { passive: true });
+  new IntersectionObserver(function (en) { visible = en[0].isIntersecting; }).observe(c);
+  raf = requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
