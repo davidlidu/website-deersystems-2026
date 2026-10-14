@@ -615,7 +615,7 @@ function GoogleTab() {
 
 /** Clave de API para el selector de Drive (Google Picker). */
 function PickerKey() {
-  const { data, reload } = useApi<{ configured: boolean; hasKey: boolean }>('settings/google/picker');
+  const { data, reload } = useApi<{ configured: boolean; hasKey: boolean; appId: string | null; keyHint?: string }>('settings/google/picker');
   const [key, setKey] = useState('');
   const { busy, run } = useAction();
   const toast = useToast();
@@ -643,6 +643,17 @@ function PickerKey() {
         </li>
         <li>Pega la clave aquí.</li>
       </ol>
+      <p className="hint">
+        La clave debe ser del <strong>mismo proyecto</strong> que el cliente OAuth del login. Número de proyecto que usa el portal:{' '}
+        <code>{data?.appId ?? 'no se pudo leer del ID de cliente'}</code>
+        {data?.keyHint && (
+          <>
+            {' '}
+            · clave guardada: <code>{data.keyHint}</code>
+          </>
+        )}
+        . Compáralo en Google Cloud Console → panel del proyecto → «Número del proyecto».
+      </p>
       <div className="key-row">
         <label className="field">
           <span className="field__label">Clave de API · {data?.hasKey ? 'guardada' : 'sin clave'}</span>

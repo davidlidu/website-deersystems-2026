@@ -249,12 +249,12 @@ export async function handleFiles(route: string, id: number, req: IncomingMessag
       const apiKey = google.pickerApiKey();
       const appId = google.cloudProjectNumber();
       if (!apiKey || !appId || !google.connectionStatus().connected) {
-        json(res, 200, { configured: false, hasKey: !!apiKey });
+        json(res, 200, { configured: false, hasKey: !!apiKey, appId });
         return true;
       }
       try {
         // El token de la cuenta conectada (la tuya): con drive.file, el Picker da acceso solo a lo que elijas.
-        json(res, 200, { configured: true, hasKey: true, apiKey, appId, accessToken: await google.accessToken() });
+        json(res, 200, { configured: true, hasKey: true, apiKey, appId, accessToken: await google.accessToken(), keyHint: `${apiKey.slice(0, 8)}…${apiKey.slice(-4)}` });
       } catch (err) {
         throw driveError(err);
       }
