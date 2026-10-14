@@ -769,7 +769,9 @@ const APP_HEADERS = {
   'Cache-Control': 'no-store',
   'X-Frame-Options': 'DENY',
   'X-Robots-Tag': 'noindex, nofollow',
-  'Referrer-Policy': 'same-origin',
+  // A otros dominios solo se envía el origen (https://partners.deersystems.net), nunca la ruta. Hace falta:
+  // el selector de Drive (Google Picker) valida la clave de API contra ese origen.
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
 };
 
 export async function handlePartners(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
