@@ -30,6 +30,7 @@ import {
 } from './auth.ts';
 import * as db from './db.ts';
 import { handleFiles } from './files.ts';
+import { handleMeetings } from './meetings.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { actor, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
@@ -663,6 +664,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   }
   if (await handleWork(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
+  if (await handleMeetings(route, id, req, res, v, url)) return;
   throw new HttpError(404, 'Ruta no encontrada.');
 }
 

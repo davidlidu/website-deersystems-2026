@@ -17,12 +17,13 @@ import {
 import { ErrorBox, Link, Loading, Markdown, PageHead, ProgressBar, useAction, useToast } from '../ui';
 import { ActivityFeed } from './project/Activity';
 import { FilesPanel } from './project/Files';
+import { ProjectMeetings } from './project/Meetings';
 import { NotesPanel } from './project/Notes';
 import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
 
-type Tab = 'tareas' | 'avances' | 'notas' | 'archivos' | 'bitacora' | 'alcance' | 'comercial';
-const TABS: Tab[] = ['tareas', 'avances', 'notas', 'archivos', 'bitacora', 'alcance', 'comercial'];
+type Tab = 'tareas' | 'reuniones' | 'avances' | 'notas' | 'archivos' | 'bitacora' | 'alcance' | 'comercial';
+const TABS: Tab[] = ['tareas', 'reuniones', 'avances', 'notas', 'archivos', 'bitacora', 'alcance', 'comercial'];
 
 /** La vista elegida se recuerda en este navegador. */
 function storedView(): View {
@@ -141,6 +142,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
 
   const tabs: [Tab, string][] = [
     ['tareas', 'Tareas'],
+    ['reuniones', 'Reuniones'],
     ['avances', 'Avances'],
     ['notas', 'Notas'],
     ['archivos', 'Archivos'],
@@ -270,6 +272,12 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
             onMove={moveTask}
             onPhasesChange={reload}
           />
+        </section>
+      )}
+
+      {tab === 'reuniones' && (
+        <section className="section section--flush narrow-col">
+          <ProjectMeetings me={me} project={p} onOpenTask={(t) => setDrawer({ taskId: t.id })} />
         </section>
       )}
 

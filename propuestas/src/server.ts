@@ -6,6 +6,7 @@ import { DEV_LOGIN, HOME_URL, MAX_UPLOAD_BYTES, PARTNERS_HOST, PARTNERS_URL, POR
 import * as db from './db.ts';
 import { HttpError, json, readBody, readJson, redirect, sendFile } from './http.ts';
 import { projectsForProposal, pruneNotifications } from './partners/db.ts';
+import { startScheduler } from './partners/meetings.ts';
 import { flushAll } from './partners/notify.ts';
 import { handlePartners } from './partners/routes.ts';
 import { checkSlug, removeAll, removeVersion, resolveFile, slugify, unpack, UploadError, writeVersion } from './storage.ts';
@@ -225,6 +226,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 }
 
 pruneNotifications();
+startScheduler();
 
 // En cada despliegue Dokploy detiene el contenedor: antes de salir se envían los correos de avisos en cola.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

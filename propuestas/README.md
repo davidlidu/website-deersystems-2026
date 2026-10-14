@@ -32,6 +32,7 @@ src/
     work.ts       Tareas, fases, notas, avances y bitácora
     files.ts      Adjuntos en Google Drive
     notify.ts     Avisos en la campana y por correo
+    meetings.ts   Reuniones: Calendar, transcripciones de Meet, resumen con IA y aprobación
 public/           Panel de propuestas, login y 404 (HTML/CSS/JS sin build)
 web/              Interfaz de partners (React + Vite) → se compila a public/partners
 ```
@@ -66,6 +67,13 @@ El **% de avance** es tareas completadas / total. Los estados son fijos: Pendien
 - **Campana del encabezado:** a ti y al equipo les llegan los comentarios, notas, cambios de estado y archivos del cliente. Al cliente le llegan los avances, las tareas nuevas para él, los comentarios y los archivos de DeerSystems. Cada aviso abre la tarea o la pestaña exacta.
 - **Correo:** con la marca, enviado desde Gmail. Los avisos de unos minutos se juntan en un solo correo.
 - **Configuración → Avisos:** cada tipo de aviso se enciende o apaga en la plataforma y por correo.
+
+**Reuniones (Calendar + Meet):**
+1. Cada 10 minutos (o con *Sincronizar ahora* en **Reuniones**) se lee tu Google Calendar. Cuenta toda reunión donde esté el correo de un cliente y la asocia a su proyecto activo; el proyecto se puede cambiar a mano.
+2. Al terminar, se busca la transcripción de Meet: la transcripción debe estar activada en la reunión. Si no hay, puedes pegarla o escribir notas.
+3. La IA del perfil *Reuniones* propone el resumen, los acuerdos y las tareas de cada parte, y te avisa. **Solo tú ves el borrador y la transcripción.**
+4. Revisas, editas y eliges a quién enviarlo. *Aprobar y enviar* crea las tareas (origen «reunión»), las registra en la bitácora, envía el correo con el diseño de la marca y le muestra el resumen al cliente en la pestaña **Reuniones** del proyecto.
+5. Las reuniones fuera de Meet (llamadas, Zoom o presenciales) se registran desde el proyecto, pegando la transcripción o las notas.
 
 **Configuración** (solo administrador):
 - **IA:** proveedor y modelo principal y de respaldo, claves (cifradas), privacidad en OpenRouter, tarifas y presupuesto mensual, y prueba de conexión.

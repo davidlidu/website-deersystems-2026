@@ -31,6 +31,8 @@ function describe(a: ActivityItem): string {
       return `comentó en ${q(d.taskTitle)}${d.visibility === 'internal' ? ' (interno)' : ''}`;
     case 'update_posted':
       return 'publicó un avance';
+    case 'meeting_approved':
+      return `envió el resumen de la reunión ${q(d.title)} con ${d.tasks ?? 0} tareas`;
     case 'file_added':
       return `subió ${q(d.name)}${d.taskTitle ? ` en ${q(d.taskTitle)}` : ''}`;
     case 'file_deleted':
@@ -49,6 +51,7 @@ const ICON: Record<string, string> = {
   update_posted: '★',
   project_created: '✓',
   file_added: '📎',
+  meeting_approved: '🎙',
 };
 
 export function ActivityFeed({ projectId, taskId, compact }: { projectId: number; taskId?: number; compact?: boolean }) {

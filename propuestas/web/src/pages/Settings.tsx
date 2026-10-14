@@ -620,10 +620,11 @@ interface NotifySettings {
   events: Record<string, Record<Channel, boolean>>;
   teamEmail: boolean;
   digestMinutes: number;
-  catalog: { key: string; label: string; audience: 'staff' | 'team' | 'client' }[];
+  catalog: { key: string; label: string; audience: 'owner' | 'staff' | 'team' | 'client' }[];
 }
 
 const AUDIENCE: Record<NotifySettings['catalog'][number]['audience'], string> = {
+  owner: 'Solo te llegan a ti',
   staff: 'Te llegan a ti y a tu equipo',
   team: 'Le llegan a la persona del equipo',
   client: 'Le llegan al cliente',
@@ -645,7 +646,7 @@ function NotificationsTab() {
     });
   const toggle = (key: string, channel: Channel) => save({ events: { [key]: { ...n.events[key], [channel]: !n.events[key][channel] } } });
 
-  const groups = (['staff', 'team', 'client'] as const).map((aud) => ({ aud, rows: n.catalog.filter((c) => c.audience === aud) }));
+  const groups = (['owner', 'staff', 'team', 'client'] as const).map((aud) => ({ aud, rows: n.catalog.filter((c) => c.audience === aud) }));
 
   return (
     <div className="stack">

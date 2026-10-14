@@ -209,6 +209,49 @@ export function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+export type MeetingStatus = 'programada' | 'esperando' | 'borrador' | 'aprobada' | 'sin_transcripcion' | 'error' | 'descartada';
+
+export const MEETING_STATUS: Record<MeetingStatus, string> = {
+  programada: 'Programada',
+  esperando: 'Esperando transcripción',
+  borrador: 'Por revisar',
+  aprobada: 'Enviada',
+  sin_transcripcion: 'Sin transcripción',
+  error: 'Error de IA',
+  descartada: 'Descartada',
+};
+
+export interface Meeting {
+  id: number;
+  projectId: number | null;
+  projectName: string | null;
+  clientId: number | null;
+  clientName: string | null;
+  title: string;
+  startAt: string;
+  endAt: string;
+  meetUrl: string | null;
+  status: MeetingStatus;
+  attendees: { email: string; name: string; side: 'deersystems' | 'cliente' | 'otro' }[];
+  summary?: string;
+  agreements?: string[];
+  taskIds?: number[];
+  approvedAt?: string | null;
+  calendarUrl?: string | null;
+  proposedTasks?: { title: string; description: string; side: Side; dueDate: string | null }[];
+  hasTranscript?: boolean;
+  transcriptSource?: 'meet' | 'manual' | null;
+  transcriptUrl?: string | null;
+  transcript?: string | null;
+  ai?: { provider: string; model: string; costUsd: number; latencyMs: number } | null;
+  error?: string | null;
+  sentTo?: string[];
+}
+
+export function formatMeetingTime(iso: string): string {
+  return new Date(iso).toLocaleString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
 export interface ActivityItem {
   id: number;
   taskId: number | null;

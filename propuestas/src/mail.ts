@@ -30,6 +30,8 @@ interface Block {
   facts?: [string, string][];
   /** Lista de novedades, cada una con su enlace (resumen de avisos). */
   items?: { title: string; body: string; url: string }[];
+  /** Bloques con título y viñetas (resumen de reunión: acuerdos, tareas de cada parte). */
+  sections?: { heading: string; bullets: string[] }[];
   cta?: { label: string; url: string };
   footnote?: string;
 }
@@ -61,6 +63,15 @@ function layout(b: Block): { html: string; text: string } {
           .join('')}
       </table>`
     : '';
+  const sections = (b.sections ?? [])
+    .filter((sec) => sec.bullets.length)
+    .map(
+      (sec) => `<div style="margin:20px 0 6px;font:500 11px/1.4 ${MONO};letter-spacing:.16em;text-transform:uppercase;color:${C.cian}">${esc(sec.heading)}</div>
+        <ul style="margin:0 0 8px;padding-left:20px">
+          ${sec.bullets.map((x) => `<li style="margin:0 0 6px;font:400 14px/1.6 ${FONT};color:${C.body}">${esc(x)}</li>`).join('')}
+        </ul>`,
+    )
+    .join('');
   const cta = b.cta
     ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 4px"><tr>
         <td style="border-radius:6px;background:${C.verde}">
@@ -81,7 +92,7 @@ function layout(b: Block): { html: string; text: string } {
         <div style="font:500 11px/1.4 ${MONO};letter-spacing:.18em;text-transform:uppercase;color:${C.cian};margin-bottom:10px">${esc(b.eyebrow)}</div>
         <h1 style="margin:0 0 16px;font:700 24px/1.2 ${DISPLAY};letter-spacing:-.03em;color:${C.ink}">${esc(b.title)}</h1>
         ${b.paragraphs.map((p) => `<p style="margin:0 0 16px;font:400 15px/1.65 ${FONT};color:${C.body}">${esc(p)}</p>`).join('')}
-        ${facts}${items}${cta}
+        ${facts}${items}${sections}${cta}
         ${b.footnote ? `<p style="margin:20px 0 0;font:400 13px/1.6 ${FONT};color:${C.mute}">${esc(b.footnote)}</p>` : ''}
       </td></tr>
       <tr><td style="padding:20px 4px 0;font:400 12px/1.6 ${FONT};color:${C.mute}">
@@ -97,6 +108,7 @@ function layout(b: Block): { html: string; text: string } {
     '',
     ...b.paragraphs.flatMap((p) => [p, '']),
     ...(b.facts ?? []).map(([k, v]) => `${k}: ${v}`),
+    ...(b.sections ?? []).filter((sec) => sec.bullets.length).flatMap((sec) => [sec.heading.toUpperCase(), ...sec.bullets.map((x) => `• ${x}`), '']),
     ...(b.items ?? []).flatMap((it) => [`• ${it.title}`, ...(it.body ? [`  ${it.body}`] : []), `  ${it.url}`, '']),
     ...(b.cta ? ['', `${b.cta.label}: ${b.cta.url}`] : []),
     ...(b.footnote ? ['', b.footnote] : []),
@@ -218,6 +230,50 @@ export function notificationDigest(p: { to: string; name: string; items: { title
       footnote: p.client
         ? 'Recibes este correo porque tienes un proyecto activo con DeerSystems.'
         : 'Puedes encender o apagar estos avisos en Configuración → Avisos.',
+    }),
+  };
+}
+
+/** Markdown simple → párrafos de texto plano para el correo. */
+function plainParagraphs(md: string): string[] {
+  return md
+    .split(/\n{2,}/)
+    .map((p) =>
+      p
+        .split('\n')
+        .map((l) => l.replace(/^#{1,6}\s+/, '').replace(/^[-*•]\s+/, '• ').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/[*_`]/g, ''))
+        .join('\n')
+        .trim(),
+    )
+    .filter(Boolean);
+}
+
+/** Resumen de una reunión aprobado por DeerSystems: lo hablado, los acuerdos y lo que le toca a cada parte. */
+export function meetingSummary(p: {
+  to: string;
+  projectName: string;
+  meetingTitle: string;
+  date: string;
+  summary: string;
+  agreements: string[];
+  ourTasks: string[];
+  clientTasks: string[];
+  url: string;
+}): Mail {
+  return {
+    to: p.to,
+    subject: `Resumen de la reunión · ${p.meetingTitle}`,
+    ...layout({
+      eyebrow: `${p.projectName} · ${p.date}`,
+      title: 'Resumen de la reunión',
+      paragraphs: plainParagraphs(p.summary),
+      sections: [
+        { heading: 'Acuerdos', bullets: p.agreements },
+        { heading: 'Tareas de tu equipo', bullets: p.clientTasks },
+        { heading: 'Tareas de DeerSystems', bullets: p.ourTasks },
+      ],
+      cta: { label: 'Ver el proyecto', url: p.url },
+      footnote: 'Las tareas ya quedaron registradas en DeerSystems Partners. Si algo no quedó bien, respóndenos este correo.',
     }),
   };
 }

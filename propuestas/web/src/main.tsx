@@ -8,6 +8,7 @@ import { ClientPage } from './pages/Client';
 import { HomePage } from './pages/Home';
 import { ForgotPage, LoginPage, ResetPage } from './pages/Login';
 import { ProjectPage } from './pages/Project';
+import { MeetingReviewPage, MeetingsPage } from './pages/Meetings';
 import { ProposalsPage } from './pages/Proposals';
 import { SettingsPage } from './pages/Settings';
 import { TeamPage } from './pages/Team';
@@ -36,6 +37,7 @@ function Nav({ me, path }: { me: Me; path: string }) {
           ...(me.role === 'owner'
             ? ([
                 ['/propuestas', 'Propuestas'],
+                ['/reuniones', 'Reuniones'],
                 ['/equipo', 'Equipo'],
                 ['/configuracion', 'Configuración'],
               ] as [string, string][])
@@ -100,6 +102,8 @@ function Routes({ me, path }: { me: Me; path: string }) {
   if (me.role === 'owner') {
     if (path === '/propuestas') return <ProposalsPage />;
     if ((m = match('/propuestas/:id/aprobar', path))) return <ApprovePage proposalId={Number(m.id)} />;
+    if (path === '/reuniones') return <MeetingsPage />;
+    if ((m = match('/reuniones/:id', path))) return <MeetingReviewPage id={Number(m.id)} />;
     if (path === '/equipo') return <TeamPage />;
     if (path === '/configuracion') return <SettingsPage />;
   }

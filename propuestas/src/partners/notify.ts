@@ -17,6 +17,8 @@ export const EVENTS = {
   staff_update: { audience: 'client', label: 'DeerSystems publica un avance', app: true, email: true },
   staff_comment: { audience: 'client', label: 'DeerSystems comenta o deja una nota compartida', app: true, email: true },
   staff_file: { audience: 'client', label: 'DeerSystems comparte un archivo', app: true, email: false },
+  meeting_draft: { audience: 'owner', label: 'Hay un resumen de reunión listo para revisar', app: true, email: true },
+  meeting_summary: { audience: 'client', label: 'Se aprueba el resumen de una reunión (además del correo con el resumen)', app: true, email: false },
 } as const;
 
 export type EventType = keyof typeof EVENTS;
@@ -110,8 +112,9 @@ interface Target {
 export function notify(
   type: EventType,
   ctx: {
-    actor: Viewer;
-    projectId: number;
+    /** null = lo dispara el sistema (p. ej. la sincronización de reuniones). */
+    actor: Viewer | null;
+    projectId: number | null;
     taskId?: number | null;
     title: string;
     body?: string;
@@ -125,14 +128,17 @@ export function notify(
     const s = getSettings();
     const pref = s.events[type];
     if (!pref.app && !pref.email) return;
-    const project = db.getProject(ctx.projectId);
-    if (!project) return;
     const audience = EVENTS[type].audience;
-    const actorAccount = ctx.actor.kind === 'owner' ? null : ctx.actor.account.id;
+    const project = ctx.projectId ? db.getProject(ctx.projectId) : undefined;
+    // Solo los avisos para ti pueden no tener proyecto (p. ej. una reunión aún sin asociar).
+    if (!project && audience !== 'owner') return;
+    const actorAccount = !ctx.actor || ctx.actor.kind === 'owner' ? null : ctx.actor.account.id;
     const targets: Target[] = [];
 
-    if (audience === 'staff') {
-      if (ctx.actor.kind !== 'owner') targets.push({ recipient: { kind: 'owner' }, email: SUPERADMIN_EMAIL, name: '', client: false });
+    if (audience === 'owner') {
+      targets.push({ recipient: { kind: 'owner' }, email: SUPERADMIN_EMAIL, name: '', client: false });
+    } else if (audience === 'staff') {
+      if (ctx.actor?.kind !== 'owner') targets.push({ recipient: { kind: 'owner' }, email: SUPERADMIN_EMAIL, name: '', client: false });
       for (const a of db.listTeam()) {
         if (!a.active || a.id === actorAccount) continue;
         targets.push({ recipient: { kind: 'account', id: a.id }, email: s.teamEmail ? a.email : null, name: a.name, client: false });
@@ -140,7 +146,7 @@ export function notify(
     } else if (audience === 'team' && ctx.accountId && ctx.accountId !== actorAccount) {
       const a = db.getAccount(ctx.accountId);
       if (a?.active && a.role === 'team') targets.push({ recipient: { kind: 'account', id: a.id }, email: a.email, name: a.name, client: false });
-    } else if (audience === 'client' && ctx.actor.kind !== 'client') {
+    } else if (audience === 'client' && project && ctx.actor?.kind !== 'client') {
       const a = db.getClientAccount(project.client_id);
       if (a?.active) targets.push({ recipient: { kind: 'account', id: a.id }, email: a.email, name: a.name, client: true });
     }
@@ -149,7 +155,7 @@ export function notify(
     for (const t of targets) {
       if (pref.app) {
         db.createNotification(t.recipient, {
-          projectId: project.id,
+          projectId: project?.id ?? null,
           taskId: ctx.taskId,
           type,
           title: ctx.title,
@@ -159,7 +165,7 @@ export function notify(
         });
       }
       if (pref.email && t.email) {
-        enqueueMail(t.email, t.name, t.client, { title: ctx.title, body: body || project.name, url: `${PARTNERS_URL}${ctx.path}` }, s.digestMinutes);
+        enqueueMail(t.email, t.name, t.client, { title: ctx.title, body: body || (project?.name ?? ''), url: `${PARTNERS_URL}${ctx.path}` }, s.digestMinutes);
       }
     }
   } catch (err) {

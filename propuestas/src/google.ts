@@ -262,3 +262,122 @@ export async function trashFile(fileId: string): Promise<void> {
 }
 
 export const fileUrl = (fileId: string) => `https://drive.google.com/file/d/${fileId}/view`;
+
+// ───────── Calendar ─────────
+
+export interface CalendarEvent {
+  id: string;
+  status?: string;
+  summary?: string;
+  htmlLink?: string;
+  hangoutLink?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+  attendees?: { email?: string; displayName?: string; responseStatus?: string; self?: boolean; organizer?: boolean }[];
+  conferenceData?: { conferenceId?: string; conferenceSolution?: { key?: { type?: string } } };
+}
+
+/** Eventos del calendario principal de la cuenta conectada, con las recurrencias expandidas. */
+export async function calendarEvents(timeMin: string, timeMax: string): Promise<CalendarEvent[]> {
+  const out: CalendarEvent[] = [];
+  let pageToken = '';
+  for (let page = 0; page < 10; page++) {
+    const params = new URLSearchParams({
+      timeMin,
+      timeMax,
+      singleEvents: 'true',
+      orderBy: 'startTime',
+      maxResults: '250',
+      showDeleted: 'true',
+      ...(pageToken ? { pageToken } : {}),
+    });
+    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+      headers: { Authorization: `Bearer ${await accessToken()}` },
+    });
+    const data = (await r.json().catch(() => ({}))) as { items?: CalendarEvent[]; nextPageToken?: string; error?: { message?: string } };
+    if (!r.ok) throw new GoogleError(`Calendar ${r.status}: ${data.error?.message ?? 'error'}`);
+    out.push(...(data.items ?? []));
+    if (!data.nextPageToken) break;
+    pageToken = data.nextPageToken;
+  }
+  return out;
+}
+
+// ───────── Meet: grabaciones y transcripciones ─────────
+
+const MEET = 'https://meet.googleapis.com/v2';
+
+async function meetGet<T>(path: string): Promise<T> {
+  const r = await fetch(`${MEET}/${path}`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
+  const data = (await r.json().catch(() => ({}))) as T & { error?: { message?: string } };
+  if (!r.ok) throw new GoogleError(`Meet ${r.status}: ${data.error?.message ?? 'error'}`);
+  return data;
+}
+
+async function meetAll<T>(path: string, key: string): Promise<T[]> {
+  const out: T[] = [];
+  let pageToken = '';
+  for (let page = 0; page < 50; page++) {
+    const sep = path.includes('?') ? '&' : '?';
+    const data = await meetGet<Record<string, unknown>>(`${path}${sep}pageSize=100${pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''}`);
+    out.push(...((data[key] as T[] | undefined) ?? []));
+    pageToken = (data.nextPageToken as string | undefined) ?? '';
+    if (!pageToken) break;
+  }
+  return out;
+}
+
+export type TranscriptResult =
+  | { state: 'ready'; record: string; text: string; docUrl: string | null }
+  | { state: 'pending' | 'none'; record: string | null };
+
+/**
+ * Busca la transcripción de una reunión por su código de Meet (abc-defg-hij) cerca de la hora de inicio.
+ * "pending": la reunión existe pero la transcripción aún se está generando; "none": no se transcribió.
+ */
+export async function meetTranscript(meetingCode: string, startIso: string): Promise<TranscriptResult> {
+  const since = new Date(new Date(startIso).getTime() - 3 * 3600_000).toISOString();
+  const filter = `space.meeting_code = "${meetingCode}" AND start_time >= "${since}"`;
+  const records = await meetAll<{ name: string; startTime: string; endTime?: string }>(
+    `conferenceRecords?filter=${encodeURIComponent(filter)}`,
+    'conferenceRecords',
+  );
+  if (!records.length) return { state: 'none', record: null };
+  // La sesión que empezó más cerca de la hora agendada.
+  const target = new Date(startIso).getTime();
+  records.sort((a, b) => Math.abs(new Date(a.startTime).getTime() - target) - Math.abs(new Date(b.startTime).getTime() - target));
+  const record = records[0];
+  if (!record.endTime) return { state: 'pending', record: record.name };
+
+  const transcripts = await meetAll<{ name: string; state: string; docsDestination?: { exportUri?: string } }>(
+    `${record.name}/transcripts`,
+    'transcripts',
+  );
+  const done = transcripts.find((t) => t.state === 'FILE_GENERATED' || t.state === 'ENDED');
+  if (!done) return { state: transcripts.length ? 'pending' : 'none', record: record.name };
+
+  const participants = await meetAll<{
+    name: string;
+    signedinUser?: { displayName?: string };
+    anonymousUser?: { displayName?: string };
+    phoneUser?: { displayName?: string };
+  }>(`${record.name}/participants`, 'participants');
+  const names = new Map(
+    participants.map((p) => [p.name, p.signedinUser?.displayName ?? p.anonymousUser?.displayName ?? p.phoneUser?.displayName ?? 'Participante']),
+  );
+  const entries = await meetAll<{ participant?: string; text?: string; startTime?: string }>(`${done.name}/entries`, 'transcriptEntries');
+  if (!entries.length) return { state: done.state === 'FILE_GENERATED' ? 'none' : 'pending', record: record.name };
+
+  // Une las intervenciones seguidas de la misma persona: "Laura: …".
+  const lines: string[] = [];
+  let last = '';
+  for (const e of entries) {
+    const who = names.get(e.participant ?? '') ?? 'Participante';
+    const text = (e.text ?? '').trim();
+    if (!text) continue;
+    if (who === last) lines[lines.length - 1] += ` ${text}`;
+    else lines.push(`${who}: ${text}`);
+    last = who;
+  }
+  return { state: 'ready', record: record.name, text: lines.join('\n'), docUrl: done.docsDestination?.exportUri ?? null };
+}
