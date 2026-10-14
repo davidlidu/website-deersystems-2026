@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { AiError, completeJson, type Completion } from '../ai.ts';
 import type { Proposal } from '../db.ts';
-import { resolveFile } from '../storage.ts';
+import { listVersionFiles, resolveFile } from '../storage.ts';
 import type { Side } from './db.ts';
 
 export interface DraftTask {
@@ -167,12 +167,85 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
   return draft;
 }
 
-async function proposalText(proposal: Proposal): Promise<string> {
+/**
+ * Texto que vive dentro del código: propuestas hechas con React, Babel o datos en JSON,
+ * donde el HTML casi no trae texto visible. Toma las cadenas entre comillas y el texto de JSX,
+ * y descarta lo que parece código o clases de CSS.
+ */
+export function codeToText(code: string): string {
+  const out = new Set<string>();
+  const add = (raw: string) => {
+    const t = raw
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+      .replace(/\\n/g, ' ')
+      .replace(/\\(["'`\\])/g, '$1')
+      .replace(/\$\{[^}]*\}/g, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (t.length < 3 || !/\p{L}{2}/u.test(t)) return;
+    // Clases (text-sm font-bold), rutas, URLs, identificadores y fragmentos de código no aportan.
+    const tokens = t.split(' ');
+    if (tokens.every((w) => /^[a-z0-9:/.[\]#%()_-]+$/.test(w)) && tokens.some((w) => /[-:/[]/.test(w))) return;
+    if (/^(https?:|data:|\.{0,2}\/|#[0-9a-f]{3,8}$)/i.test(t)) return;
+    if (/^[\w$.]+$/.test(t) && !/\s/.test(t) && !/[áéíóúñ]/i.test(t) && t.length < 25 && /[A-Z_$]/.test(t.slice(1))) return;
+    if (/[{};]|=>|function\s*\(|&&|\|\||[=!]==?|\?\.|\breturn\b|\btypeof\b|\w\(|\)\w/.test(t)) return;
+    // Una sola palabra en minúscula suele ser una clave o un nombre interno ("root", "anonymous").
+    if (!t.includes(' ') && !/^\p{Lu}/u.test(t)) return;
+    // Texto real: casi todo letras, números, espacios y puntuación de redacción.
+    const prose = t.match(/[\p{L}\p{N}\s.,:;¿?¡!()$%·—–"'/+-]/gu)?.length ?? 0;
+    if (prose / t.length < 0.9) return;
+    out.add(t);
+  };
+  const clean = code.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:"'\\])\/\/[^\n]*/g, '$1');
+  for (const m of clean.matchAll(/"((?:[^"\\\n]|\\.){2,})"|'((?:[^'\\\n]|\\.){2,})'|`((?:[^`\\]|\\.){2,})`/g)) add(m[1] ?? m[2] ?? m[3]);
+  // Texto entre etiquetas JSX: <p>Alcance del proyecto</p>
+  for (const m of clean.matchAll(/>([^<>{}=;]*\p{L}[^<>{}=;]*)</gu)) add(m[1]);
+  return [...out].join('\n');
+}
+
+const TEXT_FILES = /\.(m?js|jsx|json|html?|md|txt)$/i;
+const MAX_TEXT = 150_000;
+
+export async function proposalText(proposal: Pick<Proposal, 'id' | 'version'>): Promise<string> {
   const path = resolveFile(proposal.id, proposal.version, 'index.html');
   const html = path ? await readFile(path, 'utf8').catch(() => null) : null;
   if (!html) throw new AiError('No se encontró el HTML de la propuesta.');
-  const text = htmlToText(html).slice(0, 150_000);
-  if (text.length < 200) throw new AiError('La propuesta tiene muy poco texto para extraer un plan.');
+  let text = htmlToText(html);
+
+  // Poco texto visible: el contenido está en scripts (inline o en otros archivos del .zip).
+  if (text.length < 1500) {
+    // Las propuestas de generar_propuesta.py traen todo en <script type="application/json" id="propuesta">:
+    // es la fuente más fiel, así que se pasa tal cual y no hace falta leer el código que la dibuja.
+    const data = [...html.matchAll(/<script\b[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script>/gi)]
+      .map((m) => {
+        try {
+          return JSON.stringify(JSON.parse(m[1]));
+        } catch {
+          return m[1].trim();
+        }
+      })
+      .filter((d) => d.length > 200);
+    if (data.length) {
+      return `${text}\n\n--- Contenido de la propuesta (datos estructurados en JSON) ---\n${data.join('\n')}`.slice(0, MAX_TEXT);
+    }
+    const parts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => codeToText(m[1]));
+    for (const rel of (await listVersionFiles(proposal.id, proposal.version)).filter((f) => f !== 'index.html' && TEXT_FILES.test(f))) {
+      const file = resolveFile(proposal.id, proposal.version, rel);
+      const content = file ? await readFile(file, 'utf8').catch(() => '') : '';
+      if (!content) continue;
+      parts.push(/\.html?$/i.test(rel) ? htmlToText(content) : /\.(md|txt)$/i.test(rel) ? content : codeToText(content));
+    }
+    const extra = parts.filter(Boolean).join('\n').trim();
+    if (extra) text = `${text}\n\n--- Contenido extraído del código de la propuesta ---\n${extra}`;
+  }
+
+  text = text.slice(0, MAX_TEXT);
+  if (text.replace(/\s+/g, ' ').length < 200) {
+    throw new AiError(
+      'No se pudo leer el contenido de la propuesta: parece cargar su texto desde internet al abrirse. Súbela como un .html o .zip que incluya el contenido, o usa "Empezar en blanco".',
+    );
+  }
   return text;
 }
 

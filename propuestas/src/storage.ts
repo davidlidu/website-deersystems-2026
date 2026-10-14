@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import { unzipSync } from 'fflate';
 import { DATA_DIR, MAX_UNPACKED_BYTES } from './config.ts';
@@ -116,4 +116,13 @@ export function resolveFile(id: number, version: number, relPath: string): strin
   const dir = versionDir(id, version);
   const target = join(dir, ...relPath.split('/'));
   return target.startsWith(dir + sep) ? target : null;
+}
+
+/** Archivos de una versión publicada, como rutas relativas con "/". */
+export async function listVersionFiles(id: number, version: number): Promise<string[]> {
+  const dir = versionDir(id, version);
+  const entries = await readdir(dir, { recursive: true, withFileTypes: true }).catch(() => []);
+  return entries
+    .filter((e) => e.isFile())
+    .map((e) => join(e.parentPath, e.name).slice(dir.length + 1).split(sep).join('/'));
 }
