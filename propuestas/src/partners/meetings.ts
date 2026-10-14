@@ -407,6 +407,52 @@ export function startScheduler(): void {
   setInterval(tick, 10 * 60_000).unref();
 }
 
+// ───────── Correo del resumen ─────────
+
+/** El mismo correo sirve para enviarlo y para la vista previa: lo que ves es lo que recibe el cliente. */
+function summaryMail(
+  m: Row,
+  project: db.Project,
+  to: string,
+  content: { summary: string; agreements: string[]; tasks: { title: string; side: db.Side; dueDate: string | null }[] },
+) {
+  const date = new Date(m.start_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' });
+  const day = (iso: string) =>
+    new Date(`${iso}T12:00:00`).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Bogota' });
+  const bullets = (side: db.Side) =>
+    content.tasks.filter((t) => t.side === side).map((t) => (t.dueDate ? `${t.title} · para el ${day(t.dueDate)}` : t.title));
+  return meetingSummary({
+    to,
+    projectName: project.name,
+    meetingTitle: m.title,
+    date,
+    summary: content.summary,
+    agreements: content.agreements,
+    ourTasks: bullets('deersystems'),
+    clientTasks: bullets('cliente'),
+    url: `${PARTNERS_URL}/proyectos/${project.id}?tab=reuniones`,
+  });
+}
+
+/** Lee resumen, acuerdos y tareas tal como llegan del panel (para aprobar o para la vista previa). */
+function readContent(body: Record<string, unknown>) {
+  const team = new Set(db.listTeam().map((a) => a.id));
+  return {
+    summary: typeof body.summary === 'string' ? body.summary.trim().slice(0, 20_000) : '',
+    agreements: (Array.isArray(body.agreements) ? body.agreements : []).map((a) => str(a, 500)).filter(Boolean).slice(0, 30),
+    tasks: (Array.isArray(body.tasks) ? (body.tasks as Record<string, unknown>[]) : [])
+      .map((t) => ({
+        title: str(t.title, 200),
+        description: str(t.description, 2000),
+        side: (t.side === 'cliente' ? 'cliente' : 'deersystems') as db.Side,
+        assigneeId: t.side !== 'cliente' && team.has(Number(t.assigneeId)) ? Number(t.assigneeId) : null,
+        dueDate: optDate(t.dueDate) ?? null,
+      }))
+      .filter((t) => t.title)
+      .slice(0, 40),
+  };
+}
+
 // ───────── API ─────────
 
 export async function handleMeetings(route: string, id: number, req: IncomingMessage, res: ServerResponse, v: Viewer, url: URL): Promise<boolean> {
@@ -491,6 +537,19 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       return true;
     }
 
+    // Vista previa del correo con lo que está en pantalla, sin guardar nada.
+    case 'POST meetings/:id/preview': {
+      requireOwner(v);
+      const m = visible(id, v);
+      const body = await readJson(req);
+      const project = db.getProject(Number(body.projectId) || m.project_id || 0);
+      if (!project) throw new HttpError(400, 'Elige el proyecto de la reunión.');
+      const to = str(body.to, 200) || db.getClientAccount(project.client_id)?.email || '';
+      const mail = summaryMail(m, project, to, readContent(body));
+      json(res, 200, { subject: mail.subject, to, html: mail.html });
+      return true;
+    }
+
     case 'POST meetings/:id/discard': {
       requireOwner(v);
       const m = visible(id, v);
@@ -507,20 +566,9 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       const body = await readJson(req);
       const project = db.getProject(Number(body.projectId) || m.project_id || 0);
       if (!project) throw new HttpError(400, 'Elige el proyecto de la reunión.');
-      const summary = typeof body.summary === 'string' ? body.summary.trim().slice(0, 20_000) : '';
+      const content = readContent(body);
+      const { summary, agreements, tasks } = content;
       if (!summary) throw new HttpError(400, 'El resumen está vacío.');
-      const agreements = (Array.isArray(body.agreements) ? body.agreements : []).map((a) => str(a, 500)).filter(Boolean).slice(0, 30);
-      const team = new Set(db.listTeam().map((a) => a.id));
-      const tasks = (Array.isArray(body.tasks) ? (body.tasks as Record<string, unknown>[]) : [])
-        .map((t) => ({
-          title: str(t.title, 200),
-          description: str(t.description, 2000),
-          side: (t.side === 'cliente' ? 'cliente' : 'deersystems') as db.Side,
-          assigneeId: t.side !== 'cliente' && team.has(Number(t.assigneeId)) ? Number(t.assigneeId) : null,
-          dueDate: optDate(t.dueDate) ?? null,
-        }))
-        .filter((t) => t.title)
-        .slice(0, 40);
       const recipients = [...new Set((Array.isArray(body.recipients) ? body.recipients : []).map((e) => str(e, 200).toLowerCase()))].filter((e) =>
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e),
       );
@@ -581,24 +629,9 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       if (recipients.length) {
         if (!google.connectionStatus().connected) mail.error = 'Google no está conectado: el correo no se envió.';
         else {
-          const date = new Date(m.start_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' });
-          const bullets = (side: db.Side) =>
-            created.filter((t) => t.side === side).map((t) => (t.due_date ? `${t.title} (para el ${t.due_date})` : t.title));
           for (const to of recipients) {
             try {
-              await google.sendMail(
-                meetingSummary({
-                  to,
-                  projectName: project.name,
-                  meetingTitle: m.title,
-                  date,
-                  summary,
-                  agreements,
-                  ourTasks: bullets('deersystems'),
-                  clientTasks: bullets('cliente'),
-                  url: `${PARTNERS_URL}${path}`,
-                }),
-              );
+              await google.sendMail(summaryMail(m, project, to, content));
               mail.sent.push(to);
             } catch (err) {
               mail.failed.push(to);

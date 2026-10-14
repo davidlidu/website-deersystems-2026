@@ -91,7 +91,7 @@ function layout(b: Block): { html: string; text: string } {
       <tr><td style="background:${C.card};border:1px solid ${C.hairline};border-radius:16px;padding:32px 28px">
         <div style="font:500 11px/1.4 ${MONO};letter-spacing:.18em;text-transform:uppercase;color:${C.cian};margin-bottom:10px">${esc(b.eyebrow)}</div>
         <h1 style="margin:0 0 16px;font:700 24px/1.2 ${DISPLAY};letter-spacing:-.03em;color:${C.ink}">${esc(b.title)}</h1>
-        ${b.paragraphs.map((p) => `<p style="margin:0 0 16px;font:400 15px/1.65 ${FONT};color:${C.body}">${esc(p)}</p>`).join('')}
+        ${b.paragraphs.map((p) => `<p style="margin:0 0 16px;font:400 15px/1.65 ${FONT};color:${C.body}">${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}
         ${facts}${items}${sections}${cta}
         ${b.footnote ? `<p style="margin:20px 0 0;font:400 13px/1.6 ${FONT};color:${C.mute}">${esc(b.footnote)}</p>` : ''}
       </td></tr>

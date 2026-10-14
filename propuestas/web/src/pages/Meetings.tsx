@@ -126,6 +126,74 @@ export function MeetingsPage() {
   );
 }
 
+// ───────── Vista previa del correo ─────────
+
+interface PreviewContent {
+  projectId: number | null;
+  summary: string;
+  agreements: string[];
+  tasks: { title: string; side: Side; dueDate: string | null }[];
+  to: string;
+}
+
+/**
+ * Acordeón cerrado con el correo tal como lo recibirá el cliente. Se genera al abrirlo
+ * y se actualiza solo (con una pequeña espera) mientras editas el resumen, los acuerdos o las tareas.
+ */
+function MailPreview({ meetingId, content }: { meetingId: number; content: PreviewContent }) {
+  const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState<{ subject: string; to: string; html: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const payload = JSON.stringify(content);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    const timer = setTimeout(() => {
+      api<{ subject: string; to: string; html: string }>('POST', `meetings/${meetingId}/preview`, JSON.parse(payload))
+        .then((p) => {
+          setPreview(p);
+          setError(null);
+        })
+        .catch((err) => setError(err.message))
+        .finally(() => setLoading(false));
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [open, payload, meetingId]);
+
+  return (
+    <details className="mail-accordion card" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>
+        <span>
+          <strong>Vista previa del correo</strong>
+          <small>Así lo recibirá el cliente, con lo que tienes en pantalla</small>
+        </span>
+        {loading && open && <span className="loading__dot" aria-label="Actualizando" />}
+      </summary>
+      {error && <p className="alert">{error}</p>}
+      {preview && (
+        <div className="mail-accordion__body">
+          <div className="mail-accordion__meta">
+            <span>
+              <small>Asunto</small>
+              {preview.subject}
+            </span>
+            {preview.to && (
+              <span>
+                <small>Para</small>
+                {content.to || preview.to}
+              </span>
+            )}
+          </div>
+          {/* sandbox sin permisos: el HTML del correo no puede ejecutar nada en el portal. */}
+          <iframe className="mail-preview" sandbox="" srcDoc={preview.html} title="Vista previa del correo del resumen" />
+        </div>
+      )}
+    </details>
+  );
+}
+
 // ───────── Revisión de una reunión ─────────
 
 interface DraftTask {
@@ -426,6 +494,17 @@ export function MeetingReviewPage({ id }: { id: number }) {
               + Tarea
             </button>
           </section>
+
+          <MailPreview
+            meetingId={m.id}
+            content={{
+              projectId: m.projectId,
+              summary,
+              agreements: agreements.filter((a) => a.trim()),
+              tasks: tasks.filter((t) => t.include && t.title.trim()).map((t) => ({ title: t.title, side: t.side, dueDate: t.dueDate || null })),
+              to: [...recipients, ...extra.split(/[,;\s]+/).filter((e) => e.includes('@'))].join(', '),
+            }}
+          />
 
           <section className="card form-section confirm">
             <h2>Enviar el resumen a</h2>
