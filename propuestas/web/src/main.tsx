@@ -170,7 +170,7 @@ function App() {
       }}
     >
       <Routes me={me} path={path} />
-      {tour && path === '/' && (
+      {tour && (
         <Tour
           me={me}
           onClose={(done) => {

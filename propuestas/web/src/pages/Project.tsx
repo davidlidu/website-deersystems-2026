@@ -168,7 +168,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
         eyebrow={`${p.clientName} · aprobado el ${formatDate(p.approvedAt)}${p.approvedOption ? ` · ${p.approvedOption}` : ''}`}
         title={p.name}
       >
-        <div className="project-head">
+        <div className="project-head" data-tour="project-head">
           <ProgressBar progress={p.progress} size="lg" />
           <div className="project-head__facts">
             <span>
@@ -203,14 +203,14 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
           </div>
         </div>
         {me.role === 'client' && mine > 0 && (
-          <p className="callout">
+          <p className="callout" data-tour="project-callout">
             Tienes <strong>{mine}</strong> {mine === 1 ? 'tarea pendiente' : 'tareas pendientes'} de tu lado. Cuando la termines, márcala{' '}
             <em>En revisión</em> y nosotros la cerramos.
           </p>
         )}
       </PageHead>
 
-      <div className="tabs" role="tablist">
+      <div className="tabs" role="tablist" data-tour="project-tabs">
         {tabs.map(([t, label]) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'is-active' : ''} onClick={() => setTab(t)}>
             {label}
@@ -221,7 +221,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
       {tab === 'tareas' && (
         <section className="section section--flush">
           <div className="toolbar">
-            <div className="segmented" role="tablist" aria-label="Vista">
+            <div className="segmented" role="tablist" aria-label="Vista" data-tour="project-views">
               {(Object.keys(VIEWS) as View[]).map((v) => (
                 <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'is-active' : ''} onClick={() => chooseView(v)}>
                   {VIEWS[v]}
@@ -234,7 +234,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
               </button>
             )}
           </div>
-          <div className="filters">
+          <div className="filters" data-tour="project-filters">
             {(['todas', 'deersystems', 'cliente'] as const).map((f) => (
               <button key={f} className={`chip${sideFilter === f ? ' is-active' : ''}`} onClick={() => setSideFilter(f)}>
                 {{ todas: 'Todas', deersystems: 'DeerSystems', cliente: me.role === 'client' ? 'Mías' : 'Cliente' }[f]}
@@ -263,17 +263,19 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
               <input placeholder="Buscar tarea…" value={search} onChange={(e) => setSearch(e.target.value)} />
             </span>
           </div>
-          <TaskViews
-            view={view}
-            me={me}
-            project={p}
-            tasks={tasks}
-            onOpen={(t) => setDrawer({ taskId: t.id })}
-            onNew={(defaults) => setDrawer({ taskId: null, defaults })}
-            onStatus={setStatus}
-            onMove={moveTask}
-            onPhasesChange={reload}
-          />
+          <div data-tour="project-tasks">
+            <TaskViews
+              view={view}
+              me={me}
+              project={p}
+              tasks={tasks}
+              onOpen={(t) => setDrawer({ taskId: t.id })}
+              onNew={(defaults) => setDrawer({ taskId: null, defaults })}
+              onStatus={setStatus}
+              onMove={moveTask}
+              onPhasesChange={reload}
+            />
+          </div>
         </section>
       )}
 

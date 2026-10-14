@@ -76,7 +76,7 @@ El **% de avance** es tareas completadas / total. Los estados son fijos: Pendien
 - **Correo:** con la marca, enviado desde Gmail. Los avisos de unos minutos se juntan en un solo correo.
 - **Configuración → Avisos:** cada tipo de aviso se enciende o apaga en la plataforma y por correo. Además, cada cliente o persona del equipo elige los suyos en **Mi cuenta**: solo puede apagar, no encender lo que tú desactivaste.
 
-**Tour guiado:** al iniciar sesión se muestra un recorrido con los pasos de cada rol. «Terminar tour» lo guarda en la cuenta y no vuelve a salir en ningún dispositivo; «Ver después» lo pospone hasta el próximo inicio de sesión. El botón **?** del encabezado lo repite.
+**Tour guiado:** al iniciar sesión se muestra un recorrido con los pasos de cada rol. Abre el proyecto en curso con más tareas y explica el avance, las tareas pendientes del cliente, las pestañas, las vistas, los filtros y cómo cambiar el estado de las tareas (sin proyectos, esos pasos se omiten). «Terminar tour» lo guarda en la cuenta y no vuelve a salir en ningún dispositivo; «Ver después» lo pospone hasta el próximo inicio de sesión. El botón **?** del encabezado lo repite.
 
 **Reuniones (Calendar + Meet):**
 1. **Agendas desde la plataforma**, en *Reuniones* o en la pestaña *Reuniones* del proyecto. Eliges el proyecto en marcha, la fecha y hora, la duración, la agenda y a quién invitar (cliente, equipo y otros). Se crea en tu Google Calendar con Meet y Google envía las invitaciones. También se puede cancelar.

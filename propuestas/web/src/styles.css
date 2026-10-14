@@ -3741,3 +3741,9 @@ textarea:focus {
 .tour__finish:hover {
   color: var(--cian);
 }
+
+/* Mientras el tour cambia de página y espera el elemento */
+.tour__card.is-waiting {
+  opacity: 0.55;
+  pointer-events: none;
+}
