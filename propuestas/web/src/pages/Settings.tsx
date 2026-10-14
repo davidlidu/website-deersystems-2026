@@ -11,10 +11,14 @@ interface Price {
   input: number;
   output: number;
 }
-interface AiSettings {
+type Profile = 'propuestas' | 'reuniones';
+interface Route {
   primary: Target;
   fallback: Target | null;
   privateOnly: boolean;
+}
+interface AiSettings {
+  profiles: Record<Profile, Route>;
   monthlyBudgetUsd: number;
   prices: Record<string, Price>;
   keys: Record<Provider, { saved: string | null; fromEnv: boolean }>;
@@ -39,6 +43,23 @@ interface TestResult {
 }
 
 const PROVIDER_NAME: Record<Provider, string> = { gemini: 'Google Gemini', openrouter: 'OpenRouter' };
+
+const PROFILE_INFO: Record<Profile, { eyebrow: string; title: string; hint: string; privacy: string }> = {
+  propuestas: {
+    eyebrow: 'Uso 1',
+    title: 'Propuestas',
+    hint: 'Lee la propuesta aprobada, detecta las opciones (A / B) y arma el plan de trabajo.',
+    privacy:
+      'El contenido es tuyo, así que puedes usar modelos gratis. Si un modelo gratis falla con esta casilla activa, desmárcala y permite el entrenamiento con modelos gratis en openrouter.ai/settings/privacy.',
+  },
+  reuniones: {
+    eyebrow: 'Uso 2',
+    title: 'Reuniones y transcripciones',
+    hint: 'Resume las reuniones grabadas en Meet y saca las tareas de cada parte (fase 4).',
+    privacy:
+      'Recomendado activo: las transcripciones son conversaciones de tus clientes. Usa Gemini de pago o un modelo como anthropic/claude-haiku-5.5, no uno gratis.',
+  },
+};
 
 // ───────── IA ─────────
 
@@ -150,9 +171,7 @@ function AiTab() {
   const save = (extra: Partial<{ keys: Partial<Record<Provider, string>> }> = {}) =>
     run(async () => {
       const saved = await api<AiSettings>('PUT', 'settings/ai', {
-        primary: form.primary,
-        fallback: form.fallback,
-        privateOnly: form.privateOnly,
+        profiles: form.profiles,
         monthlyBudgetUsd: form.monthlyBudgetUsd,
         prices: form.prices,
         ...extra,
@@ -163,22 +182,31 @@ function AiTab() {
       toast('Configuración guardada.');
     });
 
-  const test = async (which: 'primary' | 'fallback') => {
-    const target = which === 'primary' ? form.primary : form.fallback;
+  const test = async (profile: Profile, which: 'primary' | 'fallback') => {
+    const route = form.profiles[profile];
+    const target = route[which];
+    const id = `${profile}.${which}`;
     if (!target?.model) return toast('Elige un modelo primero.', true);
-    setTesting(which);
+    setTesting(id);
     try {
-      setTests((t) => ({ ...t, [which]: null }));
-      const r = await api<TestResult>('POST', 'settings/ai/test', target);
-      setTests((t) => ({ ...t, [which]: r }));
+      setTests((t) => ({ ...t, [id]: null }));
+      // Se prueba lo que está en pantalla, aunque aún no se haya guardado.
+      const r = await api<TestResult>('POST', 'settings/ai/test', { profile, ...target, privateOnly: route.privateOnly });
+      setTests((t) => ({ ...t, [id]: r }));
     } catch (err) {
-      setTests((t) => ({ ...t, [which]: { ok: false, error: (err as Error).message } }));
+      setTests((t) => ({ ...t, [id]: { ok: false, error: (err as Error).message } }));
     } finally {
       setTesting(null);
     }
   };
 
-  const geminiModels = [form.primary, form.fallback].filter((t): t is Target => t?.provider === 'gemini' && !!t.model).map((t) => t.model);
+  const setRoute = (profile: Profile, patch: Partial<Route>) =>
+    setForm({ ...form, profiles: { ...form.profiles, [profile]: { ...form.profiles[profile], ...patch } } });
+
+  const geminiModels = Object.values(form.profiles)
+    .flatMap((r) => [r.primary, r.fallback])
+    .filter((t): t is Target => t?.provider === 'gemini' && !!t.model)
+    .map((t) => t.model);
   const priceModels = [...new Set([...geminiModels, ...Object.keys(form.prices)])];
 
   return (
@@ -215,45 +243,51 @@ function AiTab() {
         ))}
       </section>
 
-      <section className="card form-section">
-        <h2>Modelos</h2>
-        <ModelPicker label="Principal" value={form.primary} onChange={(primary) => setForm({ ...form, primary })} />
-        <div className="actions">
-          <button className="btn btn--outline btn--sm" onClick={() => test('primary')} disabled={testing !== null}>
-            {testing === 'primary' ? 'Probando…' : 'Probar conexión'}
-          </button>
-        </div>
-        <TestBadge result={tests.primary ?? null} />
-
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={!!form.fallback}
-            onChange={(e) => setForm({ ...form, fallback: e.target.checked ? { provider: 'openrouter', model: '' } : null })}
-          />
-          Usar un modelo de respaldo si el principal falla
-        </label>
-        {form.fallback && (
-          <>
-            <ModelPicker label="Respaldo" value={form.fallback} onChange={(fallback) => setForm({ ...form, fallback })} />
-            <div className="actions">
-              <button className="btn btn--outline btn--sm" onClick={() => test('fallback')} disabled={testing !== null}>
-                {testing === 'fallback' ? 'Probando…' : 'Probar conexión'}
-              </button>
+      {(Object.keys(PROFILE_INFO) as Profile[]).map((profile) => {
+        const route = form.profiles[profile];
+        const info = PROFILE_INFO[profile];
+        const testButton = (which: 'primary' | 'fallback') => (
+          <div className="actions">
+            <button className="btn btn--outline btn--sm" onClick={() => test(profile, which)} disabled={testing !== null}>
+              {testing === `${profile}.${which}` ? 'Probando…' : 'Probar conexión'}
+            </button>
+          </div>
+        );
+        return (
+          <section key={profile} className="card form-section">
+            <div>
+              <p className="eyebrow">{info.eyebrow}</p>
+              <h2>{info.title}</h2>
+              <p className="hint">{info.hint}</p>
             </div>
-            <TestBadge result={tests.fallback ?? null} />
-          </>
-        )}
+            <ModelPicker label="Principal" value={route.primary} onChange={(primary) => setRoute(profile, { primary })} />
+            {testButton('primary')}
+            <TestBadge result={tests[`${profile}.primary`] ?? null} />
 
-        <label className="check">
-          <input type="checkbox" checked={form.privateOnly} onChange={(e) => setForm({ ...form, privateOnly: e.target.checked })} />
-          OpenRouter: usar solo proveedores que no guardan ni entrenan con los datos (recomendado: son datos de tus clientes)
-        </label>
-        <p className="hint">
-          Si un modelo gratis falla con esta opción activa, es porque ningún proveedor gratis de ese modelo garantiza privacidad. Desactívala
-          solo si aceptas ese riesgo.
-        </p>
-      </section>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={!!route.fallback}
+                onChange={(e) => setRoute(profile, { fallback: e.target.checked ? { provider: 'openrouter', model: '' } : null })}
+              />
+              Usar un modelo de respaldo si el principal falla
+            </label>
+            {route.fallback && (
+              <>
+                <ModelPicker label="Respaldo" value={route.fallback} onChange={(fallback) => setRoute(profile, { fallback })} />
+                {testButton('fallback')}
+                <TestBadge result={tests[`${profile}.fallback`] ?? null} />
+              </>
+            )}
+
+            <label className="check">
+              <input type="checkbox" checked={route.privateOnly} onChange={(e) => setRoute(profile, { privateOnly: e.target.checked })} />
+              OpenRouter: usar solo proveedores que no guardan ni entrenan con los datos
+            </label>
+            <p className="hint">{info.privacy}</p>
+          </section>
+        );
+      })}
 
       <section className="card form-section">
         <h2>Costos y presupuesto</h2>

@@ -190,6 +190,7 @@ export interface ProposalOption {
 export async function detectOptions(proposal: Proposal) {
   const text = await proposalText(proposal);
   const { data, completion } = await completeJson<{ options?: unknown }>({
+    profile: 'propuestas',
     purpose: 'propuesta-opciones',
     system: 'Analizas propuestas comerciales de DeerSystems. Responde SOLO con JSON válido, en español.',
     prompt: `¿Esta propuesta le ofrece al cliente varias alternativas EXCLUYENTES entre las que debe elegir una (p. ej. "Opción A" y "Opción B", planes Básico/Pro, paquetes, modalidades de contratación)?
@@ -220,6 +221,7 @@ export async function extractDraft(proposal: Proposal, approval: Approval = { op
   const text = await proposalText(proposal);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
   const { data, completion } = await completeJson<Record<string, unknown>>({
+    profile: 'propuestas',
     purpose: 'propuesta',
     system: SYSTEM,
     prompt: prompt(text, today, approval),

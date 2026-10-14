@@ -16,20 +16,42 @@ export interface Price {
   output: number;
 }
 
-interface Stored {
+/**
+ * Cada uso tiene su propia configuración: las propuestas son tuyas y pueden ir a un modelo gratis;
+ * las transcripciones de reuniones son del cliente y van solo a proveedores privados.
+ */
+export type Profile = 'propuestas' | 'reuniones';
+export const PROFILES: Profile[] = ['propuestas', 'reuniones'];
+
+export interface Route {
   primary: Target;
   fallback: Target | null;
   /** OpenRouter: usar solo proveedores que no guardan ni entrenan con los datos. */
   privateOnly: boolean;
+}
+
+interface Stored {
+  profiles: Record<Profile, Route>;
   monthlyBudgetUsd: number;
   prices: Record<string, Price>;
   keys: Partial<Record<Provider, string>>; // cifradas
 }
 
+const DEFAULT_PROFILES: Record<Profile, Route> = {
+  propuestas: {
+    primary: { provider: 'gemini', model: 'gemini-flash-latest' },
+    fallback: { provider: 'openrouter', model: 'nvidia/nemotron-3-super-120b-a12b:free' },
+    privateOnly: false,
+  },
+  reuniones: {
+    primary: { provider: 'gemini', model: 'gemini-flash-latest' },
+    fallback: { provider: 'openrouter', model: 'anthropic/claude-haiku-5.5' },
+    privateOnly: true,
+  },
+};
+
 const DEFAULTS: Stored = {
-  primary: { provider: 'gemini', model: 'gemini-flash-latest' },
-  fallback: { provider: 'openrouter', model: 'nvidia/nemotron-3-super-120b-a12b:free' },
-  privateOnly: true,
+  profiles: DEFAULT_PROFILES,
   monthlyBudgetUsd: 5,
   // Referencia de Gemini Flash; ajústala en el panel con la tarifa vigente de ai.google.dev/pricing.
   prices: { 'gemini-flash-latest': { input: 0.3, output: 2.5 } },
@@ -37,7 +59,13 @@ const DEFAULTS: Stored = {
 };
 
 function stored(): Stored {
-  return { ...DEFAULTS, ...(getSetting<Partial<Stored>>('ai') ?? {}) };
+  const raw = getSetting<Partial<Stored> & Partial<Route>>('ai') ?? {};
+  const s: Stored = { ...DEFAULTS, ...raw, profiles: { ...DEFAULT_PROFILES, ...(raw.profiles ?? {}) } };
+  // Versión anterior: una sola configuración para todo. Pasa a ser la de propuestas.
+  if (!raw.profiles && raw.primary) {
+    s.profiles.propuestas = { primary: raw.primary, fallback: raw.fallback ?? null, privateOnly: raw.privateOnly ?? true };
+  }
+  return s;
 }
 
 function apiKey(provider: Provider, s = stored()): string | null {
@@ -48,9 +76,7 @@ function apiKey(provider: Provider, s = stored()): string | null {
 export function publicSettings() {
   const s = stored();
   return {
-    primary: s.primary,
-    fallback: s.fallback,
-    privateOnly: s.privateOnly,
+    profiles: s.profiles,
     monthlyBudgetUsd: s.monthlyBudgetUsd,
     prices: s.prices,
     keys: Object.fromEntries(
@@ -60,8 +86,9 @@ export function publicSettings() {
 }
 
 const isProvider = (v: unknown): v is Provider => v === 'gemini' || v === 'openrouter';
+export const isProfile = (v: unknown): v is Profile => v === 'propuestas' || v === 'reuniones';
 
-function parseTarget(v: unknown): Target | null {
+export function parseTarget(v: unknown): Target | null {
   if (!v || typeof v !== 'object') return null;
   const { provider, model } = v as Record<string, unknown>;
   if (!isProvider(provider) || typeof model !== 'string' || !model.trim()) return null;
@@ -71,10 +98,17 @@ function parseTarget(v: unknown): Target | null {
 /** Aplica lo que llega del panel. Una clave vacía ("") la borra; si no viene, se conserva. */
 export function saveSettings(body: Record<string, unknown>): void {
   const s = stored();
-  const primary = parseTarget(body.primary);
-  if (primary) s.primary = primary;
-  if ('fallback' in body) s.fallback = parseTarget(body.fallback);
-  if (typeof body.privateOnly === 'boolean') s.privateOnly = body.privateOnly;
+  if (body.profiles && typeof body.profiles === 'object') {
+    for (const [name, raw] of Object.entries(body.profiles as Record<string, Record<string, unknown>>)) {
+      if (!isProfile(name) || !raw || typeof raw !== 'object') continue;
+      const route = { ...s.profiles[name] };
+      const primary = parseTarget(raw.primary);
+      if (primary) route.primary = primary;
+      if ('fallback' in raw) route.fallback = parseTarget(raw.fallback);
+      if (typeof raw.privateOnly === 'boolean') route.privateOnly = raw.privateOnly;
+      s.profiles[name] = route;
+    }
+  }
   if (typeof body.monthlyBudgetUsd === 'number' && body.monthlyBudgetUsd >= 0) s.monthlyBudgetUsd = body.monthlyBudgetUsd;
   if (body.prices && typeof body.prices === 'object') {
     s.prices = {};
@@ -89,7 +123,7 @@ export function saveSettings(body: Record<string, unknown>): void {
       else delete s.keys[provider];
     }
   }
-  setSetting('ai', s);
+  setSetting('ai', { profiles: s.profiles, monthlyBudgetUsd: s.monthlyBudgetUsd, prices: s.prices, keys: s.keys });
 }
 
 export class AiError extends Error {}
@@ -105,6 +139,8 @@ export interface Completion {
 }
 
 interface Request {
+  /** Qué configuración usar: la de propuestas o la de reuniones. */
+  profile: Profile;
   /** Para qué se usó (aparece en el consumo): "propuesta", "reunion", "prueba"… */
   purpose: string;
   system: string;
@@ -113,7 +149,7 @@ interface Request {
   maxOutputTokens?: number;
 }
 
-async function callGemini(target: Target, key: string, req: Request, s: Stored): Promise<Omit<Completion, 'latencyMs'>> {
+async function callGemini(target: Target, key: string, req: Request, s: Stored, _privateOnly: boolean): Promise<Omit<Completion, 'latencyMs'>> {
   const model = target.model.replace(/^models\//, '');
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
@@ -147,7 +183,7 @@ async function callGemini(target: Target, key: string, req: Request, s: Stored):
   return { text, provider: 'gemini', model: target.model, inputTokens, outputTokens, costUsd };
 }
 
-async function callOpenRouter(target: Target, key: string, req: Request, s: Stored): Promise<Omit<Completion, 'latencyMs'>> {
+async function callOpenRouter(target: Target, key: string, req: Request, _s: Stored, privateOnly: boolean): Promise<Omit<Completion, 'latencyMs'>> {
   const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -166,7 +202,7 @@ async function callOpenRouter(target: Target, key: string, req: Request, s: Stor
       max_tokens: req.maxOutputTokens ?? 16384,
       usage: { include: true },
       ...(req.json ? { response_format: { type: 'json_object' } } : {}),
-      ...(s.privateOnly ? { provider: { data_collection: 'deny' } } : {}),
+      ...(privateOnly ? { provider: { data_collection: 'deny' } } : {}),
     }),
     signal: AbortSignal.timeout(180_000),
   });
@@ -178,7 +214,7 @@ async function callOpenRouter(target: Target, key: string, req: Request, s: Stor
   };
   if (!r.ok || data.error) {
     const hint =
-      s.privateOnly && /no endpoints|data policy|guardrail/i.test(data.error?.message ?? '')
+      privateOnly && /no endpoints|data policy|guardrail/i.test(data.error?.message ?? '')
         ? ' Ningún proveedor de este modelo cumple "solo proveedores privados".'
         : '';
     throw new AiError(`OpenRouter ${r.status}: ${data.error?.message ?? 'error desconocido'}.${hint}`);
@@ -196,7 +232,7 @@ async function callOpenRouter(target: Target, key: string, req: Request, s: Stor
 }
 
 /** Llama a un modelo concreto y registra el consumo, salga bien o mal. */
-async function callTarget(target: Target, req: Request, s: Stored): Promise<Completion> {
+async function callTarget(target: Target, req: Request, s: Stored, privateOnly: boolean): Promise<Completion> {
   const started = Date.now();
   const log = (c: Partial<Completion>, error: string | null) =>
     logUsage({
@@ -217,7 +253,7 @@ async function callTarget(target: Target, req: Request, s: Stored): Promise<Comp
     throw new AiError(message);
   }
   try {
-    const result = await (target.provider === 'gemini' ? callGemini : callOpenRouter)(target, key, req, s);
+    const result = await (target.provider === 'gemini' ? callGemini : callOpenRouter)(target, key, req, s, privateOnly);
     log(result, null);
     return { ...result, latencyMs: Date.now() - started };
   } catch (err) {
@@ -230,15 +266,18 @@ async function callTarget(target: Target, req: Request, s: Stored): Promise<Comp
 /** Usa el modelo principal y, si falla, el de respaldo. */
 export async function complete(req: Request): Promise<Completion> {
   const s = stored();
+  const route = s.profiles[req.profile];
   try {
-    return await callTarget(s.primary, req, s);
+    return await callTarget(route.primary, req, s, route.privateOnly);
   } catch (err) {
-    if (!s.fallback) throw err;
+    if (!route.fallback) throw err;
     console.warn(`IA principal falló (${(err as Error).message}); probando el respaldo.`);
     try {
-      return await callTarget(s.fallback, req, s);
+      return await callTarget(route.fallback, req, s, route.privateOnly);
     } catch (fallbackErr) {
-      throw new AiError(`Principal (${s.primary.model}): ${(err as Error).message} · Respaldo (${s.fallback.model}): ${(fallbackErr as Error).message}`);
+      throw new AiError(
+        `Principal (${route.primary.model}): ${(err as Error).message} · Respaldo (${route.fallback.model}): ${(fallbackErr as Error).message}`,
+      );
     }
   }
 }
@@ -255,13 +294,17 @@ export async function completeJson<T>(req: Omit<Request, 'json'>): Promise<{ dat
   }
 }
 
-/** Prueba de conexión: un mensaje mínimo al modelo indicado (o al principal). */
-export async function testConnection(target?: Target) {
+/**
+ * Prueba de conexión: un mensaje mínimo al modelo indicado (aunque aún no esté guardado),
+ * con la regla de privacidad del perfil, o la que llegue del panel.
+ */
+export async function testConnection(profile: Profile, target?: Target, privateOnly?: boolean) {
   const s = stored();
-  const t = target ?? s.primary;
+  const route = s.profiles[profile];
   const c = await callTarget(
-    t,
+    target ?? route.primary,
     {
+      profile,
       purpose: 'prueba',
       system: 'Responde únicamente con JSON.',
       prompt: 'Devuelve exactamente {"ok": true, "saludo": "<un saludo corto en español>"}',
@@ -269,6 +312,7 @@ export async function testConnection(target?: Target) {
       maxOutputTokens: 512,
     },
     s,
+    privateOnly ?? route.privateOnly,
   );
   return { ...c, text: c.text.slice(0, 300) };
 }

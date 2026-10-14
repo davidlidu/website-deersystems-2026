@@ -604,10 +604,11 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     case 'POST settings/ai/test': {
       requireOwner(v);
       const body = await readJson(req);
-      const provider = ai.PROVIDERS.find((p) => p === body.provider);
-      const target = provider && typeof body.model === 'string' && body.model ? { provider, model: body.model } : undefined;
+      const profile = ai.isProfile(body.profile) ? body.profile : 'propuestas';
+      const target = ai.parseTarget(body) ?? undefined;
+      const privateOnly = typeof body.privateOnly === 'boolean' ? body.privateOnly : undefined;
       try {
-        return json(res, 200, { ok: true, ...(await ai.testConnection(target)) });
+        return json(res, 200, { ok: true, ...(await ai.testConnection(profile, target, privateOnly)) });
       } catch (err) {
         return json(res, 200, { ok: false, error: (err as Error).message });
       }
