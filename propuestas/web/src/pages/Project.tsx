@@ -28,7 +28,9 @@ const TABS: Tab[] = ['tareas', 'reuniones', 'avances', 'notas', 'archivos', 'bit
 /** La vista elegida se recuerda en este navegador. */
 function storedView(): View {
   try {
-    const v = localStorage.getItem('ds:view') as View | null;
+    const saved = localStorage.getItem('ds:view');
+    // La antigua vista «Semana» ahora es el cronograma.
+    const v = (saved === 'semana' ? 'cronograma' : saved) as View | null;
     return v && v in VIEWS ? v : 'lista';
   } catch {
     return 'lista';

@@ -10,7 +10,6 @@ import {
   isOverdue,
   monthGrid,
   startOfMonth,
-  startOfWeek,
   STATUS,
   STATUSES,
   today,
@@ -20,10 +19,11 @@ import {
   type TaskStatus,
 } from '../../lib';
 import { StatusPill, useAction } from '../../ui';
+import { GanttView } from './Gantt';
 import type { TaskDefaults } from './TaskDrawer';
 
-export type View = 'lista' | 'tablero' | 'semana' | 'calendario';
-export const VIEWS: Record<View, string> = { lista: 'Lista', tablero: 'Tablero', semana: 'Semana', calendario: 'Calendario' };
+export type View = 'lista' | 'tablero' | 'cronograma' | 'calendario';
+export const VIEWS: Record<View, string> = { lista: 'Lista', tablero: 'Tablero', cronograma: 'Cronograma', calendario: 'Calendario' };
 
 interface Props {
   me: Me;
@@ -383,41 +383,6 @@ function initialDay(project: ProjectDetail): string {
   return t;
 }
 
-function WeekView(props: Props) {
-  const [week, setWeek] = useState(() => startOfWeek(initialDay(props.project)));
-  const byDay = useByDay(props.tasks);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(week, i));
-  const end = days[6];
-  // Tareas que siguen en curso esta semana pero se entregan después.
-  const ongoing = props.tasks.filter((t) => t.startDate && t.dueDate && t.startDate <= end && t.dueDate > end && t.status !== 'completada');
-  return (
-    <>
-      <CalendarNav
-        label={`${dayLabel(week, { day: 'numeric', month: 'short' })} – ${dayLabel(end, { day: 'numeric', month: 'short', year: 'numeric' })}`}
-        onPrev={() => setWeek(addDays(week, -7))}
-        onNext={() => setWeek(addDays(week, 7))}
-        onToday={() => setWeek(startOfWeek(today()))}
-      />
-      {ongoing.length > 0 && (
-        <div className="unscheduled">
-          <span className="field__label">En curso esta semana, con entrega posterior</span>
-          <div className="unscheduled__list">
-            {ongoing.map((t) => (
-              <TaskChip key={t.id} task={t} onOpen={props.onOpen} draggable={false} />
-            ))}
-          </div>
-        </div>
-      )}
-      <div className="week">
-        {days.map((d) => (
-          <DayCell key={d} {...props} day={d} tasks={byDay.get(d) ?? []} all={props.tasks} />
-        ))}
-      </div>
-      <Unscheduled tasks={props.tasks.filter((t) => !dayOf(t))} onOpen={props.onOpen} />
-    </>
-  );
-}
-
 function MonthView(props: Props) {
   const [month, setMonth] = useState(() => startOfMonth(initialDay(props.project)));
   const byDay = useByDay(props.tasks);
@@ -447,7 +412,7 @@ function MonthView(props: Props) {
 
 export function TaskViews({ view, ...props }: Props & { view: View }) {
   if (view === 'tablero') return <BoardView {...props} />;
-  if (view === 'semana') return <WeekView {...props} />;
+  if (view === 'cronograma') return <GanttView {...props} />;
   if (view === 'calendario') return <MonthView {...props} />;
   return <ListView {...props} />;
 }

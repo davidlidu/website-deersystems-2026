@@ -810,3 +810,34 @@ export function setAttachmentSource(id: number, fields: { drive_url: string | nu
 /** Archivos compartidos que aún no tienen el acceso por enlace (subidos antes de este cambio, o si falló). */
 export const pendingLinkShares = () =>
   all<Attachment & AttachmentExtra>("SELECT * FROM attachments WHERE visibility = 'shared' AND link_shared = 0 ORDER BY id LIMIT 50");
+
+// Preferencias de avisos de cada persona (cliente o equipo): {tipo: {app, email}}. Solo pueden apagar.
+addColumn('accounts', 'notify_prefs', "TEXT NOT NULL DEFAULT '{}'");
+
+export type PersonalPrefs = Record<string, { app?: boolean; email?: boolean }>;
+
+export function getPersonalPrefs(accountId: number): PersonalPrefs {
+  const row = one<{ p: string }>('SELECT notify_prefs AS p FROM accounts WHERE id = ?', accountId);
+  try {
+    return row ? (JSON.parse(row.p) as PersonalPrefs) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function setPersonalPrefs(accountId: number, prefs: PersonalPrefs): void {
+  db.prepare('UPDATE accounts SET notify_prefs = ? WHERE id = ?').run(JSON.stringify(prefs), accountId);
+}
+
+// Tour guiado: si la persona lo terminó, no se vuelve a mostrar (en ningún dispositivo).
+addColumn('accounts', 'tour_done', 'INTEGER NOT NULL DEFAULT 0');
+
+export function tourDone(accountId: number | null): boolean {
+  if (accountId === null) return !!getSetting<boolean>('owner_tour_done');
+  return !!one<{ d: number }>('SELECT tour_done AS d FROM accounts WHERE id = ?', accountId)?.d;
+}
+
+export function setTourDone(accountId: number | null, done: boolean): void {
+  if (accountId === null) setSetting('owner_tour_done', done);
+  else db.prepare('UPDATE accounts SET tour_done = ? WHERE id = ?').run(done ? 1 : 0, accountId);
+}

@@ -12,6 +12,17 @@ export interface DraftTask {
   dueDate: string | null;
 }
 
+/** Reunión de avance con el cliente que propone el plan (inicio, cierre de fase, entrega). */
+export interface DraftMeeting {
+  title: string;
+  /** Índice de la fase en `phases` donde queda como tarea. */
+  phaseIndex: number;
+  date: string | null;
+  time: string;
+  durationMinutes: number;
+  purpose: string;
+}
+
 export interface Draft {
   projectName: string;
   clientName: string;
@@ -29,6 +40,7 @@ export interface Draft {
   /** Ajustes acordados al aprobar ("sin app móvil", "pago en 3 cuotas"…). */
   approvalNotes: string;
   phases: { name: string; tasks: DraftTask[] }[];
+  meetings: DraftMeeting[];
   warnings: string[];
 }
 
@@ -108,6 +120,14 @@ Devuelve este JSON:
         }
       ]
     }
+  ],
+  "meetings": [
+    {
+      "title": "Reunión de avance con el cliente: <qué se muestra>",
+      "phase": "nombre exacto de la fase a la que pertenece",
+      "date": "YYYY-MM-DD",
+      "purpose": "qué se revisa o se presenta al cliente, 1 frase"
+    }
   ]
 }
 
@@ -117,6 +137,7 @@ Reglas:
 - Incluye las tareas del cliente necesarias para que el proyecto avance (accesos, insumos, aprobaciones).
 - Entre 3 y 7 fases y entre 2 y 8 tareas por fase. Nada genérico: cada tarea debe salir de la propuesta.
 - Si un dato no aparece, usa "" (texto) y no lo inventes.
+- "meetings": reuniones con el cliente para mostrar avances. Incluye un arranque (kickoff) en los primeros 3 días hábiles, una al cierre de cada fase principal para presentar lo avanzado y validar, y una de entrega final. Entre 3 y 6 en total, en días hábiles, con fecha coherente con el cronograma.
 
 PROPUESTA:
 """
@@ -142,6 +163,22 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
       }))
       .filter((t) => t.title),
   }));
+  const meetings: DraftMeeting[] = (Array.isArray(raw.meetings) ? raw.meetings : [])
+    .slice(0, 12)
+    .map((m: Record<string, unknown>) => {
+      const phaseName = str(m?.phase, 120).toLowerCase();
+      const byName = phases.findIndex((p) => p.name.toLowerCase() === phaseName);
+      const idx = Number.isInteger(m?.phaseIndex) ? Number(m.phaseIndex) : byName;
+      return {
+        title: str(m?.title, 200),
+        phaseIndex: idx >= 0 && idx < phases.length ? idx : 0,
+        date: date(m?.date),
+        time: typeof m?.time === 'string' && /^\d{2}:\d{2}$/.test(m.time) ? m.time : '10:00',
+        durationMinutes: Math.min(240, Math.max(15, Number(m?.durationMinutes) || 45)),
+        purpose: str(m?.purpose, 500),
+      };
+    })
+    .filter((m) => m.title);
   const draft: Draft = {
     projectName: str(raw.projectName, 120),
     clientName: str(raw.clientName, 160),
@@ -155,6 +192,7 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
     approvedOption: str(raw.approvedOption, 160),
     approvalNotes: str(raw.approvalNotes, 2000),
     phases,
+    meetings,
     warnings: [],
   };
   if (mentionsPrice(draft.scope)) {

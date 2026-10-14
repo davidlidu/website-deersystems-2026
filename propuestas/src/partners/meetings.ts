@@ -470,6 +470,92 @@ function readContent(body: Record<string, unknown>) {
   };
 }
 
+// ───────── Agendar ─────────
+
+export interface ScheduleInput {
+  title: string;
+  date: string | null;
+  time: string | null;
+  durationMinutes: number;
+  agenda: string;
+  includeClient: boolean;
+  teamIds: number[];
+  guests: string[];
+}
+
+/**
+ * Crea la reunión con Meet en tu Calendar (Google envía las invitaciones) y la deja asignada al proyecto.
+ * La usan el formulario de agendar y la aprobación de propuestas (reuniones de avance).
+ */
+export async function scheduleMeeting(project: db.Project, input: ScheduleInput, v: Viewer): Promise<Row> {
+  if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para agendar reuniones.');
+  if (!google.hasAnyScope('calendar.events')) throw new HttpError(403, 'Falta el permiso para crear eventos: vuelve a conectar Google en Configuración.');
+  const time = input.time && /^\d{2}:\d{2}$/.test(input.time) ? input.time : null;
+  if (!input.date || !time) throw new HttpError(400, 'Elige la fecha y la hora.');
+  const minutes = Math.min(480, Math.max(15, input.durationMinutes || 45));
+  // Colombia no cambia de horario: -05:00 todo el año.
+  const start = new Date(`${input.date}T${time}:00-05:00`);
+  if (start.getTime() < Date.now() - 5 * 60_000) throw new HttpError(400, 'La fecha ya pasó.');
+  const end = new Date(start.getTime() + minutes * 60_000);
+  const client = db.getClient(project.client_id)!;
+  const account = db.getClientAccount(client.id);
+  const emails = new Set<string>();
+  if (input.includeClient) emails.add((account?.email ?? client.email).toLowerCase());
+  const teamIds = new Set(input.teamIds);
+  for (const a of db.listTeam()) if (a.active && teamIds.has(a.id)) emails.add(a.email.toLowerCase());
+  for (const g of input.guests) {
+    const e = g.trim().toLowerCase();
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) emails.add(e);
+  }
+  emails.delete(SUPERADMIN_EMAIL); // tú eres el organizador
+  if (!emails.size) throw new HttpError(400, 'Invita al menos a una persona.');
+  const title = input.title.trim().slice(0, 200) || `Reunión · ${project.name}`;
+  const agenda = input.agenda.trim().slice(0, 4000);
+
+  let event: google.CalendarEvent;
+  try {
+    event = await google.createCalendarEvent({
+      summary: title,
+      description: [agenda, `Proyecto: ${project.name}`, `Sigue el proyecto en ${PARTNERS_URL}`].filter(Boolean).join('\n\n'),
+      startIso: start.toISOString(),
+      endIso: end.toISOString(),
+      attendees: [...emails],
+      privateProps: { dsPartners: '1', dsProject: String(project.id) },
+    });
+  } catch (err) {
+    throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+  }
+  const staff = staffEmails();
+  const clients = clientByEmail();
+  let m: Row;
+  try {
+    m = insert({
+    event_id: event.id,
+    client_id: client.id,
+    project_id: project.id,
+    title,
+    start_at: start.toISOString(),
+    end_at: end.toISOString(),
+    meet_code: meetCodeOf(event),
+    meet_url: event.hangoutLink ?? null,
+    calendar_url: event.htmlLink ?? null,
+    attendees: JSON.stringify(
+      [...emails].map((email) => ({ email, name: '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' })),
+    ),
+    status: 'programada',
+    });
+  } catch (err) {
+    // Si no se pudo registrar aquí, se cancela en Calendar para no dejar invitaciones huérfanas.
+    await google.cancelCalendarEvent(event.id).catch(() => {});
+    throw err;
+  }
+  const a = actor(v);
+  const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+  db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'meeting_scheduled', data: { title, when } });
+  notify('meeting_scheduled', { actor: v, projectId: project.id, title: `Reunión agendada: «${title}»`, body: when, path: `/proyectos/${project.id}?tab=reuniones` });
+  return m;
+}
+
 // ───────── API ─────────
 
 export async function handleMeetings(route: string, id: number, req: IncomingMessage, res: ServerResponse, v: Viewer, url: URL): Promise<boolean> {
@@ -514,66 +600,17 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
     case 'POST projects/:id/meetings/schedule': {
       requireOwner(v);
       const project = visibleProject(id, v);
-      if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para agendar reuniones.');
-      if (!google.hasAnyScope('calendar.events')) throw new HttpError(403, 'Falta el permiso para crear eventos: vuelve a conectar Google en Configuración.');
       const body = await readJson(req);
-      const date = optDate(body.date);
-      const time = typeof body.time === 'string' && /^\d{2}:\d{2}$/.test(body.time) ? body.time : null;
-      if (!date || !time) throw new HttpError(400, 'Elige la fecha y la hora.');
-      const minutes = Math.min(480, Math.max(15, Number(body.durationMinutes) || 45));
-      // Colombia no cambia de horario: -05:00 todo el año.
-      const start = new Date(`${date}T${time}:00-05:00`);
-      if (start.getTime() < Date.now() - 5 * 60_000) throw new HttpError(400, 'La fecha ya pasó.');
-      const end = new Date(start.getTime() + minutes * 60_000);
-      const client = db.getClient(project.client_id)!;
-      const account = db.getClientAccount(client.id);
-      const emails = new Set<string>();
-      if (body.includeClient !== false) emails.add((account?.email ?? client.email).toLowerCase());
-      const teamIds = new Set((Array.isArray(body.team) ? body.team : []).map(Number));
-      for (const a of db.listTeam()) if (a.active && teamIds.has(a.id)) emails.add(a.email.toLowerCase());
-      for (const g of Array.isArray(body.guests) ? body.guests : []) {
-        const e = str(g, 200).toLowerCase();
-        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) emails.add(e);
-      }
-      emails.delete(SUPERADMIN_EMAIL); // tú eres el organizador
-      if (!emails.size) throw new HttpError(400, 'Invita al menos a una persona.');
-      const title = str(body.title, 200) || `Reunión · ${project.name}`;
-      const agenda = typeof body.agenda === 'string' ? body.agenda.trim().slice(0, 4000) : '';
-
-      let event: google.CalendarEvent;
-      try {
-        event = await google.createCalendarEvent({
-          summary: title,
-          description: [agenda, `Proyecto: ${project.name}`, `Sigue el proyecto en ${PARTNERS_URL}`].filter(Boolean).join('\n\n'),
-          startIso: start.toISOString(),
-          endIso: end.toISOString(),
-          attendees: [...emails],
-          privateProps: { dsPartners: '1', dsProject: String(project.id) },
-        });
-      } catch (err) {
-        throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
-      }
-      const staff = staffEmails();
-      const clients = clientByEmail();
-      const m = insert({
-        event_id: event.id,
-        client_id: client.id,
-        project_id: project.id,
-        title,
-        start_at: start.toISOString(),
-        end_at: end.toISOString(),
-        meet_code: meetCodeOf(event),
-        meet_url: event.hangoutLink ?? null,
-        calendar_url: event.htmlLink ?? null,
-        attendees: JSON.stringify(
-          [...emails].map((email) => ({ email, name: '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' })),
-        ),
-        status: 'programada',
-      });
-      const a = actor(v);
-      const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
-      db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'meeting_scheduled', data: { title, when } });
-      notify('meeting_scheduled', { actor: v, projectId: project.id, title: `Reunión agendada: «${title}»`, body: when, path: `/proyectos/${project.id}?tab=reuniones` });
+      const m = await scheduleMeeting(project, {
+        title: str(body.title, 200),
+        date: optDate(body.date) ?? null,
+        time: typeof body.time === 'string' ? body.time : null,
+        durationMinutes: Number(body.durationMinutes) || 45,
+        agenda: typeof body.agenda === 'string' ? body.agenda : '',
+        includeClient: body.includeClient !== false,
+        teamIds: (Array.isArray(body.team) ? body.team : []).map(Number),
+        guests: (Array.isArray(body.guests) ? body.guests : []).map((g) => str(g, 200)),
+      }, v);
       json(res, 201, view(m, v));
       return true;
     }

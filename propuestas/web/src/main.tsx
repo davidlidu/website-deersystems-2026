@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Bell } from './Bell';
+import { Tour, tourPostponed } from './Tour';
 import { api, match, navigate, useLocation, type Me } from './lib';
 import { AccountPage } from './pages/Account';
 import { ApprovePage } from './pages/Approve';
@@ -48,7 +49,7 @@ function Nav({ me, path }: { me: Me; path: string }) {
       {items.map(([to, label]) => {
         const active = to === '/' ? path === '/' || path.startsWith('/clientes') || path.startsWith('/proyectos') : path.startsWith(to);
         return (
-          <Link key={to} to={to} className={`nav__link${active ? ' is-active' : ''}`} aria-current={active ? 'page' : undefined}>
+          <Link key={to} to={to} data-tour={`nav-${to}`} className={`nav__link${active ? ' is-active' : ''}`} aria-current={active ? 'page' : undefined}>
             {label}
           </Link>
         );
@@ -57,7 +58,7 @@ function Nav({ me, path }: { me: Me; path: string }) {
   );
 }
 
-function Shell({ me, children, path }: { me: Me; children: React.ReactNode; path: string }) {
+function Shell({ me, children, path, onTour }: { me: Me; children: React.ReactNode; path: string; onTour: () => void }) {
   const logout = async () => {
     await api('POST', '/auth/logout').catch(() => {});
     location.href = '/login';
@@ -70,13 +71,16 @@ function Shell({ me, children, path }: { me: Me; children: React.ReactNode; path
           <Wordmark />
           <Nav me={me} path={path} />
           <div className="topbar__user">
+            <button className="help-btn" data-tour="help" onClick={onTour} title="Ver el recorrido guiado" aria-label="Ver el recorrido guiado">
+              ?
+            </button>
             <Bell />
             <span className="topbar__who">
               <span>{me.name || me.email}</span>
               <span className="mono">{roleLabel}</span>
             </span>
             {me.role !== 'owner' && (
-              <Link className="btn btn--outline btn--sm" to="/cuenta">
+              <Link className="btn btn--outline btn--sm" to="/cuenta" data-tour="account">
                 Mi cuenta
               </Link>
             )}
@@ -121,6 +125,15 @@ function Routes({ me, path }: { me: Me; path: string }) {
 function App() {
   const { path } = useLocation();
   const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const [tour, setTour] = useState(false);
+
+  // Al iniciar sesión: si no lo ha terminado ni lo pospuso en esta sesión, se abre el tour (en el inicio).
+  useEffect(() => {
+    if (me && !me.tourDone && !tourPostponed()) {
+      if (location.pathname !== '/') navigate('/', true);
+      setTour(true);
+    }
+  }, [me?.email]); // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState<string | null>(null);
   const isPublic = PUBLIC_PATHS.includes(path);
 
@@ -148,8 +161,24 @@ function App() {
   }
   if (!me) return <Loading />;
   return (
-    <Shell me={me} path={path}>
+    <Shell
+      me={me}
+      path={path}
+      onTour={() => {
+        navigate('/');
+        setTour(true);
+      }}
+    >
       <Routes me={me} path={path} />
+      {tour && path === '/' && (
+        <Tour
+          me={me}
+          onClose={(done) => {
+            setTour(false);
+            if (done) setMe({ ...me, tourDone: true });
+          }}
+        />
+      )}
     </Shell>
   );
 }

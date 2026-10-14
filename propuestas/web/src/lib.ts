@@ -89,6 +89,8 @@ export function match(pattern: string, path: string): Record<string, string> | n
 export type Role = 'owner' | 'team' | 'client';
 
 export interface Me {
+  /** Ya terminó el tour guiado: no se vuelve a mostrar solo. */
+  tourDone?: boolean;
   email: string;
   name: string;
   role: Role;

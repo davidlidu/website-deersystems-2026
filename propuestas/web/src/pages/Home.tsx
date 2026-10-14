@@ -39,7 +39,7 @@ function ClientHome({ me }: { me: Me }) {
       <PageHead eyebrow={me.client?.name ?? 'Tu espacio'} title={<>Hola, <span className="grad">{me.name.split(' ')[0] || 'bienvenido'}</span></>}>
         <p>Aquí ves el avance de tus proyectos con DeerSystems, las tareas de cada parte y el historial.</p>
       </PageHead>
-      <section className="section">
+      <section className="section" data-tour="projects">
         <div className="section__head">
           <h2>En curso</h2>
           <span className="mono">{current.length}</span>
@@ -101,7 +101,7 @@ function StaffHome({ me }: { me: Me }) {
         </p>
       </PageHead>
 
-      <section className="section">
+      <section className="section" data-tour="projects">
         <div className="section__head">
           <h2>Activos</h2>
           <span className="mono">{active.length}</span>

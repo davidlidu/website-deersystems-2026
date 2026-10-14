@@ -49,7 +49,7 @@ Los datos viven en `DATA_DIR`: `propuestas.sqlite` y `files/{id}/v{versión}/`.
 | Equipo | Correo y contraseña | Clientes, proyectos y tareas. **Nunca precios** ni la propuesta original |
 | Cliente | Correo y contraseña | Solo sus proyectos (en curso e historial), su alcance y sus valores. Solo cambia el estado de sus tareas, sin poder completarlas |
 
-**Flujo:** en el panel de propuestas, *Propuesta aprobada* → la IA lee la propuesta y sugiere cliente, alcance (sin valores), valores, fases, tareas de cada parte y fechas → lo revisas y confirmas → se crean el cliente, su cuenta y el proyecto, y se le envía la contraseña por Gmail. Si el cliente ya existe, el proyecto se suma a su historial.
+**Flujo:** en el panel de propuestas, *Propuesta aprobada* → la IA lee la propuesta y sugiere cliente, alcance (sin valores), valores, fases, tareas de cada parte, fechas y **reuniones de avance** con el cliente (arranque, cierre de fase, entrega). Cada reunión queda como tarea en su fase, y las que marques se agendan en Google Calendar con Meet al crear el proyecto → lo revisas y confirmas → se crean el cliente, su cuenta y el proyecto, y se le envía la contraseña por Gmail. Si el cliente ya existe, el proyecto se suma a su historial.
 
 El **% de avance** es tareas completadas / total. Los estados son fijos: Pendiente, En progreso, En revisión, Bloqueada y Completada.
 
@@ -57,7 +57,8 @@ El **% de avance** es tareas completadas / total. Los estados son fijos: Pendien
 - **Tareas** en cuatro vistas:
   - **Lista** por fase.
   - **Tablero** por estado: se arrastra la tarea de una columna a otra.
-  - **Semana** y **Calendario** por fecha de entrega: el equipo arrastra una tarea a otro día y se conserva su duración.
+  - **Cronograma** (Gantt): barras de inicio a entrega por fase, con la línea de hoy y escala de días, semanas o meses. El equipo arrastra una barra para moverla o estira sus bordes para cambiar las fechas.
+  - **Calendario** por fecha de entrega: el equipo arrastra una tarea a otro día y se conserva su duración.
 - **Filtros** por lado (DeerSystems o cliente), responsable, texto y completadas. **Panel de detalle** de cada tarea con comentarios e historial.
 - **Avances**: los publica el equipo para el cliente.
 - **Notas**: compartidas, o internas que el cliente nunca ve.
@@ -73,7 +74,9 @@ El **% de avance** es tareas completadas / total. Los estados son fijos: Pendien
 **Avisos:**
 - **Campana del encabezado:** a ti y al equipo les llegan los comentarios, notas, cambios de estado y archivos del cliente. Al cliente le llegan los avances, las tareas nuevas para él, los comentarios y los archivos de DeerSystems. Cada aviso abre la tarea o la pestaña exacta.
 - **Correo:** con la marca, enviado desde Gmail. Los avisos de unos minutos se juntan en un solo correo.
-- **Configuración → Avisos:** cada tipo de aviso se enciende o apaga en la plataforma y por correo.
+- **Configuración → Avisos:** cada tipo de aviso se enciende o apaga en la plataforma y por correo. Además, cada cliente o persona del equipo elige los suyos en **Mi cuenta**: solo puede apagar, no encender lo que tú desactivaste.
+
+**Tour guiado:** al iniciar sesión se muestra un recorrido con los pasos de cada rol. «Terminar tour» lo guarda en la cuenta y no vuelve a salir en ningún dispositivo; «Ver después» lo pospone hasta el próximo inicio de sesión. El botón **?** del encabezado lo repite.
 
 **Reuniones (Calendar + Meet):**
 1. **Agendas desde la plataforma**, en *Reuniones* o en la pestaña *Reuniones* del proyecto. Eliges el proyecto en marcha, la fecha y hora, la duración, la agenda y a quién invitar (cliente, equipo y otros). Se crea en tu Google Calendar con Meet y Google envía las invitaciones. También se puede cancelar.

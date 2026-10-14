@@ -30,6 +30,7 @@ interface Draft {
   approvedOption: string;
   approvalNotes: string;
   phases: { name: string; tasks: Omit<DraftTask, 'key' | 'assigneeId'>[] }[];
+  meetings: { title: string; phaseIndex: number; date: string | null; time: string; durationMinutes: number; purpose: string }[];
   warnings: string[];
 }
 interface ProposalOption {
@@ -47,11 +48,24 @@ interface ClientRow {
   name: string;
   email: string;
 }
+/** Reunión de avance con el cliente propuesta por el plan. `phaseKey` apunta a la fase en pantalla. */
+interface DraftMeeting {
+  key: string;
+  title: string;
+  phaseKey: string;
+  date: string;
+  time: string;
+  durationMinutes: number;
+  purpose: string;
+  schedule: boolean;
+}
+
 interface Result {
   project: { id: number; name: string };
   client: { name: string; email: string };
   password: string | null;
   mail: { sent: boolean; error?: string };
+  meetings: { scheduled: number; errors: string[] };
 }
 
 const key = () => Math.random().toString(36).slice(2);
@@ -63,7 +77,9 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const proposals = useApi<ProposalRow[]>('proposals');
   const clients = useApi<ClientRow[]>('clients');
   const team = useApi<TeamMember[]>('team');
-  const google = useApi<{ connected: boolean }>('settings/google');
+  const google = useApi<{ connected: boolean; missingScopes?: string[] }>('settings/google');
+  const canSchedule = !!google.data?.connected && !google.data.missingScopes?.some((sc) => sc.endsWith('calendar.events'));
+  const [meetings, setMeetings] = useState<DraftMeeting[]>([]);
   const toast = useToast();
   const { busy, run } = useAction();
 
@@ -118,8 +134,19 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           startDate: draft.startDate ?? today(),
           endDate: draft.endDate ?? '',
         });
-        setPhases(
-          draft.phases.map((ph) => ({ key: key(), name: ph.name, tasks: ph.tasks.map((t) => ({ ...t, key: key(), assigneeId: null })) })),
+        const newPhases = draft.phases.map((ph) => ({ key: key(), name: ph.name, tasks: ph.tasks.map((t) => ({ ...t, key: key(), assigneeId: null })) }));
+        setPhases(newPhases);
+        setMeetings(
+          (draft.meetings ?? []).map((m) => ({
+            key: key(),
+            title: m.title,
+            phaseKey: newPhases[m.phaseIndex]?.key ?? newPhases[0]?.key ?? '',
+            date: m.date ?? '',
+            time: m.time,
+            durationMinutes: m.durationMinutes,
+            purpose: m.purpose,
+            schedule: true,
+          })),
         );
         setStarted(true);
       })
@@ -169,6 +196,17 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           ) : (
             result.mail.error && <p className="alert">El correo no salió: {result.mail.error}</p>
           )}
+          {result.meetings.scheduled > 0 && (
+            <p className="callout">
+              Se agendaron {result.meetings.scheduled} {result.meetings.scheduled === 1 ? 'reunión' : 'reuniones'} de avance en tu Google Calendar; el cliente recibió las
+              invitaciones.
+            </p>
+          )}
+          {result.meetings.errors.map((e) => (
+            <p key={e} className="alert">
+              No se agendó {e}
+            </p>
+          ))}
           {result.password && (
             <SecretBox
               label={`Contraseña de ${result.client.email}`}
@@ -216,11 +254,22 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     if (!taskCount) return toast('Agrega al menos una tarea.', true);
     if (priceWarning && !confirm('El alcance o alguna tarea parece mencionar valores, y tu equipo puede verlos. ¿Crear el proyecto igual?')) return;
     run(async () => {
+      const sent = phases.filter((p) => p.tasks.some((t) => t.title.trim()));
+      const validMeetings = meetings.filter((m) => m.title.trim());
       const r = await api<Result>('POST', 'projects', {
         proposalId,
         client: clientMode === 'existing' ? { id: existingId } : client,
         project,
-        phases: phases.map((p) => ({ name: p.name, tasks: p.tasks.filter((t) => t.title.trim()) })).filter((p) => p.tasks.length),
+        phases: sent.map((p) => ({ name: p.name, tasks: p.tasks.filter((t) => t.title.trim()) })),
+        meetings: validMeetings.map((m) => ({
+          title: m.title,
+          phaseIndex: Math.max(0, sent.findIndex((p) => p.key === m.phaseKey)),
+          date: m.date || null,
+          time: m.time,
+          durationMinutes: m.durationMinutes,
+          purpose: m.purpose,
+          schedule: canSchedule && m.schedule && !!m.date,
+        })),
         notify: notify && !!google.data?.connected,
       });
       setResult(r);
@@ -542,6 +591,74 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               onClick={() => setPhases((ps) => [...ps, { key: key(), name: `Fase ${ps.length + 1}`, tasks: [emptyTask()] }])}
             >
               + Fase
+            </button>
+          </section>
+
+          <section className="card form-section">
+            <div className="form-section__head">
+              <h2>Reuniones de avance con el cliente</h2>
+              <span className="mono">
+                {meetings.filter((m) => m.schedule && canSchedule && m.date).length} se agendarán
+              </span>
+            </div>
+            <p className="hint">
+              Cada reunión queda como tarea en su fase del cronograma. Las marcadas se agendan en tu Google Calendar con Meet y el cliente
+              recibe la invitación{canSchedule ? '' : ' (para agendarlas, conecta Google con permiso de crear eventos en Configuración)'}.
+            </p>
+            {meetings.map((m) => {
+              const setM = (patch: Partial<DraftMeeting>) => setMeetings((ms) => ms.map((x) => (x.key === m.key ? { ...x, ...patch } : x)));
+              return (
+                <div key={m.key} className="draft-task side-deersystems draft-meeting">
+                  <div className="draft-task__row">
+                    <label className="check check--chip" title="Agendar en Google Calendar">
+                      <input type="checkbox" checked={m.schedule && canSchedule} disabled={!canSchedule} onChange={(e) => setM({ schedule: e.target.checked })} />
+                      📅
+                    </label>
+                    <span className="input draft-task__title">
+                      <input value={m.title} onChange={(e) => setM({ title: e.target.value })} aria-label="Título de la reunión" />
+                    </span>
+                    <span className="input">
+                      <select value={m.phaseKey} onChange={(e) => setM({ phaseKey: e.target.value })} aria-label="Fase">
+                        {phases.map((p) => (
+                          <option key={p.key} value={p.key}>
+                            {p.name}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                    <span className="input">
+                      <input type="date" value={m.date} min={today()} onChange={(e) => setM({ date: e.target.value })} aria-label="Fecha" />
+                    </span>
+                    <span className="input">
+                      <input type="time" value={m.time} step={900} onChange={(e) => setM({ time: e.target.value })} aria-label="Hora" />
+                    </span>
+                    <span className="input">
+                      <select value={m.durationMinutes} onChange={(e) => setM({ durationMinutes: Number(e.target.value) })} aria-label="Duración">
+                        {[30, 45, 60, 90].map((d) => (
+                          <option key={d} value={d}>
+                            {d} min
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                    <button className="btn btn--outline btn--sm btn--danger" onClick={() => setMeetings((ms) => ms.filter((x) => x.key !== m.key))} aria-label="Quitar reunión">
+                      ✕
+                    </button>
+                  </div>
+                  <textarea rows={1} value={m.purpose} placeholder="Qué se presenta o se valida con el cliente" onChange={(e) => setM({ purpose: e.target.value })} />
+                </div>
+              );
+            })}
+            <button
+              className="btn btn--outline btn--sm"
+              onClick={() =>
+                setMeetings((ms) => [
+                  ...ms,
+                  { key: key(), title: 'Reunión de avance con el cliente', phaseKey: phases[phases.length - 1]?.key ?? '', date: '', time: '10:00', durationMinutes: 45, purpose: '', schedule: true },
+                ])
+              }
+            >
+              + Reunión
             </button>
           </section>
 

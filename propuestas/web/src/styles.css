@@ -3272,3 +3272,472 @@ textarea:focus {
     justify-content: flex-end;
   }
 }
+
+.switch.is-locked {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ═════════════════ Cronograma (Gantt) ═════════════════ */
+
+.gantt-wrap {
+  display: grid;
+  gap: 12px;
+}
+
+.gantt-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.gantt-tools .hint {
+  margin: 0;
+}
+
+.gantt-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: var(--mute);
+}
+
+.lg {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  margin-left: 6px;
+  border-radius: 2px;
+}
+
+.lg--deersystems {
+  background: var(--cian);
+}
+
+.lg--cliente {
+  background: var(--oro);
+}
+
+.lg--done {
+  background: var(--verde);
+}
+
+.gantt {
+  max-height: 70vh;
+  overflow: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: rgba(30, 41, 59, 0.2);
+}
+
+.gantt__grid {
+  position: relative;
+}
+
+.gantt__head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  background: var(--surface-strong);
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+.gantt__corner,
+.gantt__name {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: 0 0 260px;
+  width: 260px;
+  border-right: 1px solid var(--hairline-strong);
+  background: var(--surface-strong);
+}
+
+.gantt__corner {
+  display: flex;
+  align-items: flex-end;
+  padding: 0 12px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.gantt__scale {
+  position: relative;
+  height: 52px;
+}
+
+.gantt__months,
+.gantt__days {
+  position: relative;
+  height: 26px;
+}
+
+.gantt__months span {
+  position: absolute;
+  top: 0;
+  height: 26px;
+  padding: 6px 8px 0;
+  overflow: hidden;
+  border-left: 1px solid var(--hairline-strong);
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.gantt__day {
+  position: absolute;
+  top: 0;
+  height: 26px;
+  padding-top: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--mute);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.gantt__day.is-weekend {
+  opacity: 0.5;
+}
+
+.gantt__day.is-today {
+  color: var(--azul);
+  background: var(--verde);
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.gantt__row {
+  display: flex;
+  min-height: 36px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.gantt__row--phase {
+  min-height: 34px;
+  background: rgba(5, 25, 35, 0.35);
+}
+
+.gantt__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 0.84rem;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.gantt__row--phase .gantt__name {
+  justify-content: space-between;
+  background: #0b2533;
+}
+
+.gantt__row--phase .gantt__name strong {
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gantt__row--phase .mono {
+  font-size: 0.72rem;
+  color: var(--mute);
+}
+
+.gantt__name--task {
+  border: 0;
+  border-right: 1px solid var(--hairline-strong);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  color: var(--body);
+}
+
+.gantt__name--task:hover {
+  color: var(--cian);
+}
+
+.gantt__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--mute);
+}
+
+.dot--en_progreso {
+  background: var(--cian);
+}
+
+.dot--en_revision {
+  background: var(--oro);
+}
+
+.dot--bloqueada {
+  background: var(--coral);
+}
+
+.dot--completada {
+  background: var(--verde);
+}
+
+.gantt__track {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.gantt__today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: rgba(126, 217, 87, 0.55);
+  pointer-events: none;
+}
+
+.gantt__phase {
+  position: absolute;
+  top: 13px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(148, 163, 184, 0.28);
+  overflow: hidden;
+}
+
+.gantt__phase div {
+  height: 100%;
+  background: var(--grad);
+}
+
+.gantt__bar {
+  position: absolute;
+  top: 7px;
+  height: 22px;
+  min-width: 6px;
+  border-radius: 5px;
+  background: rgba(0, 180, 216, 0.85);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+}
+
+.gantt__bar.side-cliente {
+  background: rgba(255, 183, 3, 0.85);
+}
+
+.gantt__bar.is-completada {
+  background: rgba(126, 217, 87, 0.75);
+}
+
+.gantt__bar.is-bloqueada {
+  background: repeating-linear-gradient(135deg, rgba(239, 71, 111, 0.85) 0 6px, rgba(239, 71, 111, 0.6) 6px 12px);
+}
+
+.gantt__bar.is-overdue {
+  box-shadow: 0 0 0 2px var(--coral);
+}
+
+.gantt__bar.can-drag {
+  cursor: grab;
+}
+
+.gantt__bar.is-dragging {
+  cursor: grabbing;
+  opacity: 0.85;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  z-index: 1;
+}
+
+.gantt__label {
+  position: absolute;
+  top: 3px;
+  left: 8px;
+  max-width: 320px;
+  overflow: hidden;
+  font: 600 0.72rem/16px var(--font-body);
+  color: var(--azul);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.gantt__handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.gantt__handle--start {
+  left: -2px;
+}
+
+.gantt__handle--end {
+  right: -2px;
+}
+
+.gantt__bar:hover .gantt__handle {
+  background: rgba(255, 255, 255, 0.35);
+  border-radius: 4px;
+}
+
+@media (max-width: 720px) {
+  .gantt__corner,
+  .gantt__name {
+    flex-basis: 150px;
+    width: 150px;
+  }
+}
+
+.draft-meeting {
+  border-left-color: var(--violeta);
+}
+
+.draft-meeting .check--chip {
+  gap: 4px;
+}
+
+/* ═════════════════ Tour guiado ═════════════════ */
+
+.help-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 50%;
+  background: rgba(5, 25, 35, 0.4);
+  color: var(--body);
+  font: 600 0.9rem var(--font-display);
+  cursor: pointer;
+}
+
+.help-btn:hover {
+  border-color: var(--cian);
+  color: var(--cian);
+}
+
+.tour {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.tour__dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 10, 15, 0.72);
+}
+
+/* Recuadro que resalta: la sombra enorme oscurece todo lo demás. */
+.tour__spot {
+  position: fixed;
+  border-radius: var(--r-md);
+  box-shadow:
+    0 0 0 2px var(--verde),
+    0 0 0 9999px rgba(2, 10, 15, 0.72);
+  transition: all 0.3s var(--ease);
+  pointer-events: none;
+}
+
+.tour__card {
+  position: fixed;
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid rgba(126, 217, 87, 0.4);
+  border-radius: var(--r-md);
+  background: var(--surface-strong);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+  animation: tour-in 0.25s var(--ease);
+}
+
+@keyframes tour-in {
+  from {
+    opacity: 0;
+    translate: 0 8px;
+  }
+}
+
+.tour__card h2 {
+  font-size: 1.1rem;
+}
+
+.tour__card p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.tour__count {
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  color: var(--cian);
+}
+
+.tour__dots {
+  display: flex;
+  gap: 5px;
+}
+
+.tour__dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hairline-strong);
+}
+
+.tour__dots span.is-active {
+  width: 18px;
+  border-radius: 3px;
+  background: var(--verde);
+}
+
+.tour__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.tour__actions > span {
+  display: flex;
+  gap: 8px;
+}
+
+.tour__actions .linklike,
+.tour__finish {
+  color: var(--mute);
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.tour__finish {
+  justify-self: start;
+}
+
+.tour__actions .linklike:hover,
+.tour__finish:hover {
+  color: var(--cian);
+}

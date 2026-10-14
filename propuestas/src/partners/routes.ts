@@ -32,7 +32,7 @@ import {
 } from './auth.ts';
 import * as db from './db.ts';
 import { handleFiles } from './files.ts';
-import { handleMeetings } from './meetings.ts';
+import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { actor, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
@@ -209,7 +209,10 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
     pricing: project.pricing,
     approvedOption: project.approvedOption,
     approvalNotes: project.approvalNotes,
+    meetings: body.meetings,
   });
+  // Qué reuniones agendar en Calendar al crear el proyecto (las demás quedan solo como tarea).
+  const rawMeetings = Array.isArray(body.meetings) ? (body.meetings as { schedule?: unknown }[]) : [];
   if (!draft.phases.some((p) => p.tasks.length)) throw new HttpError(400, 'El proyecto necesita al menos una tarea.');
 
   const teamIds = new Set(db.listTeam().map((a) => a.id));
@@ -264,8 +267,10 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
       by: v.email,
     });
     let position = 0;
+    const phaseIds: number[] = [];
     draft.phases.forEach((ph, i) => {
       const phase = db.createPhase(p.id, ph.name, i);
+      phaseIds.push(phase.id);
       ph.tasks.forEach((t, j) => {
         const assignee = Number(rawPhases[i]?.tasks?.[j]?.assigneeId);
         db.createTask({
@@ -282,6 +287,21 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
         });
       });
     });
+    // Reuniones de avance: también son tareas del cronograma, en su fase y con su fecha.
+    for (const m of draft.meetings) {
+      db.createTask({
+        projectId: p.id,
+        phaseId: phaseIds[m.phaseIndex] ?? null,
+        title: m.title,
+        description: m.purpose,
+        side: 'deersystems',
+        assigneeId: null,
+        startDate: m.date,
+        dueDate: m.date,
+        position: position++,
+        source: 'propuesta',
+      });
+    }
     const a = actor(v);
     db.logActivity({ projectId: p.id, actorKind: a.kind, actorName: a.name, type: 'project_created', data: { tasks: position } });
     return { project: p, client: theClient };
@@ -297,12 +317,29 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
       )
     : { sent: false };
 
+  // Después de la bienvenida: las invitaciones de Calendar de las reuniones marcadas para agendar.
+  const meetings = { scheduled: 0, errors: [] as string[] };
+  for (const [i, m] of draft.meetings.entries()) {
+    if (rawMeetings[i]?.schedule !== true) continue;
+    try {
+      await scheduleMeeting(
+        created.project,
+        { title: m.title, date: m.date, time: m.time, durationMinutes: m.durationMinutes, agenda: m.purpose, includeClient: true, teamIds: [], guests: [] },
+        v,
+      );
+      meetings.scheduled++;
+    } catch (err) {
+      meetings.errors.push(`«${m.title}»: ${(err as Error).message}`);
+    }
+  }
+
   return {
     project: projectSummary(created.project, v),
     client: created.client,
     // Se muestra una sola vez, por si el correo no salió o quieres enviarla por otro medio.
     password,
     mail: mailResult,
+    meetings,
   };
 }
 
@@ -363,6 +400,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         email: v.email,
         name: v.name,
         role: v.kind,
+        tourDone: db.tourDone(v.kind === 'owner' ? null : v.account.id),
         ...(v.kind === 'owner' ? { proposalsUrl: `${PUBLIC_URL}/admin` } : {}),
         ...(v.kind === 'client' ? { client: db.getClient(v.clientId) } : {}),
       });
@@ -384,6 +422,20 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       startAccountSession(res, db.getAccount(v.account.id)!);
       return json(res, 200, { ok: true });
     }
+
+    // ── Tour guiado: "Terminar tour" lo marca como visto; "Volver a ver" lo reactiva.
+    case 'POST me/tour': {
+      const body = await readJson(req);
+      db.setTourDone(v.kind === 'owner' ? null : v.account.id, body.done !== false);
+      return json(res, 200, { tourDone: body.done !== false });
+    }
+
+    // ── Mis avisos (cliente y equipo)
+    case 'GET me/notifications':
+      return json(res, 200, notifications.personalSettings(v));
+
+    case 'PUT me/notifications':
+      return json(res, 200, notifications.savePersonal(v, await readJson(req)));
 
     // ── Proyectos (cada rol ve lo suyo)
     case 'GET projects': {

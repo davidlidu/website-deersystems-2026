@@ -154,7 +154,11 @@ export function notify(
 
     const body = (ctx.body ?? '').replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
     for (const t of targets) {
-      if (pref.app) {
+      // Lo que tú apagas vale para todos; cada persona puede además apagar lo suyo en «Mi cuenta».
+      const own = t.recipient.kind === 'account' ? db.getPersonalPrefs(t.recipient.id)[type] : undefined;
+      const app = pref.app && own?.app !== false;
+      const email = pref.email && own?.email !== false;
+      if (app) {
         db.createNotification(t.recipient, {
           projectId: project?.id ?? null,
           taskId: ctx.taskId,
@@ -165,7 +169,7 @@ export function notify(
           collapse: type === 'client_status',
         });
       }
-      if (pref.email && t.email) {
+      if (email && t.email) {
         enqueueMail(t.email, t.name, t.client, { title: ctx.title, body: body || (project?.name ?? ''), url: `${PARTNERS_URL}${ctx.path}` }, s.digestMinutes);
       }
     }
@@ -173,4 +177,52 @@ export function notify(
     // Un aviso que falla nunca debe romper la acción que lo disparó.
     console.error('No se pudo registrar el aviso:', err);
   }
+}
+
+/** Cómo lo lee cada persona en «Mi cuenta» (el texto de Configuración está escrito para ti). */
+const PERSONAL_LABEL: Partial<Record<EventType, { client?: string; team?: string }>> = {
+  client_comment: { team: 'El cliente comenta una tarea o deja una nota' },
+  client_status: { team: 'El cliente cambia el estado de una tarea' },
+  client_file: { team: 'El cliente sube un archivo' },
+  team_assigned: { team: 'Me asignan una tarea' },
+  client_task: { client: 'Tengo una tarea nueva por hacer' },
+  staff_update: { client: 'DeerSystems publica un avance del proyecto' },
+  staff_comment: { client: 'DeerSystems comenta o me deja una nota' },
+  staff_file: { client: 'DeerSystems comparte un archivo' },
+  meeting_scheduled: { client: 'Se agenda una reunión' },
+  meeting_summary: { client: 'Llega el resumen de una reunión' },
+};
+
+/** Avisos que le pueden llegar a esta persona, con lo que tú permites y lo que ella eligió. */
+export function personalSettings(v: Viewer) {
+  if (v.kind === 'owner') return [];
+  const role = v.kind === 'client' ? 'client' : 'team';
+  const global = getSettings().events;
+  const mine = db.getPersonalPrefs(v.account.id);
+  return (Object.keys(EVENTS) as EventType[])
+    .filter((k) => PERSONAL_LABEL[k]?.[role])
+    .map((key) => ({
+      key,
+      label: PERSONAL_LABEL[key]![role]!,
+      // Si tú lo apagaste para todos, aparece desactivado y no se puede encender.
+      allowed: { app: global[key].app, email: global[key].email && (role === 'client' || key === 'team_assigned' || getSettings().teamEmail) },
+      app: global[key].app && mine[key]?.app !== false,
+      email: global[key].email && mine[key]?.email !== false,
+    }));
+}
+
+export function savePersonal(v: Viewer, body: Record<string, unknown>) {
+  if (v.kind === 'owner') return [];
+  const prefs = db.getPersonalPrefs(v.account.id);
+  const allowed = new Set(personalSettings(v).map((p) => p.key));
+  for (const [k, val] of Object.entries((body.events ?? {}) as Record<string, { app?: unknown; email?: unknown }>)) {
+    if (!allowed.has(k as EventType) || !val) continue;
+    prefs[k] = {
+      ...prefs[k],
+      ...(typeof val.app === 'boolean' ? { app: val.app } : {}),
+      ...(typeof val.email === 'boolean' ? { email: val.email } : {}),
+    };
+  }
+  db.setPersonalPrefs(v.account.id, prefs);
+  return personalSettings(v);
 }

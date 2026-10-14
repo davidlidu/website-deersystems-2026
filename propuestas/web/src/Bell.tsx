@@ -65,7 +65,7 @@ export function Bell() {
   };
 
   return (
-    <div className="bell" ref={box}>
+    <div className="bell" ref={box} data-tour="bell">
       <button
         className={`bell__button${unread ? ' has-unread' : ''}`}
         aria-label={unread ? `Notificaciones: ${unread} sin leer` : 'Notificaciones'}
