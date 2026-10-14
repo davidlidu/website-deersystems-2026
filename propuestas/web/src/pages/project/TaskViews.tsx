@@ -78,7 +78,9 @@ function TaskChip({ task, onOpen, draggable }: { task: Task; onOpen: (t: Task) =
       <span className="chip-task__title">{task.title}</span>
       <span className="chip-task__meta">
         <Who task={task} />
-        {task.comments > 0 && <span className="mono">💬 {task.comments}</span>}
+        <span className="mono">
+          {task.comments > 0 && `💬 ${task.comments}`} {task.files > 0 && `📎 ${task.files}`}
+        </span>
       </span>
     </button>
   );
@@ -205,6 +207,7 @@ function ListView({ me, project, tasks, onOpen, onNew, onStatus, onPhasesChange 
                         </span>
                       )}
                       {t.comments > 0 && <span className="mono">💬 {t.comments}</span>}
+                      {t.files > 0 && <span className="mono">📎 {t.files}</span>}
                     </div>
                   </div>
                   <StatusControl task={t} me={me} onStatus={onStatus} />

@@ -29,6 +29,9 @@ src/
     auth.ts       Contraseñas (scrypt), sesión, límite de intentos
     db.ts         Clientes, cuentas, proyectos, fases, tareas, ajustes, consumo de IA
     extract.ts    Propuesta HTML → plan de trabajo con IA
+    work.ts       Tareas, fases, notas, avances y bitácora
+    files.ts      Adjuntos en Google Drive
+    notify.ts     Avisos en la campana y por correo
 public/           Panel de propuestas, login y 404 (HTML/CSS/JS sin build)
 web/              Interfaz de partners (React + Vite) → se compila a public/partners
 ```
@@ -57,6 +60,12 @@ El **% de avance** es tareas completadas / total. Los estados son fijos: Pendien
 - **Notas**: compartidas, o internas que el cliente nunca ve.
 - **Bitácora**: registra cada cambio. El cliente no ve las entradas internas.
 - El equipo crea, edita y elimina tareas y fases. El cliente cambia el estado de sus tareas (sin completarlas), comenta y deja notas.
+- **Archivos**: se suben a Google Drive, en `DeerSystems Partners / Cliente / Proyecto`, desde el proyecto o desde una tarea. Pueden ser compartidos o internos. El cliente descarga a través del portal, sin acceso a tu Drive. Al quitar un archivo, va a la papelera de Drive.
+
+**Avisos:**
+- **Campana del encabezado:** a ti y al equipo les llegan los comentarios, notas, cambios de estado y archivos del cliente. Al cliente le llegan los avances, las tareas nuevas para él, los comentarios y los archivos de DeerSystems. Cada aviso abre la tarea o la pestaña exacta.
+- **Correo:** con la marca, enviado desde Gmail. Los avisos de unos minutos se juntan en un solo correo.
+- **Configuración → Avisos:** cada tipo de aviso se enciende o apaga en la plataforma y por correo.
 
 **Configuración** (solo administrador):
 - **IA:** proveedor y modelo principal y de respaldo, claves (cifradas), privacidad en OpenRouter, tarifas y presupuesto mensual, y prueba de conexión.

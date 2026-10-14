@@ -524,6 +524,7 @@ interface GoogleStatus {
   missingScopes?: string[];
   error?: string | null;
   redirectUri: string;
+  driveFolder?: string | null;
 }
 
 function GoogleTab() {
@@ -546,6 +547,16 @@ function GoogleTab() {
           <>
             <p className="callout">
               Conectada como <strong>{g.email}</strong> desde {formatDateTime(g.connectedAt)}.
+            </p>
+            <p className="hint">
+              Archivos:{' '}
+              {g.driveFolder ? (
+                <a href={g.driveFolder} target="_blank" rel="noopener">
+                  carpeta «DeerSystems Partners» en tu Drive
+                </a>
+              ) : (
+                'la carpeta «DeerSystems Partners» se crea en tu Drive con el primer archivo que se suba.'
+              )}
             </p>
             {g.error && <p className="alert">{g.error}</p>}
             {!!g.missingScopes?.length && (
@@ -602,7 +613,102 @@ function GoogleTab() {
 
 // ───────── Página ─────────
 
-const TABS = { ia: 'Inteligencia artificial', consumo: 'Consumo de IA', google: 'Google y correo' } as const;
+// ───────── Avisos ─────────
+
+type Channel = 'app' | 'email';
+interface NotifySettings {
+  events: Record<string, Record<Channel, boolean>>;
+  teamEmail: boolean;
+  digestMinutes: number;
+  catalog: { key: string; label: string; audience: 'staff' | 'team' | 'client' }[];
+}
+
+const AUDIENCE: Record<NotifySettings['catalog'][number]['audience'], string> = {
+  staff: 'Te llegan a ti y a tu equipo',
+  team: 'Le llegan a la persona del equipo',
+  client: 'Le llegan al cliente',
+};
+
+function NotificationsTab() {
+  const { data, error, loading, reload, setData } = useApi<NotifySettings>('settings/notifications');
+  const { busy, run } = useAction();
+  const toast = useToast();
+  if (loading) return <Loading />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
+  const n = data!;
+
+  // Cada cambio se guarda al instante.
+  const save = (patch: Partial<Pick<NotifySettings, 'events' | 'teamEmail' | 'digestMinutes'>>) =>
+    run(async () => {
+      setData(await api<NotifySettings>('PUT', 'settings/notifications', patch));
+      toast('Avisos actualizados.');
+    });
+  const toggle = (key: string, channel: Channel) => save({ events: { [key]: { ...n.events[key], [channel]: !n.events[key][channel] } } });
+
+  const groups = (['staff', 'team', 'client'] as const).map((aud) => ({ aud, rows: n.catalog.filter((c) => c.audience === aud) }));
+
+  return (
+    <div className="stack">
+      <section className="card form-section">
+        <h2>Qué avisar y por dónde</h2>
+        <p className="hint">
+          «En la plataforma» aparece en la campana del encabezado. «Por correo» llega desde tu Gmail con el diseño de DeerSystems; si pasan
+          varias cosas seguidas, se juntan en un solo correo.
+        </p>
+        {groups.map(({ aud, rows }) => (
+          <div key={aud} className="notify-group">
+            <div className="notify-row notify-row--head">
+              <span>{AUDIENCE[aud]}</span>
+              <span>En la plataforma</span>
+              <span>Por correo</span>
+            </div>
+            {rows.map((r) => (
+              <div key={r.key} className="notify-row">
+                <span>{r.label}</span>
+                {(['app', 'email'] as Channel[]).map((ch) => (
+                  <label key={ch} className="switch">
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      checked={n.events[r.key][ch]}
+                      disabled={busy}
+                      aria-label={`${r.label}: ${ch === 'app' ? 'en la plataforma' : 'por correo'}`}
+                      onChange={() => toggle(r.key, ch)}
+                    />
+                    <span className="switch__track" />
+                  </label>
+                ))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </section>
+
+      <section className="card form-section">
+        <h2>Correo</h2>
+        <label className="check">
+          <input type="checkbox" checked={n.teamEmail} disabled={busy} onChange={(e) => save({ teamEmail: e.target.checked })} />
+          Enviar también por correo al equipo los avisos del cliente (si no, solo te llegan a ti; al equipo le aparecen en la campana)
+        </label>
+        <label className="field narrow">
+          <span className="field__label">Juntar avisos durante (minutos)</span>
+          <span className="input">
+            <select value={n.digestMinutes} disabled={busy} onChange={(e) => save({ digestMinutes: Number(e.target.value) })}>
+              {[1, 3, 5, 10, 15, 30, 60].map((m) => (
+                <option key={m} value={m}>
+                  {m} {m === 1 ? 'minuto' : 'minutos'}
+                </option>
+              ))}
+            </select>
+          </span>
+        </label>
+        <p className="hint">Los correos solo salen con Google conectado (pestaña Google y correo).</p>
+      </section>
+    </div>
+  );
+}
+
+const TABS = { ia: 'Inteligencia artificial', consumo: 'Consumo de IA', avisos: 'Avisos', google: 'Google y correo' } as const;
 type Tab = keyof typeof TABS;
 
 const GOOGLE_MESSAGES: Record<string, [string, boolean]> = {
@@ -638,6 +744,7 @@ export function SettingsPage() {
       </div>
       {tab === 'ia' && <AiTab />}
       {tab === 'consumo' && <UsageTab />}
+      {tab === 'avisos' && <NotificationsTab />}
       {tab === 'google' && <GoogleTab />}
     </>
   );

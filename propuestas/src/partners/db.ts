@@ -609,3 +609,179 @@ export function listActivity(projectId: number, opts: { internal: boolean; taskI
   params.push(opts.limit ?? 200);
   return all<Activity>(`SELECT * FROM activity WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`, ...params);
 }
+
+// ───────── Fase 3: notificaciones y adjuntos en Drive ─────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipient_kind TEXT NOT NULL CHECK (recipient_kind IN ('owner', 'account')),
+    recipient_id INTEGER,
+    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+    task_id INTEGER,
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT NOT NULL DEFAULT '',
+    link TEXT NOT NULL DEFAULT '/',
+    read_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS notifications_recipient ON notifications(recipient_kind, recipient_id, id);
+  CREATE TABLE IF NOT EXISTS attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    task_id INTEGER REFERENCES tasks(id) ON DELETE SET NULL,
+    drive_file_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    visibility TEXT NOT NULL DEFAULT 'shared' CHECK (visibility IN ('shared', 'internal')),
+    author_kind TEXT NOT NULL,
+    author_id INTEGER,
+    author_name TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS attachments_project ON attachments(project_id, id);
+`);
+addColumn('clients', 'drive_folder_id', 'TEXT');
+addColumn('projects', 'drive_folder_id', 'TEXT');
+
+/** Destinatario de una notificación: el administrador (sin cuenta) o una cuenta del equipo o cliente. */
+export type Recipient = { kind: 'owner' } | { kind: 'account'; id: number };
+
+const recipientWhere = (r: Recipient) =>
+  r.kind === 'owner' ? { sql: "recipient_kind = 'owner'", params: [] as number[] } : { sql: "recipient_kind = 'account' AND recipient_id = ?", params: [r.id] };
+
+export interface Notification {
+  id: number;
+  recipient_kind: 'owner' | 'account';
+  recipient_id: number | null;
+  project_id: number | null;
+  task_id: number | null;
+  type: string;
+  title: string;
+  body: string;
+  link: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export function createNotification(
+  r: Recipient,
+  n: { projectId: number | null; taskId?: number | null; type: string; title: string; body: string; link: string; collapse?: boolean },
+): void {
+  // Varios cambios seguidos de la misma tarea sin leer se funden en un solo aviso, que se actualiza.
+  if (n.collapse && n.taskId) {
+    const w = recipientWhere(r);
+    const prev = one<{ id: number }>(
+      `SELECT id FROM notifications WHERE ${w.sql} AND read_at IS NULL AND type = ? AND task_id = ? AND created_at > ? ORDER BY id DESC LIMIT 1`,
+      ...w.params,
+      n.type,
+      n.taskId,
+      new Date(Date.now() - 30 * 60_000).toISOString(),
+    );
+    if (prev) {
+      db.prepare('UPDATE notifications SET title = ?, body = ?, link = ?, created_at = ? WHERE id = ?').run(n.title, n.body, n.link, now(), prev.id);
+      return;
+    }
+  }
+  db.prepare(
+    `INSERT INTO notifications (recipient_kind, recipient_id, project_id, task_id, type, title, body, link, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(r.kind, r.kind === 'account' ? r.id : null, n.projectId, n.taskId ?? null, n.type, n.title, n.body, n.link, now());
+}
+
+export function listNotifications(r: Recipient, limit = 40) {
+  const w = recipientWhere(r);
+  return all<Notification>(`SELECT * FROM notifications WHERE ${w.sql} ORDER BY id DESC LIMIT ?`, ...w.params, limit);
+}
+
+export function unreadCount(r: Recipient): number {
+  const w = recipientWhere(r);
+  return one<{ n: number }>(`SELECT COUNT(*) AS n FROM notifications WHERE ${w.sql} AND read_at IS NULL`, ...w.params)!.n;
+}
+
+/** Marca como leídas: todas, o solo las indicadas (siempre del mismo destinatario). */
+export function markRead(r: Recipient, ids?: number[]): void {
+  const w = recipientWhere(r);
+  if (ids?.length) {
+    db.prepare(
+      `UPDATE notifications SET read_at = ? WHERE ${w.sql} AND read_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`,
+    ).run(now(), ...w.params, ...ids);
+  } else {
+    db.prepare(`UPDATE notifications SET read_at = ? WHERE ${w.sql} AND read_at IS NULL`).run(now(), ...w.params);
+  }
+}
+
+/** Las notificaciones viejas y leídas no hacen falta: se limpian a los 90 días. */
+export function pruneNotifications(): void {
+  db.prepare('DELETE FROM notifications WHERE read_at IS NOT NULL AND created_at < ?').run(
+    new Date(Date.now() - 90 * 86_400_000).toISOString(),
+  );
+}
+
+export interface Attachment {
+  id: number;
+  project_id: number;
+  task_id: number | null;
+  drive_file_id: string;
+  name: string;
+  mime: string;
+  size: number;
+  visibility: 'shared' | 'internal';
+  author_kind: 'owner' | 'team' | 'client';
+  author_id: number | null;
+  author_name: string;
+  created_at: string;
+}
+
+export const getAttachment = (id: number) => one<Attachment>('SELECT * FROM attachments WHERE id = ?', id);
+
+export function listAttachments(projectId: number, opts: { internal: boolean; taskId?: number }) {
+  const where = ['project_id = ?'];
+  const params: (string | number)[] = [projectId];
+  if (!opts.internal) where.push("visibility = 'shared'");
+  if (opts.taskId !== undefined) {
+    where.push('task_id = ?');
+    params.push(opts.taskId);
+  }
+  return all<Attachment>(`SELECT * FROM attachments WHERE ${where.join(' AND ')} ORDER BY id DESC`, ...params);
+}
+
+export function attachmentCounts(projectId: number, internal: boolean): Map<number, number> {
+  const rows = all<{ task_id: number; n: number }>(
+    `SELECT task_id, COUNT(*) AS n FROM attachments WHERE project_id = ? AND task_id IS NOT NULL ${internal ? '' : "AND visibility = 'shared'"} GROUP BY task_id`,
+    projectId,
+  );
+  return new Map(rows.map((r) => [r.task_id, r.n]));
+}
+
+export function createAttachment(a: Omit<Attachment, 'id' | 'created_at'>): Attachment {
+  const { lastInsertRowid } = db
+    .prepare(
+      `INSERT INTO attachments (project_id, task_id, drive_file_id, name, mime, size, visibility, author_kind, author_id, author_name, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(a.project_id, a.task_id, a.drive_file_id, a.name, a.mime, a.size, a.visibility, a.author_kind, a.author_id, a.author_name, now());
+  return getAttachment(Number(lastInsertRowid))!;
+}
+
+export function deleteAttachment(id: number): void {
+  db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+}
+
+export function setClientFolder(id: number, folderId: string | null): void {
+  db.prepare('UPDATE clients SET drive_folder_id = ? WHERE id = ?').run(folderId, id);
+}
+
+export function setProjectFolder(id: number, folderId: string | null): void {
+  db.prepare('UPDATE projects SET drive_folder_id = ? WHERE id = ?').run(folderId, id);
+}
+
+export function clientFolder(id: number): string | null {
+  return one<{ f: string | null }>('SELECT drive_folder_id AS f FROM clients WHERE id = ?', id)?.f ?? null;
+}
+
+export function projectFolder(id: number): string | null {
+  return one<{ f: string | null }>('SELECT drive_folder_id AS f FROM projects WHERE id = ?', id)?.f ?? null;
+}

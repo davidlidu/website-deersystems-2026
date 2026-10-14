@@ -42,7 +42,7 @@ export function visibleTask(id: number, v: Viewer): { task: db.Task; project: db
 
 export const teamNames = () => new Map(db.listTeam().map((a) => [a.id, a.name || a.email]));
 
-export function taskView(t: db.Task, v: Viewer, team: Map<number, string>, comments?: Map<number, number>) {
+export function taskView(t: db.Task, v: Viewer, team: Map<number, string>, comments?: Map<number, number>, files?: Map<number, number>) {
   return {
     id: t.id,
     phaseId: t.phase_id,
@@ -57,6 +57,7 @@ export function taskView(t: db.Task, v: Viewer, team: Map<number, string>, comme
     completedAt: t.completed_at,
     source: t.source,
     comments: comments?.get(t.id) ?? 0,
+    files: files?.get(t.id) ?? 0,
     // El cliente solo mueve las tareas de su lado, y nunca las que ya están completadas.
     canChangeStatus: isStaff(v) || (t.side === 'cliente' && t.status !== 'completada'),
     canEdit: isStaff(v),

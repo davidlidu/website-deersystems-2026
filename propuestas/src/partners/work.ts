@@ -3,6 +3,16 @@ import { HttpError, json, readJson } from '../http.ts';
 import type { Viewer } from './auth.ts';
 import { actor, isStaff, noteView, optDate, requireStaff, str, taskView, teamNames, visibleProject, visibleTask } from './common.ts';
 import * as db from './db.ts';
+import { notify } from './notify.ts';
+
+const STATUS_LABEL: Record<db.TaskStatus, string> = {
+  pendiente: 'Pendiente',
+  en_progreso: 'En progreso',
+  en_revision: 'En revisión',
+  bloqueada: 'Bloqueada',
+  completada: 'Completada',
+};
+const taskPath = (projectId: number, taskId: number) => `/proyectos/${projectId}?tarea=${taskId}`;
 
 /** Etiquetas de los campos para la bitácora ("cambió la fecha de entrega"). */
 const FIELD_LABEL: Record<string, string> = {
@@ -80,6 +90,13 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         source: 'manual',
       });
       log(v, project.id, 'task_created', { title: task.title, side: task.side }, { taskId: task.id });
+      const path = taskPath(project.id, task.id);
+      if (task.side === 'cliente') {
+        notify('client_task', { actor: v, projectId: project.id, taskId: task.id, title: `Tienes una tarea nueva: «${task.title}»`, body: project.name, path });
+      }
+      if (task.assignee_id) {
+        notify('team_assigned', { actor: v, projectId: project.id, taskId: task.id, accountId: task.assignee_id, title: `Te asignaron «${task.title}»`, body: project.name, path });
+      }
       json(res, 201, { task: taskView(task, v, team()), progress: db.progressOf(project.id) });
       return true;
     }
@@ -97,6 +114,16 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         if (status !== task.status) {
           db.setTaskStatus(task.id, status);
           log(v, project.id, 'task_status', { title: task.title, from: task.status, to: status }, { taskId: task.id });
+          if (v.kind === 'client') {
+            notify('client_status', {
+              actor: v,
+              projectId: project.id,
+              taskId: task.id,
+              title: `${v.name} movió «${task.title}» a ${STATUS_LABEL[status]}`,
+              body: project.name,
+              path: taskPath(project.id, task.id),
+            });
+          }
         }
       }
 
@@ -109,6 +136,14 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           db.updateTask(task.id, f);
           const labels = [...new Set(changed.map((k) => FIELD_LABEL[k] ?? k))];
           log(v, project.id, 'task_updated', { title: f.title ?? task.title, fields: labels }, { taskId: task.id });
+          const title = f.title ?? task.title;
+          const path = taskPath(project.id, task.id);
+          if (f.side === 'cliente' && task.side !== 'cliente') {
+            notify('client_task', { actor: v, projectId: project.id, taskId: task.id, title: `Tienes una tarea nueva: «${title}»`, body: project.name, path });
+          }
+          if (f.assignee_id && f.assignee_id !== task.assignee_id) {
+            notify('team_assigned', { actor: v, projectId: project.id, taskId: task.id, accountId: f.assignee_id, title: `Te asignaron «${title}»`, body: project.name, path });
+          }
         }
       }
       const fresh = db.getTask(task.id)!;
@@ -215,6 +250,28 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         { taskTitle, excerpt: text.slice(0, 140), visibility },
         { taskId, internal: visibility === 'internal' },
       );
+      const path = taskId ? taskPath(project.id, taskId) : `/proyectos/${project.id}?tab=${kind === 'avance' ? 'avances' : 'notas'}`;
+      if (v.kind === 'client') {
+        notify('client_comment', {
+          actor: v,
+          projectId: project.id,
+          taskId,
+          title: taskTitle ? `${v.name} comentó en «${taskTitle}»` : `${v.name} dejó una nota en ${project.name}`,
+          body: text,
+          path,
+        });
+      } else if (kind === 'avance') {
+        notify('staff_update', { actor: v, projectId: project.id, title: `Nuevo avance en ${project.name}`, body: text, path });
+      } else if (visibility === 'shared') {
+        notify('staff_comment', {
+          actor: v,
+          projectId: project.id,
+          taskId,
+          title: taskTitle ? `DeerSystems comentó en «${taskTitle}»` : `DeerSystems dejó una nota en ${project.name}`,
+          body: text,
+          path,
+        });
+      }
       json(res, 201, noteView(note, v));
       return true;
     }

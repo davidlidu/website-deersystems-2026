@@ -28,6 +28,8 @@ interface Block {
   paragraphs: string[];
   /** Pares etiqueta/valor que se muestran en mono, p. ej. el usuario y la contraseña. */
   facts?: [string, string][];
+  /** Lista de novedades, cada una con su enlace (resumen de avisos). */
+  items?: { title: string; body: string; url: string }[];
   cta?: { label: string; url: string };
   footnote?: string;
 }
@@ -41,6 +43,20 @@ function layout(b: Block): { html: string; text: string } {
               <div style="font:500 11px/1.4 ${MONO};letter-spacing:.14em;text-transform:uppercase;color:${C.mute}">${esc(k)}</div>
               <div style="font:500 15px/1.5 ${MONO};color:${C.ink};word-break:break-all">${esc(v)}</div>
             </td></tr>`,
+          )
+          .join('')}
+      </table>`
+    : '';
+  const items = b.items?.length
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:4px 0 20px">
+        ${b.items
+          .map(
+            (it) => `<tr><td style="padding:12px 14px;border:1px solid ${C.hairline};border-left:3px solid ${C.cian};border-radius:8px;background:${C.canvas}">
+              <a href="${esc(it.url)}" style="text-decoration:none">
+                <div style="font:600 14px/1.45 ${FONT};color:${C.ink}">${esc(it.title)}</div>
+                ${it.body ? `<div style="margin-top:4px;font:400 13px/1.55 ${FONT};color:${C.body}">${esc(it.body)}</div>` : ''}
+              </a>
+            </td></tr><tr><td style="height:8px;line-height:8px;font-size:0">&nbsp;</td></tr>`,
           )
           .join('')}
       </table>`
@@ -65,7 +81,7 @@ function layout(b: Block): { html: string; text: string } {
         <div style="font:500 11px/1.4 ${MONO};letter-spacing:.18em;text-transform:uppercase;color:${C.cian};margin-bottom:10px">${esc(b.eyebrow)}</div>
         <h1 style="margin:0 0 16px;font:700 24px/1.2 ${DISPLAY};letter-spacing:-.03em;color:${C.ink}">${esc(b.title)}</h1>
         ${b.paragraphs.map((p) => `<p style="margin:0 0 16px;font:400 15px/1.65 ${FONT};color:${C.body}">${esc(p)}</p>`).join('')}
-        ${facts}${cta}
+        ${facts}${items}${cta}
         ${b.footnote ? `<p style="margin:20px 0 0;font:400 13px/1.6 ${FONT};color:${C.mute}">${esc(b.footnote)}</p>` : ''}
       </td></tr>
       <tr><td style="padding:20px 4px 0;font:400 12px/1.6 ${FONT};color:${C.mute}">
@@ -81,6 +97,7 @@ function layout(b: Block): { html: string; text: string } {
     '',
     ...b.paragraphs.flatMap((p) => [p, '']),
     ...(b.facts ?? []).map(([k, v]) => `${k}: ${v}`),
+    ...(b.items ?? []).flatMap((it) => [`• ${it.title}`, ...(it.body ? [`  ${it.body}`] : []), `  ${it.url}`, '']),
     ...(b.cta ? ['', `${b.cta.label}: ${b.cta.url}`] : []),
     ...(b.footnote ? ['', b.footnote] : []),
     '',
@@ -183,4 +200,24 @@ export function passwordReset(p: { to: string; url: string }): Mail {
 /** Vista previa para el panel: el mismo diseño con datos de ejemplo. */
 export function sample(): Mail {
   return welcomeClient({ to: 'cliente@empresa.com', name: 'Laura Gómez', projectName: 'Portal de pedidos', password: 'Ejemplo-1234-abcd' });
+}
+
+/** Resumen de avisos: lo que pasó en los últimos minutos, agrupado en un solo correo. */
+export function notificationDigest(p: { to: string; name: string; items: { title: string; body: string; url: string }[]; client: boolean }): Mail {
+  const n = p.items.length;
+  const first = p.name.split(' ')[0];
+  return {
+    to: p.to,
+    subject: n === 1 ? p.items[0].title : `${n} novedades en DeerSystems Partners`,
+    ...layout({
+      eyebrow: 'Novedades',
+      title: n === 1 ? 'Hay una novedad en tu proyecto' : `Hay ${n} novedades`,
+      paragraphs: [`Hola${first ? `, ${first}` : ''}. Esto pasó en DeerSystems Partners:`],
+      items: p.items,
+      cta: { label: 'Abrir DeerSystems Partners', url: p.items[0]?.url ?? loginUrl },
+      footnote: p.client
+        ? 'Recibes este correo porque tienes un proyecto activo con DeerSystems.'
+        : 'Puedes encender o apagar estos avisos en Configuración → Avisos.',
+    }),
+  };
 }

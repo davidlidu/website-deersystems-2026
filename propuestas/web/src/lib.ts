@@ -147,6 +147,7 @@ export interface Task {
   completedAt: string | null;
   source: 'propuesta' | 'manual' | 'reunion';
   comments: number;
+  files: number;
   canChangeStatus: boolean;
   canEdit: boolean;
 }
@@ -163,6 +164,49 @@ export interface Note {
   updatedAt: string;
   canEdit: boolean;
   canDelete: boolean;
+}
+
+export interface Attachment {
+  id: number;
+  taskId: number | null;
+  name: string;
+  mime: string;
+  size: number;
+  visibility: 'shared' | 'internal';
+  authorKind: Role;
+  authorName: string;
+  createdAt: string;
+  canDelete: boolean;
+  driveUrl?: string;
+}
+
+export interface AppNotification {
+  id: number;
+  type: string;
+  title: string;
+  body: string;
+  link: string;
+  read: boolean;
+  createdAt: string;
+}
+
+/** Sube un archivo tal cual (sin JSON). Devuelve la respuesta del servidor. */
+export async function upload<T>(path: string, file: File, params: Record<string, string>): Promise<T> {
+  const query = new URLSearchParams({ filename: file.name, ...params });
+  const res = await fetch(`/api/${path}?${query}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Error ${res.status}`);
+  return data as T;
+}
+
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export interface ActivityItem {

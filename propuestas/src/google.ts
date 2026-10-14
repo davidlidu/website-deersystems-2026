@@ -164,3 +164,101 @@ export async function sendMail(mail: Mail): Promise<void> {
     throw new GoogleError(`Gmail no envió el correo: ${data.error?.message ?? r.status}`);
   }
 }
+
+// ───────── Drive ─────────
+// Con el permiso drive.file la app solo ve lo que ella misma crea: la carpeta
+// "DeerSystems Partners" y lo que hay dentro. El resto de tu Drive queda fuera de su alcance.
+
+const DRIVE = 'https://www.googleapis.com/drive/v3';
+const FOLDER = 'application/vnd.google-apps.folder';
+
+async function driveFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const r = await fetch(url, { ...init, headers: { Authorization: `Bearer ${await accessToken()}`, ...init.headers } });
+  if (!r.ok && r.status !== 404) {
+    const data = (await r.clone().json().catch(() => ({}))) as { error?: { message?: string } };
+    throw new GoogleError(`Drive ${r.status}: ${data.error?.message ?? 'error'}`);
+  }
+  return r;
+}
+
+/** ¿La carpeta sigue existiendo y no está en la papelera? */
+async function folderAlive(id: string | null | undefined): Promise<boolean> {
+  if (!id) return false;
+  const r = await driveFetch(`${DRIVE}/files/${encodeURIComponent(id)}?fields=id,trashed`);
+  if (r.status === 404) return false;
+  const f = (await r.json()) as { trashed?: boolean };
+  return !f.trashed;
+}
+
+async function createFolder(name: string, parent?: string): Promise<{ id: string; webViewLink: string }> {
+  const r = await driveFetch(`${DRIVE}/files?fields=id,webViewLink`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, mimeType: FOLDER, ...(parent ? { parents: [parent] } : {}) }),
+  });
+  return (await r.json()) as { id: string; webViewLink: string };
+}
+
+/** Carpeta raíz "DeerSystems Partners" en el Drive de la cuenta conectada. */
+export async function rootFolder(): Promise<{ id: string; url: string }> {
+  const saved = getSetting<{ id: string; url: string }>('drive');
+  if (saved && (await folderAlive(saved.id))) return saved;
+  const f = await createFolder('DeerSystems Partners');
+  const root = { id: f.id, url: f.webViewLink };
+  setSetting('drive', root);
+  return root;
+}
+
+export const driveRoot = () => getSetting<{ id: string; url: string }>('drive');
+
+/** Devuelve la carpeta guardada si sigue viva; si no, la crea dentro de `parent` y avisa con `save`. */
+export async function ensureFolder(saved: string | null, name: string, parent: string, save: (id: string) => void): Promise<string> {
+  if (await folderAlive(saved)) return saved!;
+  const f = await createFolder(name.replace(/[\\/]/g, '-').slice(0, 120) || 'Sin nombre', parent);
+  save(f.id);
+  return f.id;
+}
+
+export interface DriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: string;
+  webViewLink: string;
+}
+
+/** Subida reanudable (sirve para archivos grandes) a una carpeta. */
+export async function uploadFile(folderId: string, name: string, mime: string, data: Buffer): Promise<DriveFile> {
+  const init = await driveFetch(`https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,name,mimeType,size,webViewLink`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json; charset=UTF-8',
+      'X-Upload-Content-Type': mime,
+      'X-Upload-Content-Length': String(data.length),
+    },
+    body: JSON.stringify({ name, parents: [folderId] }),
+  });
+  const location = init.headers.get('location');
+  if (!location) throw new GoogleError('Drive no aceptó la subida.');
+  const r = await fetch(location, { method: 'PUT', headers: { 'Content-Type': mime }, body: new Uint8Array(data) });
+  if (!r.ok) throw new GoogleError(`Drive ${r.status}: no se pudo subir el archivo.`);
+  return (await r.json()) as DriveFile;
+}
+
+/** Descarga el contenido (para reenviarlo al navegador sin exponer el Drive). */
+export async function downloadFile(fileId: string): Promise<Response> {
+  const r = await driveFetch(`${DRIVE}/files/${encodeURIComponent(fileId)}?alt=media`);
+  if (r.status === 404) throw new GoogleError('El archivo ya no está en Drive.');
+  return r;
+}
+
+/** Va a la papelera de Drive, no se borra: se puede recuperar desde ahí por 30 días. */
+export async function trashFile(fileId: string): Promise<void> {
+  await driveFetch(`${DRIVE}/files/${encodeURIComponent(fileId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trashed: true }),
+  });
+}
+
+export const fileUrl = (fileId: string) => `https://drive.google.com/file/d/${fileId}/view`;

@@ -1,5 +1,6 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { Bell } from './Bell';
 import { api, match, navigate, useLocation, type Me } from './lib';
 import { AccountPage } from './pages/Account';
 import { ApprovePage } from './pages/Approve';
@@ -67,6 +68,7 @@ function Shell({ me, children, path }: { me: Me; children: React.ReactNode; path
           <Wordmark />
           <Nav me={me} path={path} />
           <div className="topbar__user">
+            <Bell />
             <span className="topbar__who">
               <span>{me.name || me.email}</span>
               <span className="mono">{roleLabel}</span>

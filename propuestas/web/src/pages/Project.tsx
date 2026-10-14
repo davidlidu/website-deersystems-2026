@@ -1,9 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   api,
   formatDate,
+  navigate,
   PROJECT_STATUS,
   useApi,
+  useLocation,
   type Me,
   type Progress,
   type ProjectDetail,
@@ -14,11 +16,13 @@ import {
 } from '../lib';
 import { ErrorBox, Link, Loading, Markdown, PageHead, ProgressBar, useAction, useToast } from '../ui';
 import { ActivityFeed } from './project/Activity';
+import { FilesPanel } from './project/Files';
 import { NotesPanel } from './project/Notes';
 import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
 
-type Tab = 'tareas' | 'avances' | 'notas' | 'bitacora' | 'alcance' | 'comercial';
+type Tab = 'tareas' | 'avances' | 'notas' | 'archivos' | 'bitacora' | 'alcance' | 'comercial';
+const TABS: Tab[] = ['tareas', 'avances', 'notas', 'archivos', 'bitacora', 'alcance', 'comercial'];
 
 /** La vista elegida se recuerda en este navegador. */
 function storedView(): View {
@@ -43,6 +47,19 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
   const [drawer, setDrawer] = useState<{ taskId: number | null; defaults?: TaskDefaults } | null>(null);
   const toast = useToast();
   const { run } = useAction();
+  const { query } = useLocation();
+
+  // Enlaces de las notificaciones: ?tarea=12 abre esa tarea; ?tab=avances abre esa pestaña.
+  const taskParam = Number(query.get('tarea')) || null;
+  const tabParam = query.get('tab') as Tab | null;
+  useEffect(() => {
+    if (!taskParam && !tabParam) return;
+    if (taskParam) {
+      setTab('tareas');
+      setDrawer({ taskId: taskParam });
+    } else if (tabParam && TABS.includes(tabParam)) setTab(tabParam);
+    navigate(`/proyectos/${id}`, true);
+  }, [taskParam, tabParam, id]);
 
   const tasks = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -126,6 +143,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
     ['tareas', 'Tareas'],
     ['avances', 'Avances'],
     ['notas', 'Notas'],
+    ['archivos', 'Archivos'],
     ['bitacora', 'Bitácora'],
     ['alcance', 'Alcance aprobado'],
     ...(hasCommercial ? ([['comercial', 'Propuesta y valores']] as [Tab, string][]) : []),
@@ -264,6 +282,12 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
       {tab === 'notas' && (
         <section className="section section--flush narrow-col">
           <NotesPanel me={me} projectId={p.id} />
+        </section>
+      )}
+
+      {tab === 'archivos' && (
+        <section className="section section--flush narrow-col">
+          <FilesPanel me={me} projectId={p.id} onChange={() => reload()} />
         </section>
       )}
 

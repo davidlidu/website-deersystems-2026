@@ -16,6 +16,7 @@ import {
 } from '../../lib';
 import { Markdown, StatusPill, useAction, useToast } from '../../ui';
 import { ActivityFeed } from './Activity';
+import { FilesPanel } from './Files';
 import { NotesPanel } from './Notes';
 
 export interface TaskDefaults {
@@ -71,7 +72,7 @@ export function TaskDrawer({
   const staff = me.role !== 'client';
   // El panel se monta de nuevo por tarea (key en el padre), así que el formulario arranca limpio.
   const [form, setForm] = useState<Form>(() => toForm(task ?? {}, defaults));
-  const [tab, setTab] = useState<'comentarios' | 'historial'>('comentarios');
+  const [tab, setTab] = useState<'comentarios' | 'archivos' | 'historial'>('comentarios');
   const { busy, run } = useAction();
   const toast = useToast();
 
@@ -278,15 +279,25 @@ export function TaskDrawer({
               <button role="tab" aria-selected={tab === 'comentarios'} className={tab === 'comentarios' ? 'is-active' : ''} onClick={() => setTab('comentarios')}>
                 Comentarios {task.comments ? `(${task.comments})` : ''}
               </button>
+              <button role="tab" aria-selected={tab === 'archivos'} className={tab === 'archivos' ? 'is-active' : ''} onClick={() => setTab('archivos')}>
+                Archivos {task.files ? `(${task.files})` : ''}
+              </button>
               <button role="tab" aria-selected={tab === 'historial'} className={tab === 'historial' ? 'is-active' : ''} onClick={() => setTab('historial')}>
                 Historial
               </button>
             </div>
-            {tab === 'comentarios' ? (
+            {tab === 'comentarios' && (
               <NotesPanel me={me} projectId={project.id} taskId={task.id} onPosted={() => onSaved({ ...task, comments: task.comments + 1 }, project.progress, false)} />
-            ) : (
-              <ActivityFeed projectId={project.id} taskId={task.id} compact />
             )}
+            {tab === 'archivos' && (
+              <FilesPanel
+                me={me}
+                projectId={project.id}
+                taskId={task.id}
+                onChange={(delta) => onSaved({ ...task, files: Math.max(0, task.files + delta) }, project.progress, false)}
+              />
+            )}
+            {tab === 'historial' && <ActivityFeed projectId={project.id} taskId={task.id} compact />}
           </>
         )}
       </aside>

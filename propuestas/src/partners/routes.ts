@@ -29,6 +29,8 @@ import {
   type Viewer,
 } from './auth.ts';
 import * as db from './db.ts';
+import { handleFiles } from './files.ts';
+import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { actor, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
@@ -66,13 +68,14 @@ function projectSummary(p: db.Project, v: Viewer) {
 function projectDetail(p: db.Project, v: Viewer) {
   const team = teamNames();
   const comments = db.commentCounts(p.id, isStaff(v));
+  const files = db.attachmentCounts(p.id, isStaff(v));
   return {
     ...projectSummary(p, v),
     scope: p.scope,
     approvalNotes: p.approval_notes,
     ...(v.kind !== 'team' ? { pricing: p.pricing } : {}),
     phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })),
-    tasks: db.listTasks(p.id).map((t) => taskView(t, v, team, comments)),
+    tasks: db.listTasks(p.id).map((t) => taskView(t, v, team, comments, files)),
   };
 }
 
@@ -593,10 +596,51 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       });
     }
 
+    // ── Notificaciones (campana del encabezado)
+    case 'GET notifications': {
+      const r = notifications.recipientOf(v);
+      return json(res, 200, {
+        unread: db.unreadCount(r),
+        items: db.listNotifications(r).map((n) => ({
+          id: n.id,
+          type: n.type,
+          title: n.title,
+          body: n.body,
+          link: n.link,
+          read: !!n.read_at,
+          createdAt: n.created_at,
+        })),
+      });
+    }
+
+    case 'POST notifications/read': {
+      const body = await readJson(req);
+      const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(Number.isInteger) : undefined;
+      const r = notifications.recipientOf(v);
+      db.markRead(r, ids);
+      return json(res, 200, { unread: db.unreadCount(r) });
+    }
+
+    // ── Configuración: avisos
+    case 'GET settings/notifications':
+      requireOwner(v);
+      return json(res, 200, {
+        ...notifications.getSettings(),
+        catalog: Object.entries(notifications.EVENTS).map(([key, e]) => ({ key, label: e.label, audience: e.audience })),
+      });
+
+    case 'PUT settings/notifications':
+      requireOwner(v);
+      notifications.saveSettings(await readJson(req));
+      return json(res, 200, {
+        ...notifications.getSettings(),
+        catalog: Object.entries(notifications.EVENTS).map(([key, e]) => ({ key, label: e.label, audience: e.audience })),
+      });
+
     // ── Configuración: Google
     case 'GET settings/google':
       requireOwner(v);
-      return json(res, 200, { ...google.connectionStatus(), redirectUri: google.REDIRECT_URI });
+      return json(res, 200, { ...google.connectionStatus(), redirectUri: google.REDIRECT_URI, driveFolder: google.driveRoot()?.url ?? null });
 
     case 'POST settings/google/disconnect':
       requireOwner(v);
@@ -618,6 +662,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     }
   }
   if (await handleWork(route, id, req, res, v)) return;
+  if (await handleFiles(route, id, req, res, v, url)) return;
   throw new HttpError(404, 'Ruta no encontrada.');
 }
 

@@ -5,7 +5,8 @@ import { endSession, googleAuthUrl, googleCallback, googleConfigured, sessionEma
 import { DEV_LOGIN, HOME_URL, MAX_UPLOAD_BYTES, PARTNERS_HOST, PARTNERS_URL, PORT, PUBLIC_URL, SUPERADMIN_EMAIL } from './config.ts';
 import * as db from './db.ts';
 import { HttpError, json, readBody, readJson, redirect, sendFile } from './http.ts';
-import { projectsForProposal } from './partners/db.ts';
+import { projectsForProposal, pruneNotifications } from './partners/db.ts';
+import { flushAll } from './partners/notify.ts';
 import { handlePartners } from './partners/routes.ts';
 import { checkSlug, removeAll, removeVersion, resolveFile, slugify, unpack, UploadError, writeVersion } from './storage.ts';
 
@@ -221,6 +222,16 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (path.startsWith('/admin/api/')) return handleApi(req, res, url);
   if (path === '/admin' || path.startsWith('/admin/')) return handleAdminPage(req, res, url);
   return handleProposal(req, res, url);
+}
+
+pruneNotifications();
+
+// En cada despliegue Dokploy detiene el contenedor: antes de salir se envían los correos de avisos en cola.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    flushAll().finally(() => process.exit(0));
+    setTimeout(() => process.exit(0), 8000).unref();
+  });
 }
 
 createServer((req, res) => {
