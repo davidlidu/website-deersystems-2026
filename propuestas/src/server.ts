@@ -95,7 +95,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         200,
         db.listProposals().map((p) => ({
           ...p,
-          projects: projectsForProposal(p.id).map((pr) => ({ id: pr.id, name: pr.name })),
+          projects: projectsForProposal(p.id).map((pr) => ({ id: pr.id, name: pr.name, approvedOption: pr.approved_option })),
         })),
       );
 

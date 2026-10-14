@@ -9,6 +9,7 @@ export function ProjectCard({ p, showClient }: { p: ProjectSummary; showClient?:
         <div>
           {showClient && <span className="project__client">{p.clientName}</span>}
           <h3 className="project__name">{p.name}</h3>
+          {p.approvedOption && <span className="project__option">{p.approvedOption}</span>}
         </div>
         <span className={`tag tag--${p.status}`}>{PROJECT_STATUS[p.status]}</span>
       </div>

@@ -107,7 +107,10 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
           <Link to="/">Mis proyectos</Link>
         )}
       </div>
-      <PageHead eyebrow={`${p.clientName} · aprobado el ${formatDate(p.approvedAt)}`} title={p.name}>
+      <PageHead
+        eyebrow={`${p.clientName} · aprobado el ${formatDate(p.approvedAt)}${p.approvedOption ? ` · ${p.approvedOption}` : ''}`}
+        title={p.name}
+      >
         <div className="project-head">
           <ProgressBar progress={p.progress} size="lg" />
           <div className="project-head__facts">
@@ -202,7 +205,25 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
 
       {tab === 'alcance' && (
         <section className="section section--flush">
-          <div className="card prose">{p.scope ? <Markdown text={p.scope} /> : <p>Sin alcance registrado.</p>}</div>
+          <div className="card prose">
+            {(p.approvedOption || p.approvalNotes) && (
+              <div className="approved-option">
+                {p.approvedOption && (
+                  <span>
+                    <small>Opción aprobada</small>
+                    {p.approvedOption}
+                  </span>
+                )}
+                {p.approvalNotes && (
+                  <span>
+                    <small>Ajustes acordados</small>
+                    {p.approvalNotes}
+                  </span>
+                )}
+              </div>
+            )}
+            {p.scope ? <Markdown text={p.scope} /> : <p>Sin alcance registrado.</p>}
+          </div>
         </section>
       )}
 

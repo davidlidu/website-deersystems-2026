@@ -124,6 +124,7 @@ export interface ProjectSummary {
   clientId: number;
   clientName: string;
   name: string;
+  approvedOption: string;
   status: ProjectStatus;
   startDate: string | null;
   endDate: string | null;
@@ -150,6 +151,7 @@ export interface Task {
 
 export interface ProjectDetail extends ProjectSummary {
   scope: string;
+  approvalNotes: string;
   pricing?: string;
   phases: { id: number; name: string }[];
   tasks: Task[];

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { AiError, completeJson } from '../ai.ts';
+import { AiError, completeJson, type Completion } from '../ai.ts';
 import type { Proposal } from '../db.ts';
 import { resolveFile } from '../storage.ts';
 import type { Side } from './db.ts';
@@ -24,6 +24,10 @@ export interface Draft {
   pricing: string;
   startDate: string | null;
   endDate: string | null;
+  /** Opción elegida si la propuesta traía alternativas, p. ej. "Opción B". */
+  approvedOption: string;
+  /** Ajustes acordados al aprobar ("sin app móvil", "pago en 3 cuotas"…). */
+  approvalNotes: string;
   phases: { name: string; tasks: DraftTask[] }[];
   warnings: string[];
 }
@@ -59,8 +63,26 @@ const SYSTEM = `Eres el asistente de operaciones de DeerSystems, una empresa col
 Recibes el texto de una propuesta comercial que el cliente ya aprobó y la conviertes en el plan de trabajo del proyecto.
 Responde SOLO con un objeto JSON válido, en español, sin comentarios ni texto adicional.`;
 
-function prompt(text: string, today: string): string {
+/** Lo que eligió el cliente cuando la propuesta trae alternativas (Opción A / B, planes, paquetes). */
+export interface Approval {
+  option: { name: string; summary: string } | null;
+  notes: string;
+}
+
+function approvalBlock(a: Approval): string {
+  const lines: string[] = [];
+  if (a.option) {
+    lines.push(
+      `- Opción aprobada: "${a.option.name}"${a.option.summary ? ` (${a.option.summary})` : ''}. Usa SOLO esta opción para el alcance, los valores, las fases y las tareas. Ignora por completo las demás opciones, como si no existieran.`,
+    );
+  }
+  if (a.notes) lines.push(`- Ajustes acordados con el cliente: ${a.notes}. Aplícalos sobre la propuesta (agregan, quitan o cambian alcance o condiciones).`);
+  return lines.length ? `\nLO QUE APROBÓ EL CLIENTE (obligatorio respetarlo):\n${lines.join('\n')}\n` : '';
+}
+
+function prompt(text: string, today: string, approval: Approval): string {
   return `Fecha de aprobación (hoy): ${today}.
+${approvalBlock(approval)}
 
 Devuelve este JSON:
 {
@@ -130,6 +152,8 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
     pricing: str(raw.pricing, 20_000),
     startDate: date(raw.startDate),
     endDate: date(raw.endDate),
+    approvedOption: str(raw.approvedOption, 160),
+    approvalNotes: str(raw.approvalNotes, 2000),
     phases,
     warnings: [],
   };
@@ -143,25 +167,68 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
   return draft;
 }
 
-export async function extractDraft(proposal: Proposal) {
+async function proposalText(proposal: Proposal): Promise<string> {
   const path = resolveFile(proposal.id, proposal.version, 'index.html');
   const html = path ? await readFile(path, 'utf8').catch(() => null) : null;
   if (!html) throw new AiError('No se encontró el HTML de la propuesta.');
   const text = htmlToText(html).slice(0, 150_000);
   if (text.length < 200) throw new AiError('La propuesta tiene muy poco texto para extraer un plan.');
+  return text;
+}
 
+const aiInfo = (c: Completion) => ({ provider: c.provider, model: c.model, costUsd: c.costUsd, latencyMs: c.latencyMs });
+
+export interface ProposalOption {
+  name: string;
+  /** Qué incluye, sin valores. */
+  summary: string;
+  /** Valor tal como aparece en la propuesta; solo lo ve el administrador. */
+  price: string;
+}
+
+/** ¿La propuesta ofrece alternativas excluyentes (Opción A / B, planes, paquetes)? Devuelve [] si es una sola oferta. */
+export async function detectOptions(proposal: Proposal) {
+  const text = await proposalText(proposal);
+  const { data, completion } = await completeJson<{ options?: unknown }>({
+    purpose: 'propuesta-opciones',
+    system: 'Analizas propuestas comerciales de DeerSystems. Responde SOLO con JSON válido, en español.',
+    prompt: `¿Esta propuesta le ofrece al cliente varias alternativas EXCLUYENTES entre las que debe elegir una (p. ej. "Opción A" y "Opción B", planes Básico/Pro, paquetes, modalidades de contratación)?
+No cuentes como alternativas: fases del mismo proyecto, módulos que van todos incluidos, ni adicionales opcionales que se suman a la oferta.
+
+Devuelve:
+{
+  "options": [
+    { "name": "nombre tal como aparece (p. ej. \"Opción B · Plataforma completa\")", "summary": "qué incluye en 1-2 frases, SIN valores", "price": "valor y forma de pago tal como aparecen, o \"\"" }
+  ]
+}
+Si es una sola oferta, devuelve {"options": []}.
+
+PROPUESTA:
+"""
+${text}
+"""`,
+    maxOutputTokens: 4096,
+  });
+  const options: ProposalOption[] = (Array.isArray(data.options) ? data.options : [])
+    .slice(0, 8)
+    .map((o: Record<string, unknown>) => ({ name: str(o?.name, 160), summary: str(o?.summary, 600), price: str(o?.price, 400) }))
+    .filter((o) => o.name);
+  return { options: options.length > 1 ? options : [], ai: aiInfo(completion) };
+}
+
+export async function extractDraft(proposal: Proposal, approval: Approval = { option: null, notes: '' }) {
+  const text = await proposalText(proposal);
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
   const { data, completion } = await completeJson<Record<string, unknown>>({
     purpose: 'propuesta',
     system: SYSTEM,
-    prompt: prompt(text, today),
+    prompt: prompt(text, today, approval),
   });
   const draft = normalizeDraft(data);
+  draft.approvedOption = approval.option?.name ?? '';
+  draft.approvalNotes = approval.notes;
   if (!draft.phases.some((p) => p.tasks.length)) {
     throw new AiError(`El modelo ${completion.model} no devolvió tareas. Vuelve a intentarlo o prueba otro modelo.`);
   }
-  return {
-    draft,
-    ai: { provider: completion.provider, model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs },
-  };
+  return { draft, ai: aiInfo(completion) };
 }

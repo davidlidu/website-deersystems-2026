@@ -29,7 +29,7 @@ import {
   type Viewer,
 } from './auth.ts';
 import * as db from './db.ts';
-import { extractDraft, normalizeDraft } from './extract.ts';
+import { detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
 const APP_DIR = fileURLToPath(new URL('../../public/partners/', import.meta.url));
 const PARTNERS_ORIGIN = new URL(PARTNERS_URL).origin;
@@ -63,6 +63,7 @@ function projectSummary(p: db.Project, v: Viewer) {
     clientId: p.client_id,
     clientName: client?.name ?? '',
     name: p.name,
+    approvedOption: p.approved_option,
     status: p.status,
     startDate: p.start_date,
     endDate: p.end_date,
@@ -77,6 +78,7 @@ function projectDetail(p: db.Project, v: Viewer) {
   return {
     ...projectSummary(p, v),
     scope: p.scope,
+    approvalNotes: p.approval_notes,
     ...(v.kind !== 'team' ? { pricing: p.pricing } : {}),
     phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })),
     tasks: db.listTasks(p.id).map((t) => ({
@@ -226,7 +228,13 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
   const project = (body.project ?? {}) as Record<string, unknown>;
   const name = str(project.name, 120);
   if (!name) throw new HttpError(400, 'Falta el nombre del proyecto.');
-  const draft = normalizeDraft({ phases: body.phases, scope: project.scope, pricing: project.pricing });
+  const draft = normalizeDraft({
+    phases: body.phases,
+    scope: project.scope,
+    pricing: project.pricing,
+    approvedOption: project.approvedOption,
+    approvalNotes: project.approvalNotes,
+  });
   if (!draft.phases.some((p) => p.tasks.length)) throw new HttpError(400, 'El proyecto necesita al menos una tarea.');
 
   const teamIds = new Set(db.listTeam().map((a) => a.id));
@@ -274,6 +282,8 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
       name,
       scope: draft.scope,
       pricing: draft.pricing,
+      approvedOption: draft.approvedOption,
+      approvalNotes: draft.approvalNotes,
       startDate: optDate(project.startDate) ?? null,
       endDate: optDate(project.endDate) ?? null,
       by: v.email,
@@ -379,6 +389,8 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         name: str(body.name, 120) || undefined,
         status,
         scope: typeof body.scope === 'string' ? body.scope.slice(0, 30_000) : undefined,
+        approved_option: typeof body.approvedOption === 'string' ? str(body.approvedOption, 160) : undefined,
+        approval_notes: typeof body.approvalNotes === 'string' ? str(body.approvalNotes, 2000) : undefined,
         start_date: optDate(body.startDate),
         end_date: optDate(body.endDate),
         ...(v.kind === 'owner' && typeof body.pricing === 'string' ? { pricing: body.pricing.slice(0, 20_000) } : {}),
@@ -525,16 +537,36 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
           active: !!p.active,
           views: p.views,
           updatedAt: p.updated_at,
-          projects: db.projectsForProposal(p.id).map((pr) => ({ id: pr.id, name: pr.name, clientId: pr.client_id })),
+          projects: db
+            .projectsForProposal(p.id)
+            .map((pr) => ({ id: pr.id, name: pr.name, clientId: pr.client_id, approvedOption: pr.approved_option })),
         })),
       );
+
+    case 'POST proposals/:id/options': {
+      requireOwner(v);
+      const proposal = getProposal(id);
+      if (!proposal) throw new HttpError(404, 'La propuesta no existe.');
+      try {
+        return json(res, 200, await detectOptions(proposal));
+      } catch (err) {
+        if (err instanceof ai.AiError) throw new HttpError(502, err.message);
+        throw err;
+      }
+    }
 
     case 'POST proposals/:id/draft': {
       requireOwner(v);
       const proposal = getProposal(id);
       if (!proposal) throw new HttpError(404, 'La propuesta no existe.');
+      const body = await readJson(req);
+      const opt = body.option as Record<string, unknown> | null | undefined;
+      const approval: Approval = {
+        option: opt && str(opt.name, 160) ? { name: str(opt.name, 160), summary: str(opt.summary, 600) } : null,
+        notes: str(body.notes, 2000),
+      };
       try {
-        const result = await extractDraft(proposal);
+        const result = await extractDraft(proposal, approval);
         // Si el correo de la propuesta ya es de un cliente, se sugiere ese cliente.
         const existing = result.draft.clientEmail ? db.getClientByEmail(result.draft.clientEmail) : undefined;
         return json(res, 200, { ...result, existingClientId: existing?.id ?? null });

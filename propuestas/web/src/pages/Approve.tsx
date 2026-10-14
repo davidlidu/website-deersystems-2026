@@ -27,8 +27,15 @@ interface Draft {
   pricing: string;
   startDate: string | null;
   endDate: string | null;
+  approvedOption: string;
+  approvalNotes: string;
   phases: { name: string; tasks: Omit<DraftTask, 'key' | 'assigneeId'>[] }[];
   warnings: string[];
+}
+interface ProposalOption {
+  name: string;
+  summary: string;
+  price: string;
 }
 interface DraftResponse {
   draft: Draft;
@@ -60,7 +67,11 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const toast = useToast();
   const { busy, run } = useAction();
 
-  const [generating, setGenerating] = useState(false);
+  const [generating, setGenerating] = useState<null | 'options' | 'draft'>(null);
+  // Alternativas detectadas (Opción A / B…): null = aún no se analiza; [] = oferta única.
+  const [options, setOptions] = useState<ProposalOption[] | null>(null);
+  const [chosen, setChosen] = useState<number | null>(null);
+  const [notes, setNotes] = useState('');
   const [aiInfo, setAiInfo] = useState<DraftResponse['ai'] | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [started, setStarted] = useState(false);
@@ -68,7 +79,15 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const [clientMode, setClientMode] = useState<'new' | 'existing'>('new');
   const [existingId, setExistingId] = useState<number | null>(null);
   const [client, setClient] = useState({ name: '', contactName: '', email: '', phone: '' });
-  const [project, setProject] = useState({ name: '', scope: '', pricing: '', startDate: today(), endDate: '' });
+  const [project, setProject] = useState({
+    name: '',
+    scope: '',
+    pricing: '',
+    approvedOption: '',
+    approvalNotes: '',
+    startDate: today(),
+    endDate: '',
+  });
   const [phases, setPhases] = useState<DraftPhase[]>([]);
   const [notify, setNotify] = useState(true);
   const [result, setResult] = useState<Result | null>(null);
@@ -79,10 +98,10 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     if (proposal && !project.name) setProject((p) => ({ ...p, name: proposal.title || '' }));
   }, [proposal, project.name]);
 
-  const generate = () => {
-    setGenerating(true);
+  const generate = (option: ProposalOption | null) => {
+    setGenerating('draft');
     setAiError(null);
-    api<DraftResponse>('POST', `proposals/${proposalId}/draft`)
+    api<DraftResponse>('POST', `proposals/${proposalId}/draft`, { option, notes })
       .then(({ draft, ai, existingClientId }) => {
         setAiInfo(ai);
         setClient({ name: draft.clientName, contactName: draft.contactName, email: draft.clientEmail, phone: draft.clientPhone });
@@ -94,6 +113,8 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           name: draft.projectName || proposal?.title || '',
           scope: draft.scope,
           pricing: draft.pricing,
+          approvedOption: draft.approvedOption,
+          approvalNotes: draft.approvalNotes,
           startDate: draft.startDate ?? today(),
           endDate: draft.endDate ?? '',
         });
@@ -103,10 +124,27 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
         setStarted(true);
       })
       .catch((err) => setAiError(err.message))
-      .finally(() => setGenerating(false));
+      .finally(() => setGenerating(null));
+  };
+
+  /** Primero mira si la propuesta trae alternativas; si es una sola oferta, genera el plan de una vez. */
+  const analyze = () => {
+    setGenerating('options');
+    setAiError(null);
+    api<{ options: ProposalOption[] }>('POST', `proposals/${proposalId}/options`)
+      .then(({ options }) => {
+        setOptions(options);
+        if (options.length > 1) setGenerating(null);
+        else generate(null);
+      })
+      .catch((err) => {
+        setAiError(err.message);
+        setGenerating(null);
+      });
   };
 
   const startBlank = () => {
+    setProject((p) => ({ ...p, approvedOption: chosen !== null && options ? options[chosen].name : '', approvalNotes: notes }));
     setPhases([{ key: key(), name: 'Fase 1', tasks: [emptyTask()] }]);
     setStarted(true);
   };
@@ -168,7 +206,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const taskCount = phases.reduce((n, p) => n + p.tasks.filter((t) => t.title.trim()).length, 0);
   const clientTasks = phases.reduce((n, p) => n + p.tasks.filter((t) => t.side === 'cliente' && t.title.trim()).length, 0);
   const priceWarning =
-    PRICE_RE.test(project.scope) || phases.some((p) => p.tasks.some((t) => PRICE_RE.test(`${t.title} ${t.description}`)));
+    PRICE_RE.test(`${project.scope} ${project.approvedOption} ${project.approvalNotes}`) || phases.some((p) => p.tasks.some((t) => PRICE_RE.test(`${t.title} ${t.description}`)));
   const activeTeam = (team.data ?? []).filter((m) => m.active);
 
   const submit = () => {
@@ -209,16 +247,64 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
       </PageHead>
 
       {!started && (
-        <div className="card generate">
+        <div className="card generate stack">
           {generating ? (
-            <Loading label="Leyendo la propuesta y armando el plan… puede tardar hasta un minuto." />
+            <Loading
+              label={
+                generating === 'options'
+                  ? 'Revisando si la propuesta trae varias opciones…'
+                  : 'Leyendo la propuesta y armando el plan… puede tardar hasta un minuto.'
+              }
+            />
           ) : (
             <>
               {aiError && <ErrorBox message={aiError} />}
+              {options && options.length > 1 && (
+                <div className="stack">
+                  <div>
+                    <h2>¿Qué opción aprobó el cliente?</h2>
+                    <p className="hint">La propuesta trae {options.length} alternativas. El plan se arma solo con la que elijas.</p>
+                  </div>
+                  <div className="options" role="radiogroup" aria-label="Opción aprobada">
+                    {options.map((o, i) => (
+                      <button
+                        key={o.name}
+                        role="radio"
+                        aria-checked={chosen === i}
+                        className={`option card${chosen === i ? ' is-active' : ''}`}
+                        onClick={() => setChosen(i)}
+                      >
+                        <strong>{o.name}</strong>
+                        {o.summary && <span>{o.summary}</span>}
+                        {o.price && <span className="mono">{o.price}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <label className="field">
+                <span className="field__label">Ajustes acordados con el cliente (opcional)</span>
+                <textarea
+                  rows={3}
+                  value={notes}
+                  placeholder="Ej.: aprobó sin la app móvil; el pago será en 3 cuotas; agrega integración con Siigo."
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </label>
               <div className="actions">
-                <button className="btn btn--primary" onClick={generate}>
-                  {aiError ? 'Reintentar con IA' : 'Generar plan con IA'}
-                </button>
+                {options && options.length > 1 ? (
+                  <button
+                    className="btn btn--primary"
+                    disabled={chosen === null}
+                    onClick={() => generate(chosen === null ? null : options[chosen])}
+                  >
+                    Generar plan con esta opción
+                  </button>
+                ) : (
+                  <button className="btn btn--primary" onClick={analyze}>
+                    {aiError ? 'Reintentar con IA' : 'Generar plan con IA'}
+                  </button>
+                )}
                 <button className="btn btn--outline" onClick={startBlank}>
                   Empezar en blanco
                 </button>
@@ -235,6 +321,12 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
 
       {started && (
         <div className="approve">
+          {project.approvedOption && (
+            <p className="callout">
+              Plan armado con <strong>{project.approvedOption}</strong>
+              {project.approvalNotes ? ` · ${project.approvalNotes}` : ''}.
+            </p>
+          )}
           {aiInfo && (
             <p className="hint mono">
               Plan sugerido por {aiInfo.model} · {(aiInfo.latencyMs / 1000).toFixed(1)} s · {aiInfo.costUsd ? usd(aiInfo.costUsd) : 'sin costo'}
@@ -306,6 +398,22 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                 <span className="field__label">Nombre *</span>
                 <span className="input">
                   <input value={project.name} onChange={(e) => setProject({ ...project, name: e.target.value })} />
+                </span>
+              </label>
+              <label className="field">
+                <span className="field__label">Opción aprobada (si la propuesta tenía varias)</span>
+                <span className="input">
+                  <input
+                    value={project.approvedOption}
+                    placeholder="Ej.: Opción B"
+                    onChange={(e) => setProject({ ...project, approvedOption: e.target.value })}
+                  />
+                </span>
+              </label>
+              <label className="field">
+                <span className="field__label">Ajustes acordados</span>
+                <span className="input">
+                  <input value={project.approvalNotes} onChange={(e) => setProject({ ...project, approvalNotes: e.target.value })} />
                 </span>
               </label>
               <label className="field">

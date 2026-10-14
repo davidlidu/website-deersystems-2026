@@ -42,6 +42,8 @@ export interface Project {
   name: string;
   scope: string;
   pricing: string;
+  approved_option: string;
+  approval_notes: string;
   status: ProjectStatus;
   start_date: string | null;
   end_date: string | null;
@@ -164,6 +166,14 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS ai_usage_at ON ai_usage(at);
 `);
+
+/** Columnas agregadas después de la primera versión: se crean si la base es anterior. */
+function addColumn(table: string, column: string, definition: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+}
+addColumn('projects', 'approved_option', "TEXT NOT NULL DEFAULT ''");
+addColumn('projects', 'approval_notes', "TEXT NOT NULL DEFAULT ''");
 
 const now = () => new Date().toISOString();
 const all = <T>(sql: string, ...params: (string | number | null)[]) => db.prepare(sql).all(...params) as unknown as T[];
@@ -319,6 +329,8 @@ export function createProject(p: {
   name: string;
   scope: string;
   pricing: string;
+  approvedOption: string;
+  approvalNotes: string;
   startDate: string | null;
   endDate: string | null;
   by: string;
@@ -326,16 +338,16 @@ export function createProject(p: {
   const t = now();
   const { lastInsertRowid } = db
     .prepare(
-      `INSERT INTO projects (client_id, proposal_id, name, scope, pricing, start_date, end_date, approved_at, approved_by, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO projects (client_id, proposal_id, name, scope, pricing, approved_option, approval_notes, start_date, end_date, approved_at, approved_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(p.clientId, p.proposalId, p.name, p.scope, p.pricing, p.startDate, p.endDate, t, p.by, t, t);
+    .run(p.clientId, p.proposalId, p.name, p.scope, p.pricing, p.approvedOption, p.approvalNotes, p.startDate, p.endDate, t, p.by, t, t);
   return getProject(Number(lastInsertRowid))!;
 }
 
 export function updateProject(
   id: number,
-  fields: Partial<Pick<Project, 'name' | 'scope' | 'pricing' | 'status' | 'start_date' | 'end_date'>>,
+  fields: Partial<Pick<Project, 'name' | 'scope' | 'pricing' | 'approved_option' | 'approval_notes' | 'status' | 'start_date' | 'end_date'>>,
 ): void {
   for (const [col, value] of Object.entries(fields)) {
     if (value !== undefined) db.prepare(`UPDATE projects SET ${col} = ?, updated_at = ? WHERE id = ?`).run(value, now(), id);

@@ -119,7 +119,12 @@ function renderProposal(p) {
 
   const title = el('div', { className: 'item__title' }, p.title || p.slug);
   if (paused) title.append(el('span', { className: 'tag tag--paused', textContent: 'Pausada' }));
-  if (p.projects?.length) title.append(el('span', { className: 'tag tag--approved', textContent: 'Aprobada' }));
+  if (p.projects?.length) {
+    // "Aprobada · Opción B" cuando la propuesta traía alternativas.
+    const options = [...new Set(p.projects.map((pr) => pr.approvedOption).filter(Boolean))];
+    const label = options.length ? `Aprobada · ${options.join(', ')}` : 'Aprobada';
+    title.append(el('span', { className: 'tag tag--approved', textContent: label }));
+  }
 
   // Aprobar abre el asistente en partners: la IA arma el plan y tú lo confirmas.
   const approve = el('a', {
@@ -130,7 +135,7 @@ function renderProposal(p) {
     textContent: p.projects?.length ? 'Aprobar de nuevo' : 'Propuesta aprobada',
   });
   const projectLinks = (p.projects ?? []).map((pr) =>
-    el('a', { className: 'item__project', href: `${me.partnersUrl}/proyectos/${pr.id}`, target: '_blank', rel: 'noopener', textContent: `→ ${pr.name}` }),
+    el('a', { className: 'item__project', href: `${me.partnersUrl}/proyectos/${pr.id}`, target: '_blank', rel: 'noopener', textContent: `→ ${pr.name}${pr.approvedOption ? ` (${pr.approvedOption})` : ''}` }),
   );
 
   const views = p.views

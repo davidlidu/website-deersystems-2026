@@ -10,7 +10,7 @@ export interface ProposalRow {
   active: boolean;
   views: number;
   updatedAt: string;
-  projects: { id: number; name: string; clientId: number }[];
+  projects: { id: number; name: string; clientId: number; approvedOption: string }[];
 }
 
 export function ProposalsPage() {
@@ -49,7 +49,12 @@ export function ProposalsPage() {
                   <div className="item__title">
                     {p.title || p.slug}
                     {!p.active && <span className="tag tag--pausado">Pausada</span>}
-                    {p.projects.length > 0 && <span className="tag tag--activo">Aprobada</span>}
+                    {p.projects.length > 0 && (
+                      <span className="tag tag--activo">
+                        Aprobada
+                        {[...new Set(p.projects.map((pr) => pr.approvedOption).filter(Boolean))].map((o) => ` · ${o}`)}
+                      </span>
+                    )}
                   </div>
                   <a className="item__url" href={p.url} target="_blank" rel="noopener">
                     {p.url.replace(/^https?:\/\//, '')}
@@ -61,6 +66,7 @@ export function ProposalsPage() {
                   {p.projects.map((pr) => (
                     <Link key={pr.id} className="item__project" to={`/proyectos/${pr.id}`}>
                       → {pr.name}
+                      {pr.approvedOption && ` (${pr.approvedOption})`}
                     </Link>
                   ))}
                 </div>
