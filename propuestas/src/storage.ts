@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import { unzipSync } from 'fflate';
 import { DATA_DIR, MAX_UNPACKED_BYTES } from './config.ts';
@@ -125,4 +125,14 @@ export async function listVersionFiles(id: number, version: number): Promise<str
   return entries
     .filter((e) => e.isFile())
     .map((e) => join(e.parentPath, e.name).slice(dir.length + 1).split(sep).join('/'));
+}
+
+/** Copia una versión publicada a otra (para restaurar una versión anterior sin perder el historial). */
+export async function copyVersion(id: number, from: number, to: number): Promise<void> {
+  await rm(versionDir(id, to), { recursive: true, force: true });
+  await cp(versionDir(id, from), versionDir(id, to), { recursive: true });
+}
+
+export async function versionExists(id: number, version: number): Promise<boolean> {
+  return (await listVersionFiles(id, version)).length > 0;
 }

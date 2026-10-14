@@ -6,14 +6,14 @@ export const REDIRECT_URI = `${PARTNERS_URL}/auth/google/callback`;
 
 /**
  * Permisos que pide "Conectar Google". Se piden todos de una vez para no tener que reconectar en
- * cada fase: Gmail (enviar), Drive (solo archivos que crea la app), Calendar (leer) y Meet (transcripciones).
+ * cada fase: Gmail (enviar), Drive (solo archivos que crea la app), Calendar (leer y crear eventos) y Meet (transcripciones).
  */
 export const CONNECT_SCOPES = [
   'openid',
   'email',
   'https://www.googleapis.com/auth/gmail.send',
   'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/meetings.space.readonly',
 ];
 
@@ -83,6 +83,12 @@ export function connectionStatus() {
   if (!c) return { connected: false as const };
   const missing = CONNECT_SCOPES.filter((s) => s.startsWith('https://') && !c.scopes.includes(s));
   return { connected: true as const, email: c.email, connectedAt: c.connectedAt, missingScopes: missing, error: c.error ?? null };
+}
+
+/** ¿La cuenta conectada tiene alguno de estos permisos? (p. ej. calendar.events o el antiguo calendar.readonly) */
+export function hasAnyScope(...scopes: string[]): boolean {
+  const c = getSetting<Connection>('google');
+  return !!c && scopes.some((s) => c.scopes.includes(`https://www.googleapis.com/auth/${s}`));
 }
 
 export class GoogleError extends Error {}
@@ -275,6 +281,55 @@ export interface CalendarEvent {
   end?: { dateTime?: string; date?: string };
   attendees?: { email?: string; displayName?: string; responseStatus?: string; self?: boolean; organizer?: boolean }[];
   conferenceData?: { conferenceId?: string; conferenceSolution?: { key?: { type?: string } } };
+  extendedProperties?: { private?: Record<string, string> };
+}
+
+/**
+ * Crea la reunión en tu Google Calendar con enlace de Meet y envía la invitación a los asistentes.
+ * Queda marcada (extendedProperties) como agendada desde la plataforma y con su proyecto.
+ */
+export async function createCalendarEvent(e: {
+  summary: string;
+  description: string;
+  startIso: string;
+  endIso: string;
+  attendees: string[];
+  privateProps: Record<string, string>;
+}): Promise<CalendarEvent> {
+  const params = new URLSearchParams({ conferenceDataVersion: '1', sendUpdates: 'all' });
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      summary: e.summary,
+      description: e.description,
+      start: { dateTime: e.startIso, timeZone: 'America/Bogota' },
+      end: { dateTime: e.endIso, timeZone: 'America/Bogota' },
+      attendees: e.attendees.map((email) => ({ email })),
+      conferenceData: { createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } },
+      extendedProperties: { private: e.privateProps },
+      guestsCanModify: false,
+      reminders: { useDefault: true },
+    }),
+  });
+  const data = (await r.json().catch(() => ({}))) as CalendarEvent & { error?: { message?: string } };
+  if (!r.ok) {
+    const hint = r.status === 403 ? ' Vuelve a conectar Google en Configuración para dar el permiso de crear eventos.' : '';
+    throw new GoogleError(`Calendar ${r.status}: ${data.error?.message ?? 'no se pudo crear la reunión'}.${hint}`);
+  }
+  return data;
+}
+
+/** Cancela el evento y avisa a los invitados. */
+export async function cancelCalendarEvent(eventId: string): Promise<void> {
+  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${await accessToken()}` },
+  });
+  if (!r.ok && r.status !== 404 && r.status !== 410) {
+    const data = (await r.json().catch(() => ({}))) as { error?: { message?: string } };
+    throw new GoogleError(`Calendar ${r.status}: ${data.error?.message ?? 'no se pudo cancelar'}`);
+  }
 }
 
 /** Eventos del calendario principal de la cuenta conectada, con las recurrencias expandidas. */
@@ -380,4 +435,49 @@ export async function meetTranscript(meetingCode: string, startIso: string): Pro
     last = who;
   }
   return { state: 'ready', record: record.name, text: lines.join('\n'), docUrl: done.docsDestination?.exportUri ?? null };
+}
+
+// ───────── Drive: compartir por enlace, metadatos y Google Picker ─────────
+
+/**
+ * Lectura para "cualquiera con el enlace" (sin aparecer en búsquedas). Así el cliente puede abrir el
+ * archivo en el visor de Drive desde el portal, sin cuenta ni invitación. Se quita al volverlo interno.
+ */
+export async function setLinkSharing(fileId: string, on: boolean): Promise<void> {
+  if (on) {
+    await driveFetch(`${DRIVE}/files/${encodeURIComponent(fileId)}/permissions?sendNotificationEmail=false`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'anyone', role: 'reader', allowFileDiscovery: false }),
+    });
+  } else {
+    await driveFetch(`${DRIVE}/files/${encodeURIComponent(fileId)}/permissions/anyoneWithLink`, { method: 'DELETE' });
+  }
+}
+
+/** Metadatos de un archivo (por ejemplo, uno elegido con el Picker). */
+export async function fileMeta(fileId: string): Promise<DriveFile> {
+  const r = await driveFetch(`${DRIVE}/files/${encodeURIComponent(fileId)}?fields=id,name,mimeType,size,webViewLink`);
+  if (r.status === 404) throw new GoogleError('No se encontró el archivo en Drive (¿se eligió desde el selector?).');
+  return (await r.json()) as DriveFile;
+}
+
+/** Documentos, hojas y presentaciones de Google no tienen archivo: se exportan a PDF para descargarlos. */
+export const isGoogleNative = (mime: string) => mime.startsWith('application/vnd.google-apps.');
+
+export async function exportPdf(fileId: string): Promise<Response> {
+  const r = await driveFetch(`${DRIVE}/files/${encodeURIComponent(fileId)}/export?mimeType=application%2Fpdf`);
+  if (r.status === 404) throw new GoogleError('El archivo ya no está en Drive.');
+  return r;
+}
+
+/** Número del proyecto de Google Cloud: es el prefijo numérico del ID de cliente OAuth. */
+export const cloudProjectNumber = () => /^(\d+)-/.exec(GOOGLE_CLIENT_ID)?.[1] ?? null;
+
+export function pickerApiKey(): string | null {
+  return getSetting<{ apiKey?: string }>('google_picker')?.apiKey || null;
+}
+
+export function savePickerApiKey(apiKey: string): void {
+  setSetting('google_picker', { apiKey: apiKey.trim() });
 }

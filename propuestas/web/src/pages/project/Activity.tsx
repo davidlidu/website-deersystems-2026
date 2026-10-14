@@ -33,8 +33,14 @@ function describe(a: ActivityItem): string {
       return 'publicó un avance';
     case 'meeting_approved':
       return `envió el resumen de la reunión ${q(d.title)} con ${d.tasks ?? 0} tareas`;
+    case 'meeting_scheduled':
+      return `agendó la reunión ${q(d.title)} para el ${d.when}`;
+    case 'meeting_cancelled':
+      return `canceló la reunión ${q(d.title)}`;
     case 'file_added':
       return `subió ${q(d.name)}${d.taskTitle ? ` en ${q(d.taskTitle)}` : ''}`;
+    case 'file_visibility':
+      return d.visibility === 'shared' ? `compartió con el cliente ${q(d.name)}` : `volvió interno ${q(d.name)}`;
     case 'file_deleted':
       return `quitó el archivo ${q(d.name)}`;
     default:
@@ -52,6 +58,7 @@ const ICON: Record<string, string> = {
   project_created: '✓',
   file_added: '📎',
   meeting_approved: '🎙',
+  meeting_scheduled: '📅',
 };
 
 export function ActivityFeed({ projectId, taskId, compact }: { projectId: number; taskId?: number; compact?: boolean }) {

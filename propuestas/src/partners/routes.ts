@@ -4,7 +4,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as ai from '../ai.ts';
 import { DEV_LOGIN, GOOGLE_CLIENT_ID, PARTNERS_URL, PUBLIC_URL, SUPERADMIN_EMAIL } from '../config.ts';
-import { getProposal, listProposals } from '../db.ts';
+import { getProposal, listProposals, updateProposal, type Proposal } from '../db.ts';
+import * as proposals from '../proposals.ts';
+import { resolveFile } from '../storage.ts';
 import * as google from '../google.ts';
 import { HttpError, json, readJson, redirect, sendFile } from '../http.ts';
 import * as mail from '../mail.ts';
@@ -304,6 +306,43 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
   };
 }
 
+// ───────── Propuestas ─────────
+
+function proposalView(p: Proposal) {
+  return {
+    id: p.id,
+    slug: p.slug,
+    title: p.title,
+    url: proposals.publicUrl(p.slug),
+    active: !!p.active,
+    views: p.views,
+    lastViewedAt: p.last_viewed_at,
+    version: p.version,
+    filename: p.filename,
+    size: p.size,
+    updatedAt: p.updated_at,
+    projects: db
+      .projectsForProposal(p.id)
+      .map((pr) => ({ id: pr.id, name: pr.name, clientId: pr.client_id, approvedOption: pr.approved_option })),
+  };
+}
+
+/** /historial/{id}/{versión}/… — una versión anterior tal como se publicó. Solo el administrador. */
+async function handleHistory(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  if (viewer(req)?.kind !== 'owner') return redirect(res, '/login');
+  const [, , rawId, rawVersion, ...rest] = url.pathname.split('/');
+  const p = getProposal(Number(rawId));
+  const version = Number(rawVersion);
+  if (!p || !Number.isInteger(version)) throw new HttpError(404, 'No encontrado.');
+  // Las rutas relativas del HTML solo resuelven bien con la barra final.
+  if (!rest.length) return redirect(res, `${url.pathname}/`);
+  let rel = rest.map(decodeURIComponent).join('/');
+  if (rel === '' || rel.endsWith('/')) rel += 'index.html';
+  const file = resolveFile(p.id, version, rel);
+  const ok = file && (await sendFile(req, res, file, { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' }));
+  if (!ok) throw new HttpError(404, 'Esa versión ya no está disponible.');
+}
+
 // ───────── API ─────────
 
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -489,22 +528,78 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     // ── Propuestas y aprobación (solo administrador)
     case 'GET proposals':
       requireOwner(v);
+      return json(res, 200, listProposals().map(proposalView));
+
+    // ── Gestión de propuestas desde partners (la URL pública sigue en propuestas.deersystems.net)
+    case 'POST proposals': {
+      requireOwner(v);
+      const upload = await proposals.readUpload(req, url);
+      const created = await proposals.publish(upload, {
+        slug: url.searchParams.get('slug') ?? undefined,
+        title: url.searchParams.get('title') ?? '',
+        by: v.email,
+      });
+      return json(res, 201, proposalView(created));
+    }
+
+    case 'PUT proposals/:id/file': {
+      requireOwner(v);
+      const current = getProposal(id);
+      if (!current) throw new HttpError(404, 'La propuesta no existe.');
+      const upload = await proposals.readUpload(req, url);
+      const updated = await proposals.replace(current, upload, { by: v.email, note: url.searchParams.get('note') ?? '' });
+      return json(res, 200, proposalView(updated));
+    }
+
+    case 'PATCH proposals/:id': {
+      requireOwner(v);
+      const current = getProposal(id);
+      if (!current) throw new HttpError(404, 'La propuesta no existe.');
+      const body = await readJson(req);
+      updateProposal(current.id, {
+        title: typeof body.title === 'string' ? body.title.trim().slice(0, 200) : undefined,
+        active: typeof body.active === 'boolean' ? body.active : undefined,
+      });
+      return json(res, 200, proposalView(getProposal(current.id)!));
+    }
+
+    case 'DELETE proposals/:id': {
+      requireOwner(v);
+      const current = getProposal(id);
+      if (!current) throw new HttpError(404, 'La propuesta no existe.');
+      if (db.projectsForProposal(current.id).length) {
+        throw new HttpError(409, 'Esta propuesta ya generó proyectos. Pausa el enlace en lugar de eliminarla, para no perder el historial.');
+      }
+      await proposals.remove(current);
+      return json(res, 200, { ok: true });
+    }
+
+    case 'GET proposals/:id/versions': {
+      requireOwner(v);
+      const current = getProposal(id);
+      if (!current) throw new HttpError(404, 'La propuesta no existe.');
       return json(
         res,
         200,
-        listProposals().map((p) => ({
-          id: p.id,
-          slug: p.slug,
-          title: p.title,
-          url: `${PUBLIC_URL}/${p.slug}`,
-          active: !!p.active,
-          views: p.views,
-          updatedAt: p.updated_at,
-          projects: db
-            .projectsForProposal(p.id)
-            .map((pr) => ({ id: pr.id, name: pr.name, clientId: pr.client_id, approvedOption: pr.approved_option })),
+        proposals.listVersions(current.id).map((ver) => ({
+          version: ver.version,
+          filename: ver.filename,
+          size: ver.size,
+          note: ver.note,
+          createdAt: ver.created_at,
+          createdBy: ver.created_by,
+          current: ver.version === current.version,
+          viewUrl: `/historial/${current.id}/${ver.version}/`,
         })),
       );
+    }
+
+    case 'POST proposals/:id/versions/:id/restore': {
+      requireOwner(v);
+      const current = getProposal(id);
+      if (!current) throw new HttpError(404, 'La propuesta no existe.');
+      return json(res, 200, proposalView(await proposals.restore(current, Number(parts[3]), v.email)));
+    }
 
     case 'POST proposals/:id/options': {
       requireOwner(v);
@@ -681,6 +776,7 @@ export async function handlePartners(req: IncomingMessage, res: ServerResponse, 
   const path = url.pathname;
   if (path.startsWith('/auth/')) return handleAuth(req, res, url);
   if (path.startsWith('/api/')) return handleApi(req, res, url);
+  if (path.startsWith('/historial/')) return handleHistory(req, res, url);
   if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Método no permitido.');
 
   // Archivos del build de Vite: nombres con hash, se pueden cachear para siempre.

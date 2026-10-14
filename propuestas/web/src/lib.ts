@@ -177,7 +177,11 @@ export interface Attachment {
   authorName: string;
   createdAt: string;
   canDelete: boolean;
-  driveUrl?: string;
+  canChangeVisibility: boolean;
+  /** Visor de Drive (o vista del portal para imágenes y PDF); null si no hay vista disponible. */
+  viewUrl: string | null;
+  downloadName: string;
+  linked: boolean;
 }
 
 export interface AppNotification {

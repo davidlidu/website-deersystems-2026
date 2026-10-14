@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, navigate, timeAgo, type AppNotification } from './lib';
+import { playSpaceBeep, setSoundEnabled, soundEnabled } from './sound';
 
 const POLL_MS = 60_000;
 
@@ -8,11 +9,19 @@ export function Bell() {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState<AppNotification[] | null>(null);
+  const [sound, setSound] = useState(soundEnabled);
   const box = useRef<HTMLDivElement>(null);
+  // Último aviso conocido: si llega uno más nuevo, suena. En la primera carga no suena.
+  const lastSeen = useRef<number | null>(null);
 
   const load = useCallback(async () => {
     try {
       const r = await api<{ unread: number; items: AppNotification[] }>('GET', 'notifications');
+      const newest = r.items[0]?.id ?? 0;
+      if (lastSeen.current !== null && newest > lastSeen.current && r.items.some((n) => !n.read && n.id > lastSeen.current!)) {
+        playSpaceBeep();
+      }
+      lastSeen.current = Math.max(lastSeen.current ?? 0, newest);
       setUnread(r.unread);
       setItems(r.items);
     } catch {
@@ -73,10 +82,30 @@ export function Bell() {
         {unread > 0 && <span className="bell__count">{unread > 99 ? '99+' : unread}</span>}
       </button>
       {open && (
-        <div className="bell__panel" role="dialog" aria-label="Notificaciones">
+        <div
+          className="bell__panel"
+          role="dialog"
+          aria-label="Notificaciones"
+          // En móvil el panel va fijo a lo ancho: justo debajo de la campana, sea cual sea el alto del encabezado.
+          style={window.innerWidth <= 860 ? { top: (box.current?.getBoundingClientRect().bottom ?? 56) + 8 } : undefined}
+        >
           <div className="bell__head">
             <strong>Notificaciones</strong>
-            {unread > 0 && <button onClick={() => markRead()}>Marcar todo como leído</button>}
+            <span className="bell__tools">
+              <button
+                className="bell__sound"
+                aria-pressed={sound}
+                title={sound ? 'Silenciar el sonido de los avisos' : 'Activar el sonido de los avisos'}
+                onClick={() => {
+                  setSound(!sound);
+                  setSoundEnabled(!sound);
+                  if (!sound) setTimeout(playSpaceBeep, 50);
+                }}
+              >
+                {sound ? '🔊' : '🔇'}
+              </button>
+              {unread > 0 && <button onClick={() => markRead()}>Marcar todo como leído</button>}
+            </span>
           </div>
           {items === null ? (
             <p className="bell__empty">Cargando…</p>

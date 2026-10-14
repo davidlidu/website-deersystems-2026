@@ -17,6 +17,7 @@ export const EVENTS = {
   staff_update: { audience: 'client', label: 'DeerSystems publica un avance', app: true, email: true },
   staff_comment: { audience: 'client', label: 'DeerSystems comenta o deja una nota compartida', app: true, email: true },
   staff_file: { audience: 'client', label: 'DeerSystems comparte un archivo', app: true, email: false },
+  meeting_scheduled: { audience: 'client', label: 'Se agenda una reunión (además de la invitación de Google Calendar)', app: true, email: false },
   meeting_draft: { audience: 'owner', label: 'Hay un resumen de reunión listo para revisar', app: true, email: true },
   meeting_summary: { audience: 'client', label: 'Se aprueba el resumen de una reunión (además del correo con el resumen)', app: true, email: false },
 } as const;

@@ -2,14 +2,16 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { endSession, googleAuthUrl, googleCallback, googleConfigured, sessionEmail, startSession } from './auth.ts';
-import { DEV_LOGIN, HOME_URL, MAX_UPLOAD_BYTES, PARTNERS_HOST, PARTNERS_URL, PORT, PUBLIC_URL, SUPERADMIN_EMAIL } from './config.ts';
+import { DEV_LOGIN, HOME_URL, PARTNERS_HOST, PARTNERS_URL, PORT, PUBLIC_URL, SUPERADMIN_EMAIL } from './config.ts';
 import * as db from './db.ts';
-import { HttpError, json, readBody, readJson, redirect, sendFile } from './http.ts';
+import { HttpError, json, readJson, redirect, sendFile } from './http.ts';
 import { projectsForProposal, pruneNotifications } from './partners/db.ts';
+import { startShareFixer } from './partners/files.ts';
 import { startScheduler } from './partners/meetings.ts';
 import { flushAll } from './partners/notify.ts';
 import { handlePartners } from './partners/routes.ts';
-import { checkSlug, removeAll, removeVersion, resolveFile, slugify, unpack, UploadError, writeVersion } from './storage.ts';
+import * as proposals from './proposals.ts';
+import { resolveFile, UploadError } from './storage.ts';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 
@@ -62,14 +64,6 @@ async function handleAdminPage(req: IncomingMessage, res: ServerResponse, url: U
   }
 }
 
-/** Lee el archivo subido (cuerpo crudo) y lo deja listo para publicar. */
-async function readUpload(req: IncomingMessage, url: URL) {
-  const filename = (url.searchParams.get('filename') ?? '').trim();
-  if (!filename) throw new HttpError(400, 'Falta el nombre del archivo.');
-  const content = unpack(filename, await readBody(req, MAX_UPLOAD_BYTES));
-  return { filename, ...content, hasAssets: content.files.size > 1 };
-}
-
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   const email = sessionEmail(req);
   if (!email) throw new HttpError(401, 'Sesión no válida. Vuelve a entrar.');
@@ -102,32 +96,18 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       );
 
     case 'POST proposals': {
-      const upload = await readUpload(req, url);
-      const slug = slugify(url.searchParams.get('slug') || upload.filename);
-      checkSlug(slug);
-      if (db.getProposalBySlug(slug)) {
-        throw new HttpError(409, `Ya existe una propuesta en /${slug}. Usa "Reemplazar" para actualizarla.`);
-      }
-      const title = (url.searchParams.get('title') ?? '').trim().slice(0, 200);
-      const created = db.createProposal({ slug, title, by: email, ...upload });
-      try {
-        await writeVersion(created.id, created.version, upload.files);
-      } catch (err) {
-        db.deleteProposal(created.id);
-        await removeAll(created.id);
-        throw err;
-      }
+      const upload = await proposals.readUpload(req, url);
+      const created = await proposals.publish(upload, {
+        slug: url.searchParams.get('slug') ?? undefined,
+        title: url.searchParams.get('title') ?? '',
+        by: email,
+      });
       return json(res, 201, created);
     }
 
     case 'PUT proposals/:id/file': {
-      const current = proposal();
-      const upload = await readUpload(req, url);
-      const version = current.version + 1;
-      await writeVersion(current.id, version, upload.files);
-      db.setProposalContent(current.id, { version, by: email, ...upload });
-      await removeVersion(current.id, current.version);
-      return json(res, 200, db.getProposal(current.id));
+      const upload = await proposals.readUpload(req, url);
+      return json(res, 200, await proposals.replace(proposal(), upload, { by: email }));
     }
 
     case 'PATCH proposals/:id': {
@@ -141,9 +121,10 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     }
 
     case 'DELETE proposals/:id': {
-      const current = proposal();
-      db.deleteProposal(current.id);
-      await removeAll(current.id);
+      if (projectsForProposal(proposal().id).length) {
+        throw new HttpError(409, 'Esta propuesta ya generó proyectos. Pausa el enlace en lugar de eliminarla, para no perder el historial.');
+      }
+      await proposals.remove(proposal());
       return json(res, 200, { ok: true });
     }
 
@@ -227,6 +208,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
 pruneNotifications();
 startScheduler();
+startShareFixer();
 
 // En cada despliegue Dokploy detiene el contenedor: antes de salir se envían los correos de avisos en cola.
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

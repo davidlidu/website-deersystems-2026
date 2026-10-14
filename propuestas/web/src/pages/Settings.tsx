@@ -603,11 +603,63 @@ function GoogleTab() {
         </p>
       </section>
 
+      <PickerKey />
+
       <section className="card form-section">
         <h2>Así se ven los correos</h2>
         <iframe className="mail-preview" src="/api/settings/mail-preview" title="Vista previa del correo de bienvenida" />
       </section>
     </div>
+  );
+}
+
+/** Clave de API para el selector de Drive (Google Picker). */
+function PickerKey() {
+  const { data, reload } = useApi<{ configured: boolean; hasKey: boolean }>('settings/google/picker');
+  const [key, setKey] = useState('');
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const save = (value: string) =>
+    run(async () => {
+      await api('PUT', 'settings/google/picker', { apiKey: value });
+      setKey('');
+      toast(value ? 'Clave guardada. Ya puedes agregar archivos desde tu Drive.' : 'Clave borrada.');
+      await reload();
+    });
+  return (
+    <section className="card form-section">
+      <h2>Agregar archivos desde tu Drive</h2>
+      <p className="hint">
+        El botón «Desde mi Drive» abre el selector de Google dentro de la plataforma. Necesita una clave de API de tu proyecto de Google Cloud
+        (el mismo del login).
+      </p>
+      <ol className="steps">
+        <li>
+          En Google Cloud Console → <strong>APIs y servicios → Biblioteca</strong>, habilita <strong>Google Picker API</strong>.
+        </li>
+        <li>
+          En <strong>Credenciales → Crear credenciales → Clave de API</strong>. Restríngela: aplicaciones web con el sitio{' '}
+          <code>https://partners.deersystems.net/*</code> y solo la API <strong>Google Picker API</strong>.
+        </li>
+        <li>Pega la clave aquí.</li>
+      </ol>
+      <div className="key-row">
+        <label className="field">
+          <span className="field__label">Clave de API · {data?.hasKey ? 'guardada' : 'sin clave'}</span>
+          <span className="input">
+            <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="AIza…" autoComplete="off" spellCheck={false} />
+          </span>
+        </label>
+        <button className="btn btn--outline btn--sm" disabled={busy || !key.trim()} onClick={() => save(key)}>
+          Guardar clave
+        </button>
+        {data?.hasKey && (
+          <button className="btn btn--outline btn--sm btn--danger" disabled={busy} onClick={() => save('')}>
+            Borrar
+          </button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -724,7 +776,8 @@ export function SettingsPage() {
   const { query } = useLocation();
   const toast = useToast();
   const googleResult = query.get('google');
-  const [tab, setTab] = useState<Tab>(googleResult ? 'google' : 'ia');
+  const tabParam = query.get('tab') as Tab | null;
+  const [tab, setTab] = useState<Tab>(googleResult ? 'google' : tabParam && tabParam in TABS ? tabParam : 'ia');
 
   useEffect(() => {
     if (!googleResult) return;

@@ -1,12 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { api, formatDate, formatMeetingTime, navigate, STATUS, useApi, type Me, type Meeting, type ProjectDetail, type Task } from '../../lib';
-import { Empty, ErrorBox, Link, Loading, Markdown, useAction } from '../../ui';
+import { Empty, ErrorBox, Link, Loading, Markdown, useAction, useToast } from '../../ui';
 import { MeetingStatusPill } from '../Meetings';
+import { ScheduleMeeting } from './Schedule';
 
 /** Reuniones del proyecto: las próximas (con enlace de Meet) y los resúmenes aprobados con sus tareas. */
 export function ProjectMeetings({ me, project, onOpenTask }: { me: Me; project: ProjectDetail; onOpenTask: (t: Task) => void }) {
   const { data, error, loading, reload } = useApi<Meeting[]>(`projects/${project.id}/meetings`);
   const [adding, setAdding] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const toast = useToast();
   const { busy, run } = useAction();
   const owner = me.role === 'owner';
 
@@ -34,14 +37,40 @@ export function ProjectMeetings({ me, project, onOpenTask }: { me: Me; project: 
     <div className="stack">
       {owner && (
         <div className="toolbar">
-          <span className="hint">
-            Las reuniones se toman de tu Google Calendar cuando invitas al cliente.{' '}
-            <Link to="/reuniones">Ver todas</Link>
-          </span>
-          <button className="btn btn--outline btn--sm" onClick={() => setAdding(!adding)}>
-            {adding ? 'Cancelar' : '+ Registrar reunión sin Meet'}
-          </button>
+          <div className="actions actions--tight">
+            <button
+              className="btn btn--primary btn--sm"
+              onClick={() => {
+                setScheduling(!scheduling);
+                setAdding(false);
+              }}
+            >
+              {scheduling ? 'Cerrar' : '+ Agendar reunión'}
+            </button>
+            <button
+              className="btn btn--outline btn--sm"
+              onClick={() => {
+                setAdding(!adding);
+                setScheduling(false);
+              }}
+            >
+              {adding ? 'Cancelar' : 'Registrar reunión sin Meet'}
+            </button>
+          </div>
+          <Link className="hint" to="/reuniones">
+            Ver todas las reuniones
+          </Link>
         </div>
+      )}
+      {scheduling && (
+        <ScheduleMeeting
+          projectId={project.id}
+          projectName={project.name}
+          onDone={() => {
+            setScheduling(false);
+            reload();
+          }}
+        />
       )}
       {adding && (
         <form className="card form-section" onSubmit={addManual}>
@@ -100,11 +129,29 @@ export function ProjectMeetings({ me, project, onOpenTask }: { me: Me; project: 
                   <strong>{m.title}</strong>
                   <span className="mono">{formatMeetingTime(m.startAt)}</span>
                 </div>
-                {m.meetUrl && (
-                  <a className="btn btn--primary btn--sm" href={m.meetUrl} target="_blank" rel="noopener">
-                    Unirse a Meet
-                  </a>
-                )}
+                <div className="actions actions--tight">
+                  {m.meetUrl && (
+                    <a className="btn btn--primary btn--sm" href={m.meetUrl} target="_blank" rel="noopener">
+                      Unirse a Meet
+                    </a>
+                  )}
+                  {owner && (
+                    <button
+                      className="btn btn--outline btn--sm btn--danger"
+                      disabled={busy}
+                      onClick={() => {
+                        if (!confirm(`¿Cancelar «${m.title}»? Google avisará a los invitados.`)) return;
+                        run(async () => {
+                          await api('POST', `meetings/${m.id}/cancel`);
+                          toast('Reunión cancelada.');
+                          await reload();
+                        });
+                      }}
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                </div>
               </article>
             ))}
           </div>

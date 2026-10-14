@@ -311,6 +311,12 @@ interface SyncState {
   processed: number;
 }
 
+/** Por defecto solo se siguen las reuniones agendadas desde la plataforma (con su proyecto). */
+interface MeetingSettings {
+  importExternal: boolean;
+}
+const meetingSettings = (): MeetingSettings => ({ importExternal: false, ...(db.getSetting<Partial<MeetingSettings>>('meetings') ?? {}) });
+
 const syncState = (): SyncState => db.getSetting<SyncState>('meetings_sync') ?? { lastRun: null, lastError: null, found: 0, processed: 0 };
 let running: Promise<SyncState> | null = null;
 
@@ -325,7 +331,10 @@ async function doSync(): Promise<SyncState> {
   try {
     const status = google.connectionStatus();
     if (!status.connected) throw new Error('Google no está conectado.');
-    if (status.missingScopes.length) throw new Error('Faltan permisos de Google: vuelve a conectar la cuenta en Configuración.');
+    if (!google.hasAnyScope('calendar.events', 'calendar.readonly') || !google.hasAnyScope('meetings.space.readonly')) {
+      throw new Error('Faltan permisos de Google para Calendar y Meet: vuelve a conectar la cuenta en Configuración.');
+    }
+    const { importExternal } = meetingSettings();
 
     const staff = staffEmails();
     const clients = clientByEmail();
@@ -344,7 +353,15 @@ async function doSync(): Promise<SyncState> {
           const email = a.email!.toLowerCase();
           return { email, name: a.displayName ?? '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' };
         });
-      const clientId = attendees.map((a) => clients.get(a.email)).find(Boolean) ?? existing?.client_id ?? null;
+      const own = e.extendedProperties?.private?.dsPartners === '1';
+      // Reuniones con clientes agendadas por fuera (otros temas): se ignoran, salvo que actives importarlas.
+      if (!own && !existing && !importExternal) continue;
+      const lockedProject = own ? Number(e.extendedProperties?.private?.dsProject) || null : null;
+      const clientId =
+        (lockedProject ? db.getProject(lockedProject)?.client_id : null) ??
+        attendees.map((a) => clients.get(a.email)).find(Boolean) ??
+        existing?.client_id ??
+        null;
       if (!clientId) continue; // reunión sin clientes: no es de la plataforma
       state.found++;
       const start = new Date(e.start.dateTime).toISOString();
@@ -359,7 +376,7 @@ async function doSync(): Promise<SyncState> {
         attendees: JSON.stringify(attendees),
       };
       if (!existing) {
-        insert({ event_id: e.id, client_id: clientId, project_id: projectFor(clientId), status: end < now() ? 'esperando' : 'programada', ...fields });
+        insert({ event_id: e.id, client_id: clientId, project_id: lockedProject ?? projectFor(clientId), status: end < now() ? 'esperando' : 'programada', ...fields });
       } else {
         // El proyecto lo puedes cambiar a mano: la sincronización no lo pisa.
         update(existing.id, { ...fields, client_id: clientId, ...(existing.project_id ? {} : { project_id: projectFor(clientId) }) });
@@ -460,13 +477,124 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
     case 'GET meetings': {
       requireOwner(v);
       const rows = sqlite.prepare('SELECT * FROM meetings ORDER BY start_at DESC LIMIT 300').all() as unknown as Row[];
-      json(res, 200, { items: rows.map((m) => view(m, v)), sync: syncState() });
+      json(res, 200, { items: rows.map((m) => view(m, v)), sync: syncState(), settings: meetingSettings() });
       return true;
     }
 
     case 'POST meetings/sync': {
       requireOwner(v);
       json(res, 200, await sync());
+      return true;
+    }
+
+    case 'PUT meetings/settings': {
+      requireOwner(v);
+      const body = await readJson(req);
+      const next = { ...meetingSettings(), ...(typeof body.importExternal === 'boolean' ? { importExternal: body.importExternal } : {}) };
+      db.setSetting('meetings', next);
+      json(res, 200, next);
+      return true;
+    }
+
+    // Datos para el formulario de agendar: el contacto del cliente y el equipo.
+    case 'GET projects/:id/contacts': {
+      requireOwner(v);
+      const project = visibleProject(id, v);
+      const client = db.getClient(project.client_id)!;
+      const account = db.getClientAccount(client.id);
+      json(res, 200, {
+        client: { name: client.contact_name || client.name, company: client.name, email: account?.email ?? client.email },
+        team: db.listTeam().filter((a) => a.active).map((a) => ({ id: a.id, name: a.name, email: a.email })),
+        canSchedule: google.connectionStatus().connected && google.hasAnyScope('calendar.events'),
+      });
+      return true;
+    }
+
+    // Agendar desde la plataforma: crea el evento con Meet en tu Calendar, invita y lo deja en el proyecto.
+    case 'POST projects/:id/meetings/schedule': {
+      requireOwner(v);
+      const project = visibleProject(id, v);
+      if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para agendar reuniones.');
+      if (!google.hasAnyScope('calendar.events')) throw new HttpError(403, 'Falta el permiso para crear eventos: vuelve a conectar Google en Configuración.');
+      const body = await readJson(req);
+      const date = optDate(body.date);
+      const time = typeof body.time === 'string' && /^\d{2}:\d{2}$/.test(body.time) ? body.time : null;
+      if (!date || !time) throw new HttpError(400, 'Elige la fecha y la hora.');
+      const minutes = Math.min(480, Math.max(15, Number(body.durationMinutes) || 45));
+      // Colombia no cambia de horario: -05:00 todo el año.
+      const start = new Date(`${date}T${time}:00-05:00`);
+      if (start.getTime() < Date.now() - 5 * 60_000) throw new HttpError(400, 'La fecha ya pasó.');
+      const end = new Date(start.getTime() + minutes * 60_000);
+      const client = db.getClient(project.client_id)!;
+      const account = db.getClientAccount(client.id);
+      const emails = new Set<string>();
+      if (body.includeClient !== false) emails.add((account?.email ?? client.email).toLowerCase());
+      const teamIds = new Set((Array.isArray(body.team) ? body.team : []).map(Number));
+      for (const a of db.listTeam()) if (a.active && teamIds.has(a.id)) emails.add(a.email.toLowerCase());
+      for (const g of Array.isArray(body.guests) ? body.guests : []) {
+        const e = str(g, 200).toLowerCase();
+        if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) emails.add(e);
+      }
+      emails.delete(SUPERADMIN_EMAIL); // tú eres el organizador
+      if (!emails.size) throw new HttpError(400, 'Invita al menos a una persona.');
+      const title = str(body.title, 200) || `Reunión · ${project.name}`;
+      const agenda = typeof body.agenda === 'string' ? body.agenda.trim().slice(0, 4000) : '';
+
+      let event: google.CalendarEvent;
+      try {
+        event = await google.createCalendarEvent({
+          summary: title,
+          description: [agenda, `Proyecto: ${project.name}`, `Sigue el proyecto en ${PARTNERS_URL}`].filter(Boolean).join('\n\n'),
+          startIso: start.toISOString(),
+          endIso: end.toISOString(),
+          attendees: [...emails],
+          privateProps: { dsPartners: '1', dsProject: String(project.id) },
+        });
+      } catch (err) {
+        throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+      }
+      const staff = staffEmails();
+      const clients = clientByEmail();
+      const m = insert({
+        event_id: event.id,
+        client_id: client.id,
+        project_id: project.id,
+        title,
+        start_at: start.toISOString(),
+        end_at: end.toISOString(),
+        meet_code: meetCodeOf(event),
+        meet_url: event.hangoutLink ?? null,
+        calendar_url: event.htmlLink ?? null,
+        attendees: JSON.stringify(
+          [...emails].map((email) => ({ email, name: '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' })),
+        ),
+        status: 'programada',
+      });
+      const a = actor(v);
+      const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+      db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'meeting_scheduled', data: { title, when } });
+      notify('meeting_scheduled', { actor: v, projectId: project.id, title: `Reunión agendada: «${title}»`, body: when, path: `/proyectos/${project.id}?tab=reuniones` });
+      json(res, 201, view(m, v));
+      return true;
+    }
+
+    case 'POST meetings/:id/cancel': {
+      requireOwner(v);
+      const m = visible(id, v);
+      if (m.status !== 'programada') throw new HttpError(409, 'Solo se pueden cancelar reuniones que aún no ocurren.');
+      if (m.event_id) {
+        try {
+          await google.cancelCalendarEvent(m.event_id);
+        } catch (err) {
+          throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+        }
+      }
+      sqlite.prepare('DELETE FROM meetings WHERE id = ?').run(m.id);
+      if (m.project_id) {
+        const a = actor(v);
+        db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: 'meeting_cancelled', data: { title: m.title } });
+      }
+      json(res, 200, { ok: true });
       return true;
     }
 

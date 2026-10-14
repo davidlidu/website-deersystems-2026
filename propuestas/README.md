@@ -11,6 +11,8 @@ Panel para publicar las propuestas comerciales en HTML. Cada propuesta queda en 
 
 El mismo servidor atiende también **`partners.deersystems.net`**, el portal de clientes (ver abajo). Lo distingue por el `Host`.
 
+Las propuestas también se gestionan desde partners (*Propuestas*), con el enlace siempre en `propuestas.deersystems.net`. **Cada reemplazo guarda una versión nueva y conserva las anteriores.** Desde partners se ven en `/historial/{id}/{versión}/` (solo el administrador) y se pueden restaurar; restaurar publica esa versión como una nueva, sin perder nada. Las propuestas que ya generaron proyectos no se pueden eliminar, solo pausar.
+
 Es un servidor Node sin framework: `node:http`, `node:sqlite` y `fflate` para los `.zip`. Node ejecuta el TypeScript directamente. Solo la interfaz de partners (React + Vite, en `web/`) tiene paso de build.
 
 ```
@@ -61,7 +63,12 @@ El **% de avance** es tareas completadas / total. Los estados son fijos: Pendien
 - **Notas**: compartidas, o internas que el cliente nunca ve.
 - **Bitácora**: registra cada cambio. El cliente no ve las entradas internas.
 - El equipo crea, edita y elimina tareas y fases. El cliente cambia el estado de sus tareas (sin completarlas), comenta y deja notas.
-- **Archivos**: se suben a Google Drive, en `DeerSystems Partners / Cliente / Proyecto`, desde el proyecto o desde una tarea. Pueden ser compartidos o internos. El cliente descarga a través del portal, sin acceso a tu Drive. Al quitar un archivo, va a la papelera de Drive.
+- **Archivos**: se suben a Google Drive, en `DeerSystems Partners / Cliente / Proyecto`, desde el proyecto o desde una tarea.
+  - El administrador también los agrega **desde su Drive** con el selector de Google (Google Picker), sin salir de la plataforma. Esos archivos se enlazan, no se copian.
+  - Cada archivo es **compartido** o **interno**, y se cambia con un clic.
+  - Los compartidos quedan con lectura para quien tenga el enlace, sin aparecer en búsquedas. Así el ojo 👁 abre el visor de Drive incluso para el cliente. La descarga ⬇ pasa por el portal; los Docs, Hojas y Presentaciones se descargan en PDF.
+  - Al quitar un archivo subido, va a la papelera de Drive. Al quitar uno enlazado desde tu Drive, el original no se toca.
+  - El selector necesita una clave de API con *Google Picker API* habilitada (Configuración → Google y correo).
 
 **Avisos:**
 - **Campana del encabezado:** a ti y al equipo les llegan los comentarios, notas, cambios de estado y archivos del cliente. Al cliente le llegan los avances, las tareas nuevas para él, los comentarios y los archivos de DeerSystems. Cada aviso abre la tarea o la pestaña exacta.
@@ -69,7 +76,8 @@ El **% de avance** es tareas completadas / total. Los estados son fijos: Pendien
 - **Configuración → Avisos:** cada tipo de aviso se enciende o apaga en la plataforma y por correo.
 
 **Reuniones (Calendar + Meet):**
-1. Cada 10 minutos (o con *Sincronizar ahora* en **Reuniones**) se lee tu Google Calendar. Cuenta toda reunión donde esté el correo de un cliente y la asocia a su proyecto activo; el proyecto se puede cambiar a mano.
+1. **Agendas desde la plataforma**, en *Reuniones* o en la pestaña *Reuniones* del proyecto. Eliges el proyecto en marcha, la fecha y hora, la duración, la agenda y a quién invitar (cliente, equipo y otros). Se crea en tu Google Calendar con Meet y Google envía las invitaciones. También se puede cancelar.
+   Cada 10 minutos (o con *Sincronizar ahora*) se revisa el calendario. Por defecto **solo se siguen las reuniones agendadas desde la plataforma**: las que agendas directamente en Calendar con un cliente para otros temas no entran, salvo que actives *Importar también…*.
 2. Al terminar, se busca la transcripción de Meet: la transcripción debe estar activada en la reunión. Si no hay, puedes pegarla o escribir notas.
 3. La IA del perfil *Reuniones* propone el resumen, los acuerdos y las tareas de cada parte, y te avisa. **Solo tú ves el borrador y la transcripción.**
 4. Revisas, editas y eliges a quién enviarlo. *Aprobar y enviar* crea las tareas (origen «reunión»), las registra en la bitácora, envía el correo con el diseño de la marca y le muestra el resumen al cliente en la pestaña **Reuniones** del proyecto.

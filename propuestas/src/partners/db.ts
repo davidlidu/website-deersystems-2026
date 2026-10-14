@@ -785,3 +785,28 @@ export function clientFolder(id: number): string | null {
 export function projectFolder(id: number): string | null {
   return one<{ f: string | null }>('SELECT drive_folder_id AS f FROM projects WHERE id = ?', id)?.f ?? null;
 }
+
+// Archivos: enlace de Drive, si ya se compartió por enlace y si viene de tu Drive (no se sube ni se borra).
+addColumn('attachments', 'drive_url', 'TEXT');
+addColumn('attachments', 'link_shared', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('attachments', 'linked', 'INTEGER NOT NULL DEFAULT 0');
+
+export interface AttachmentExtra {
+  drive_url: string | null;
+  link_shared: number;
+  linked: number;
+}
+
+export function updateAttachment(id: number, fields: Partial<{ visibility: 'shared' | 'internal'; link_shared: number; drive_url: string | null }>): void {
+  for (const [col, value] of Object.entries(fields)) {
+    if (value !== undefined) db.prepare(`UPDATE attachments SET ${col} = ? WHERE id = ?`).run(value, id);
+  }
+}
+
+export function setAttachmentSource(id: number, fields: { drive_url: string | null; linked: boolean }): void {
+  db.prepare('UPDATE attachments SET drive_url = ?, linked = ? WHERE id = ?').run(fields.drive_url, fields.linked ? 1 : 0, id);
+}
+
+/** Archivos compartidos que aún no tienen el acceso por enlace (subidos antes de este cambio, o si falló). */
+export const pendingLinkShares = () =>
+  all<Attachment & AttachmentExtra>("SELECT * FROM attachments WHERE visibility = 'shared' AND link_shared = 0 ORDER BY id LIMIT 50");

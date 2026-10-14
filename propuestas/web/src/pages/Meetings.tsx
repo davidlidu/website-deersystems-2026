@@ -14,6 +14,7 @@ import {
   type TeamMember,
 } from '../lib';
 import { Empty, ErrorBox, Link, Loading, Markdown, PageHead, useAction, useToast } from '../ui';
+import { ScheduleMeeting } from './project/Schedule';
 
 interface SyncState {
   lastRun: string | null;
@@ -46,19 +47,20 @@ function MeetingRow({ m }: { m: Meeting }) {
 
 /** Bandeja de reuniones (solo administrador): lo que hay que revisar primero. */
 export function MeetingsPage() {
-  const { data, error, loading, reload, setData } = useApi<{ items: Meeting[]; sync: SyncState }>('meetings');
+  const { data, error, loading, reload, setData } = useApi<{ items: Meeting[]; sync: SyncState; settings: { importExternal: boolean } }>('meetings');
+  const [scheduling, setScheduling] = useState(false);
   const { busy, run } = useAction();
   const toast = useToast();
   const [showOld, setShowOld] = useState(false);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
-  const { items, sync } = data!;
+  const { items, sync, settings } = data!;
 
   const syncNow = () =>
     run(async () => {
       const state = await api<SyncState>('POST', 'meetings/sync');
-      const fresh = await api<{ items: Meeting[]; sync: SyncState }>('GET', 'meetings');
+      const fresh = await api<{ items: Meeting[]; sync: SyncState; settings: { importExternal: boolean } }>('GET', 'meetings');
       setData(fresh);
       toast(state.lastError ? `Sincronizado con avisos: ${state.lastError}` : `Listo: ${state.found} reuniones con clientes, ${state.processed} procesadas.`, !!state.lastError);
     });
@@ -75,19 +77,44 @@ export function MeetingsPage() {
     <>
       <PageHead eyebrow="Reuniones" title={<>Reuniones con <span className="grad">clientes</span></>}>
         <p>
-          Se leen de tu Google Calendar: cualquier evento donde esté el correo de un cliente. Al terminar, se busca la transcripción de Meet y la IA
-          prepara el resumen y las tareas. Tú lo revisas y lo envías.
+          Agenda aquí las reuniones de cada proyecto en marcha: se crean en tu Google Calendar con Meet y quedan asignadas al proyecto. Al
+          terminar, se busca la transcripción y la IA prepara el resumen y las tareas. Tú lo revisas y lo envías.
         </p>
         <div className="sync-bar">
-          <button className="btn btn--primary btn--sm" disabled={busy} onClick={syncNow}>
+          <button className="btn btn--primary btn--sm" onClick={() => setScheduling(!scheduling)}>
+            {scheduling ? 'Cerrar' : '+ Agendar reunión'}
+          </button>
+          <button className="btn btn--outline btn--sm" disabled={busy} onClick={syncNow}>
             {busy ? 'Sincronizando…' : 'Sincronizar ahora'}
           </button>
           <span className="hint">
             {sync.lastRun ? `Última sincronización ${timeAgo(sync.lastRun)} · se repite cada 10 min` : 'Aún no se ha sincronizado.'}
           </span>
         </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={settings.importExternal}
+            disabled={busy}
+            onChange={(e) =>
+              run(async () => {
+                const next = await api<{ importExternal: boolean }>('PUT', 'meetings/settings', { importExternal: e.target.checked });
+                setData({ ...data!, settings: next });
+              })
+            }
+          />
+          Importar también las reuniones con clientes agendadas directamente en Google Calendar (si no, solo se siguen las agendadas desde aquí)
+        </label>
         {sync.lastError && <p className="alert">{sync.lastError}</p>}
       </PageHead>
+      {scheduling && (
+        <ScheduleMeeting
+          onDone={async (m) => {
+            setScheduling(false);
+            setData({ ...data!, items: [m, ...items] });
+          }}
+        />
+      )}
 
       {groups.map(([title, list, empty]) =>
         list.length || empty ? (
