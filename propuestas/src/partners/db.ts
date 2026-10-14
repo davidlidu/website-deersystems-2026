@@ -443,3 +443,169 @@ export function usageByDay(since: string) {
 
 export const recentUsage = (limit: number) =>
   all<UsageRow & { id: number; at: string }>('SELECT * FROM ai_usage ORDER BY id DESC LIMIT ?', limit);
+
+// ───────── Fase 2: edición de tareas y fases, notas, avances y bitácora ─────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    task_id INTEGER REFERENCES tasks(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL DEFAULT 'nota' CHECK (kind IN ('nota', 'avance')),
+    visibility TEXT NOT NULL DEFAULT 'shared' CHECK (visibility IN ('shared', 'internal')),
+    author_kind TEXT NOT NULL,
+    author_id INTEGER,
+    author_name TEXT NOT NULL,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS notes_project ON notes(project_id, created_at);
+  CREATE TABLE IF NOT EXISTS activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    task_id INTEGER,
+    actor_kind TEXT NOT NULL,
+    actor_name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    data TEXT NOT NULL DEFAULT '{}',
+    internal INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS activity_project ON activity(project_id, id);
+`);
+
+export type TaskFields = Partial<
+  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position'>
+>;
+
+export function updateTask(id: number, fields: TaskFields): void {
+  for (const [col, value] of Object.entries(fields)) {
+    if (value !== undefined) db.prepare(`UPDATE tasks SET ${col} = ?, updated_at = ? WHERE id = ?`).run(value, now(), id);
+  }
+}
+
+export function deleteTask(id: number): void {
+  db.prepare('DELETE FROM tasks WHERE id = ?').run(id);
+}
+
+export function nextTaskPosition(projectId: number): number {
+  return one<{ p: number }>('SELECT COALESCE(MAX(position), -1) + 1 AS p FROM tasks WHERE project_id = ?', projectId)!.p;
+}
+
+export const getPhase = (id: number) => one<Phase>('SELECT * FROM phases WHERE id = ?', id);
+
+export function nextPhasePosition(projectId: number): number {
+  return one<{ p: number }>('SELECT COALESCE(MAX(position), -1) + 1 AS p FROM phases WHERE project_id = ?', projectId)!.p;
+}
+
+export function updatePhase(id: number, fields: { name?: string; position?: number }): void {
+  if (fields.name !== undefined) db.prepare('UPDATE phases SET name = ? WHERE id = ?').run(fields.name, id);
+  if (fields.position !== undefined) db.prepare('UPDATE phases SET position = ? WHERE id = ?').run(fields.position, id);
+}
+
+/** Las tareas de la fase no se borran: quedan "Sin fase". */
+export function deletePhase(id: number): void {
+  db.prepare('DELETE FROM phases WHERE id = ?').run(id);
+}
+
+export interface Note {
+  id: number;
+  project_id: number;
+  task_id: number | null;
+  kind: 'nota' | 'avance';
+  visibility: 'shared' | 'internal';
+  author_kind: 'owner' | 'team' | 'client';
+  author_id: number | null;
+  author_name: string;
+  body: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const getNote = (id: number) => one<Note>('SELECT * FROM notes WHERE id = ?', id);
+
+/** Notas de un proyecto (o de una tarea). Sin `internal`, el cliente no ve las internas. */
+export function listNotes(projectId: number, opts: { internal: boolean; taskId?: number | null; kind?: Note['kind'] }) {
+  const where = ['project_id = ?'];
+  const params: (string | number)[] = [projectId];
+  if (!opts.internal) where.push("visibility = 'shared'");
+  if (opts.taskId === null) where.push('task_id IS NULL');
+  else if (opts.taskId !== undefined) {
+    where.push('task_id = ?');
+    params.push(opts.taskId);
+  }
+  if (opts.kind) {
+    where.push('kind = ?');
+    params.push(opts.kind);
+  }
+  return all<Note>(`SELECT * FROM notes WHERE ${where.join(' AND ')} ORDER BY created_at DESC, id DESC`, ...params);
+}
+
+/** Cantidad de comentarios por tarea, para mostrar el contador en la lista. */
+export function commentCounts(projectId: number, internal: boolean): Map<number, number> {
+  const rows = all<{ task_id: number; n: number }>(
+    `SELECT task_id, COUNT(*) AS n FROM notes WHERE project_id = ? AND task_id IS NOT NULL ${internal ? '' : "AND visibility = 'shared'"} GROUP BY task_id`,
+    projectId,
+  );
+  return new Map(rows.map((r) => [r.task_id, r.n]));
+}
+
+export function createNote(n: Omit<Note, 'id' | 'created_at' | 'updated_at'>): Note {
+  const t = now();
+  const { lastInsertRowid } = db
+    .prepare(
+      `INSERT INTO notes (project_id, task_id, kind, visibility, author_kind, author_id, author_name, body, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(n.project_id, n.task_id, n.kind, n.visibility, n.author_kind, n.author_id, n.author_name, n.body, t, t);
+  return getNote(Number(lastInsertRowid))!;
+}
+
+export function updateNote(id: number, body: string): void {
+  db.prepare('UPDATE notes SET body = ?, updated_at = ? WHERE id = ?').run(body, now(), id);
+}
+
+export function deleteNote(id: number): void {
+  db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+}
+
+export interface Activity {
+  id: number;
+  project_id: number;
+  task_id: number | null;
+  actor_kind: string;
+  actor_name: string;
+  type: string;
+  data: string;
+  internal: number;
+  created_at: string;
+}
+
+/** Bitácora: cada cambio queda registrado. `internal` = no lo ve el cliente. */
+export function logActivity(a: {
+  projectId: number;
+  taskId?: number | null;
+  actorKind: string;
+  actorName: string;
+  type: string;
+  data?: Record<string, unknown>;
+  internal?: boolean;
+}): void {
+  db.prepare(
+    `INSERT INTO activity (project_id, task_id, actor_kind, actor_name, type, data, internal, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(a.projectId, a.taskId ?? null, a.actorKind, a.actorName, a.type, JSON.stringify(a.data ?? {}), a.internal ? 1 : 0, now());
+}
+
+export function listActivity(projectId: number, opts: { internal: boolean; taskId?: number; limit?: number }) {
+  const where = ['project_id = ?'];
+  const params: (string | number)[] = [projectId];
+  if (!opts.internal) where.push('internal = 0');
+  if (opts.taskId !== undefined) {
+    where.push('task_id = ?');
+    params.push(opts.taskId);
+  }
+  params.push(opts.limit ?? 200);
+  return all<Activity>(`SELECT * FROM activity WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`, ...params);
+}

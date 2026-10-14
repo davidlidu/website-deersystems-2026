@@ -146,7 +146,34 @@ export interface Task {
   dueDate: string | null;
   completedAt: string | null;
   source: 'propuesta' | 'manual' | 'reunion';
+  comments: number;
   canChangeStatus: boolean;
+  canEdit: boolean;
+}
+
+export interface Note {
+  id: number;
+  taskId: number | null;
+  kind: 'nota' | 'avance';
+  visibility: 'shared' | 'internal';
+  authorKind: Role;
+  authorName: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  canEdit: boolean;
+  canDelete: boolean;
+}
+
+export interface ActivityItem {
+  id: number;
+  taskId: number | null;
+  actorKind: Role;
+  actorName: string;
+  type: string;
+  data: Record<string, unknown>;
+  internal: boolean;
+  createdAt: string;
 }
 
 export interface ProjectDetail extends ProjectSummary {
@@ -188,3 +215,52 @@ export const compact = (n: number) => n.toLocaleString('es-CO', { notation: 'com
 export const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 
 export const isOverdue = (t: Pick<Task, 'dueDate' | 'status'>) => !!t.dueDate && t.status !== 'completada' && t.dueDate < today();
+
+// ───────── Fechas de calendario ("YYYY-MM-DD", sin zona horaria) ─────────
+
+const parseDay = (iso: string) => new Date(`${iso}T12:00:00`);
+const toDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+export function addDays(iso: string, days: number): string {
+  const d = parseDay(iso);
+  d.setDate(d.getDate() + days);
+  return toDay(d);
+}
+
+export const daysBetween = (a: string, b: string) => Math.round((parseDay(b).getTime() - parseDay(a).getTime()) / 86_400_000);
+
+/** Lunes de la semana del día dado. */
+export function startOfWeek(iso: string): string {
+  const day = (parseDay(iso).getDay() + 6) % 7;
+  return addDays(iso, -day);
+}
+
+export function startOfMonth(iso: string): string {
+  return `${iso.slice(0, 7)}-01`;
+}
+
+export function addMonths(iso: string, n: number): string {
+  const d = parseDay(startOfMonth(iso));
+  d.setMonth(d.getMonth() + n);
+  return toDay(d);
+}
+
+/** 6 semanas × 7 días que cubren el mes, empezando en lunes. */
+export function monthGrid(iso: string): string[] {
+  const first = startOfWeek(startOfMonth(iso));
+  return Array.from({ length: 42 }, (_, i) => addDays(first, i));
+}
+
+export function dayLabel(iso: string, opts: Intl.DateTimeFormatOptions): string {
+  return parseDay(iso).toLocaleDateString('es-CO', opts);
+}
+
+/** Relativo y corto: "hace 5 min", "ayer", "12 oct". */
+export function timeAgo(iso: string): string {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return 'ahora';
+  if (s < 3600) return `hace ${Math.floor(s / 60)} min`;
+  if (s < 86_400) return `hace ${Math.floor(s / 3600)} h`;
+  if (s < 172_800) return 'ayer';
+  return new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
+}

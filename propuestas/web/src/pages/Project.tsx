@@ -1,12 +1,8 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   api,
-  CLIENT_STATUSES,
   formatDate,
-  isOverdue,
   PROJECT_STATUS,
-  STATUS,
-  STATUSES,
   useApi,
   type Me,
   type Progress,
@@ -14,57 +10,67 @@ import {
   type ProjectStatus,
   type Task,
   type TaskStatus,
+  type TeamMember,
 } from '../lib';
-import { ErrorBox, Link, Loading, Markdown, PageHead, ProgressBar, StatusPill, useAction, useToast } from '../ui';
+import { ErrorBox, Link, Loading, Markdown, PageHead, ProgressBar, useAction, useToast } from '../ui';
+import { ActivityFeed } from './project/Activity';
+import { NotesPanel } from './project/Notes';
+import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
+import { TaskViews, VIEWS, type View } from './project/TaskViews';
 
-function TaskRow({ task, me, onStatus }: { task: Task; me: Me; onStatus: (t: Task, s: TaskStatus) => void }) {
-  const [open, setOpen] = useState(false);
-  const options = me.role === 'client' ? CLIENT_STATUSES : STATUSES;
-  const who = task.side === 'cliente' ? 'Cliente' : (task.assigneeName ?? 'DeerSystems');
-  return (
-    <li className={`task is-${task.status}${isOverdue(task) ? ' is-overdue' : ''}`}>
-      <div className="task__main">
-        <button className="task__title" onClick={() => setOpen(!open)} aria-expanded={open}>
-          {task.title}
-        </button>
-        <div className="task__meta">
-          <span className={`side side--${task.side}`}>{who}</span>
-          {task.dueDate && <span className="mono">{isOverdue(task) ? 'Vencida · ' : 'Entrega · '}{formatDate(task.dueDate, false)}</span>}
-        </div>
-        {open && task.description && <p className="task__desc">{task.description}</p>}
-      </div>
-      {task.canChangeStatus ? (
-        <select
-          className={`pill pill--${task.status} pill--select`}
-          value={task.status}
-          aria-label={`Estado de ${task.title}`}
-          onChange={(e) => onStatus(task, e.target.value as TaskStatus)}
-        >
-          {/* Si el estado actual no está entre las opciones del cliente, igual se muestra. */}
-          {[...new Set([task.status, ...options])].map((s) => (
-            <option key={s} value={s}>
-              {STATUS[s]}
-            </option>
-          ))}
-        </select>
-      ) : (
-        <StatusPill status={task.status} />
-      )}
-    </li>
-  );
+type Tab = 'tareas' | 'avances' | 'notas' | 'bitacora' | 'alcance' | 'comercial';
+
+/** La vista elegida se recuerda en este navegador. */
+function storedView(): View {
+  try {
+    const v = localStorage.getItem('ds:view') as View | null;
+    return v && v in VIEWS ? v : 'lista';
+  } catch {
+    return 'lista';
+  }
 }
 
 export function ProjectPage({ me, id }: { me: Me; id: number }) {
   const { data, error, loading, reload, setData } = useApi<ProjectDetail>(`projects/${id}`);
-  const [tab, setTab] = useState<'tareas' | 'alcance' | 'comercial'>('tareas');
+  const staff = me.role !== 'client';
+  const team = useApi<TeamMember[]>(staff ? 'team' : null);
+  const [tab, setTab] = useState<Tab>('tareas');
+  const [view, setView] = useState<View>(storedView);
   const [sideFilter, setSideFilter] = useState<'todas' | 'deersystems' | 'cliente'>('todas');
+  const [assignee, setAssignee] = useState<number | 'todos'>('todos');
+  const [hideDone, setHideDone] = useState(false);
+  const [search, setSearch] = useState('');
+  const [drawer, setDrawer] = useState<{ taskId: number | null; defaults?: TaskDefaults } | null>(null);
   const toast = useToast();
   const { run } = useAction();
+
+  const tasks = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (data?.tasks ?? []).filter(
+      (t) =>
+        (sideFilter === 'todas' || t.side === sideFilter) &&
+        (assignee === 'todos' || t.assigneeId === assignee) &&
+        (!hideDone || t.status !== 'completada') &&
+        (!q || `${t.title} ${t.description}`.toLowerCase().includes(q)),
+    );
+  }, [data, sideFilter, assignee, hideDone, search]);
+
+  const patchTask = useCallback(
+    (task: Task, progress?: Progress) => {
+      if (!data) return;
+      const exists = data.tasks.some((t) => t.id === task.id);
+      setData({
+        ...data,
+        progress: progress ?? data.progress,
+        tasks: exists ? data.tasks.map((t) => (t.id === task.id ? task : t)) : [...data.tasks, task],
+      });
+    },
+    [data, setData],
+  );
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const p = data!;
-  const staff = me.role !== 'client';
 
   const setStatus = (task: Task, status: TaskStatus) => {
     const prev = p;
@@ -72,8 +78,23 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
     setData({ ...p, tasks: p.tasks.map((t) => (t.id === task.id ? { ...t, status } : t)) });
     run(async () => {
       try {
-        const { progress } = await api<{ progress: Progress }>('PATCH', `tasks/${task.id}`, { status });
-        setData({ ...p, progress, tasks: p.tasks.map((t) => (t.id === task.id ? { ...t, status } : t)) });
+        const r = await api<{ task: Task; progress: Progress }>('PATCH', `tasks/${task.id}`, { status });
+        setData({ ...p, progress: r.progress, tasks: p.tasks.map((t) => (t.id === task.id ? r.task : t)) });
+      } catch (err) {
+        setData(prev);
+        throw err;
+      }
+    });
+  };
+
+  const moveTask = (task: Task, patch: { dueDate: string; startDate: string | null }) => {
+    const prev = p;
+    setData({ ...p, tasks: p.tasks.map((t) => (t.id === task.id ? { ...t, ...patch } : t)) });
+    run(async () => {
+      try {
+        const r = await api<{ task: Task; progress: Progress }>('PATCH', `tasks/${task.id}`, patch);
+        patchTask(r.task, r.progress);
+        toast(`«${task.title}» ahora se entrega el ${formatDate(patch.dueDate)}.`);
       } catch (err) {
         setData(prev);
         throw err;
@@ -87,14 +108,28 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
       toast(`Proyecto ${PROJECT_STATUS[status].toLowerCase()}.`);
     });
 
-  const tasks = p.tasks.filter((t) => sideFilter === 'todas' || t.side === sideFilter);
-  const byPhase = [
-    ...p.phases.map((ph) => ({ ...ph, tasks: tasks.filter((t) => t.phaseId === ph.id) })),
-    { id: 0, name: 'Sin fase', tasks: tasks.filter((t) => !t.phaseId || !p.phases.some((ph) => ph.id === t.phaseId)) },
-  ].filter((ph) => ph.tasks.length);
+  const chooseView = (v: View) => {
+    setView(v);
+    try {
+      localStorage.setItem('ds:view', v);
+    } catch {
+      /* sin almacenamiento: la vista se olvida al recargar */
+    }
+  };
+
   // Lo que ya mandó a revisión no cuenta: está en manos de DeerSystems.
   const mine = p.tasks.filter((t) => t.side === 'cliente' && t.status !== 'completada' && t.status !== 'en_revision').length;
   const hasCommercial = me.role !== 'team' && (p.pricing || p.proposalUrl);
+  const openTask = drawer?.taskId ? p.tasks.find((t) => t.id === drawer.taskId) : null;
+
+  const tabs: [Tab, string][] = [
+    ['tareas', 'Tareas'],
+    ['avances', 'Avances'],
+    ['notas', 'Notas'],
+    ['bitacora', 'Bitácora'],
+    ['alcance', 'Alcance aprobado'],
+    ...(hasCommercial ? ([['comercial', 'Propuesta y valores']] as [Tab, string][]) : []),
+  ];
 
   return (
     <>
@@ -154,52 +189,87 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
       </PageHead>
 
       <div className="tabs" role="tablist">
-        <button role="tab" aria-selected={tab === 'tareas'} className={tab === 'tareas' ? 'is-active' : ''} onClick={() => setTab('tareas')}>
-          Tareas
-        </button>
-        <button role="tab" aria-selected={tab === 'alcance'} className={tab === 'alcance' ? 'is-active' : ''} onClick={() => setTab('alcance')}>
-          Alcance aprobado
-        </button>
-        {hasCommercial && (
-          <button
-            role="tab"
-            aria-selected={tab === 'comercial'}
-            className={tab === 'comercial' ? 'is-active' : ''}
-            onClick={() => setTab('comercial')}
-          >
-            Propuesta y valores
+        {tabs.map(([t, label]) => (
+          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'is-active' : ''} onClick={() => setTab(t)}>
+            {label}
           </button>
-        )}
+        ))}
       </div>
 
       {tab === 'tareas' && (
         <section className="section section--flush">
+          <div className="toolbar">
+            <div className="segmented" role="tablist" aria-label="Vista">
+              {(Object.keys(VIEWS) as View[]).map((v) => (
+                <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'is-active' : ''} onClick={() => chooseView(v)}>
+                  {VIEWS[v]}
+                </button>
+              ))}
+            </div>
+            {staff && (
+              <button className="btn btn--primary btn--sm" onClick={() => setDrawer({ taskId: null, defaults: {} })}>
+                + Nueva tarea
+              </button>
+            )}
+          </div>
           <div className="filters">
             {(['todas', 'deersystems', 'cliente'] as const).map((f) => (
               <button key={f} className={`chip${sideFilter === f ? ' is-active' : ''}`} onClick={() => setSideFilter(f)}>
                 {{ todas: 'Todas', deersystems: 'DeerSystems', cliente: me.role === 'client' ? 'Mías' : 'Cliente' }[f]}
               </button>
             ))}
-          </div>
-          {byPhase.map((ph) => {
-            const done = ph.tasks.filter((t) => t.status === 'completada').length;
-            return (
-              <div key={ph.id} className="phase">
-                <div className="phase__head">
-                  <h3>{ph.name}</h3>
-                  <span className="mono">
-                    {done}/{ph.tasks.length}
-                  </span>
-                </div>
-                <ul className="tasks card">
-                  {ph.tasks.map((t) => (
-                    <TaskRow key={t.id} task={t} me={me} onStatus={setStatus} />
+            {staff && (team.data?.length ?? 0) > 0 && (
+              <span className="input input--chip">
+                <select
+                  value={assignee}
+                  aria-label="Responsable"
+                  onChange={(e) => setAssignee(e.target.value === 'todos' ? 'todos' : Number(e.target.value))}
+                >
+                  <option value="todos">Todos los responsables</option>
+                  {team.data!.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
                   ))}
-                </ul>
-              </div>
-            );
-          })}
-          {!byPhase.length && <p className="empty card">No hay tareas con este filtro.</p>}
+                </select>
+              </span>
+            )}
+            <label className="check check--chip">
+              <input type="checkbox" checked={hideDone} onChange={(e) => setHideDone(e.target.checked)} /> Ocultar completadas
+            </label>
+            <span className="input input--search input--chip">
+              <input placeholder="Buscar tarea…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </span>
+          </div>
+          <TaskViews
+            view={view}
+            me={me}
+            project={p}
+            tasks={tasks}
+            onOpen={(t) => setDrawer({ taskId: t.id })}
+            onNew={(defaults) => setDrawer({ taskId: null, defaults })}
+            onStatus={setStatus}
+            onMove={moveTask}
+            onPhasesChange={reload}
+          />
+        </section>
+      )}
+
+      {tab === 'avances' && (
+        <section className="section section--flush narrow-col">
+          <NotesPanel me={me} projectId={p.id} kind="avance" />
+        </section>
+      )}
+
+      {tab === 'notas' && (
+        <section className="section section--flush narrow-col">
+          <NotesPanel me={me} projectId={p.id} />
+        </section>
+      )}
+
+      {tab === 'bitacora' && (
+        <section className="section section--flush narrow-col">
+          <ActivityFeed projectId={p.id} />
         </section>
       )}
 
@@ -240,6 +310,21 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
             {p.pricing ? <Markdown text={p.pricing} /> : <p>Sin condiciones comerciales registradas.</p>}
           </div>
         </section>
+      )}
+
+      {drawer && (drawer.taskId === null || openTask) && (
+        <TaskDrawer
+          key={drawer.taskId ?? 'new'}
+          me={me}
+          project={p}
+          team={team.data ?? []}
+          task={openTask ?? null}
+          defaults={drawer.defaults}
+          onClose={() => setDrawer(null)}
+          onSaved={(task, progress) => patchTask(task, progress)}
+          onDeleted={(taskId, progress) => setData({ ...p, progress, tasks: p.tasks.filter((t) => t.id !== taskId) })}
+          onStatus={setStatus}
+        />
       )}
     </>
   );

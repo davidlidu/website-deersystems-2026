@@ -29,23 +29,13 @@ import {
   type Viewer,
 } from './auth.ts';
 import * as db from './db.ts';
+import { handleWork } from './work.ts';
+import { actor, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
 const APP_DIR = fileURLToPath(new URL('../../public/partners/', import.meta.url));
 const PARTNERS_ORIGIN = new URL(PARTNERS_URL).origin;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const isStaff = (v: Viewer) => v.kind === 'owner' || v.kind === 'team';
-
-function requireOwner(v: Viewer): void {
-  if (v.kind !== 'owner') throw new HttpError(403, 'Solo el administrador puede hacer esto.');
-}
-function requireStaff(v: Viewer): void {
-  if (!isStaff(v)) throw new HttpError(403, 'No tienes permiso para esto.');
-}
-
-const str = (v: unknown, max = 500) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-const optDate = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : v === null ? null : undefined);
 
 // ───────── Vistas según quién mira ─────────
 
@@ -74,37 +64,16 @@ function projectSummary(p: db.Project, v: Viewer) {
 }
 
 function projectDetail(p: db.Project, v: Viewer) {
-  const team = new Map(db.listTeam().map((a) => [a.id, a.name || a.email]));
+  const team = teamNames();
+  const comments = db.commentCounts(p.id, isStaff(v));
   return {
     ...projectSummary(p, v),
     scope: p.scope,
     approvalNotes: p.approval_notes,
     ...(v.kind !== 'team' ? { pricing: p.pricing } : {}),
     phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })),
-    tasks: db.listTasks(p.id).map((t) => ({
-      id: t.id,
-      phaseId: t.phase_id,
-      title: t.title,
-      description: t.description,
-      status: t.status,
-      side: t.side,
-      assigneeId: t.assignee_id,
-      assigneeName: t.assignee_id ? (team.get(t.assignee_id) ?? null) : null,
-      startDate: t.start_date,
-      dueDate: t.due_date,
-      completedAt: t.completed_at,
-      source: t.source,
-      // El cliente solo mueve las tareas de su lado, y nunca las que ya están completadas.
-      canChangeStatus: isStaff(v) || (t.side === 'cliente' && t.status !== 'completada'),
-    })),
+    tasks: db.listTasks(p.id).map((t) => taskView(t, v, team, comments)),
   };
-}
-
-function visibleProject(id: number, v: Viewer): db.Project {
-  const p = db.getProject(id);
-  // Para un cliente, un proyecto ajeno es indistinguible de uno que no existe.
-  if (!p || (v.kind === 'client' && p.client_id !== v.clientId)) throw new HttpError(404, 'El proyecto no existe.');
-  return p;
 }
 
 // ───────── Correo ─────────
@@ -307,6 +276,8 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
         });
       });
     });
+    const a = actor(v);
+    db.logActivity({ projectId: p.id, actorKind: a.kind, actorName: a.name, type: 'project_created', data: { tasks: position } });
     return { project: p, client: theClient };
   });
 
@@ -385,6 +356,10 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       const p = visibleProject(id, v);
       const body = await readJson(req);
       const status = db.PROJECT_STATUSES.find((s) => s === body.status);
+      if (status && status !== p.status) {
+        const a = actor(v);
+        db.logActivity({ projectId: p.id, actorKind: a.kind, actorName: a.name, type: 'project_status', data: { from: p.status, to: status } });
+      }
       db.updateProject(p.id, {
         name: str(body.name, 120) || undefined,
         status,
@@ -403,22 +378,6 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       visibleProject(id, v);
       db.deleteProject(id);
       return json(res, 200, { ok: true });
-
-    case 'PATCH tasks/:id': {
-      const task = db.getTask(id);
-      if (!task) throw new HttpError(404, 'La tarea no existe.');
-      const project = visibleProject(task.project_id, v);
-      const body = await readJson(req);
-      const status = db.TASK_STATUSES.find((s) => s === body.status);
-      if (!status) throw new HttpError(400, 'Estado no válido.');
-      if (v.kind === 'client') {
-        if (task.side !== 'cliente' || task.status === 'completada' || !db.CLIENT_STATUSES.includes(status)) {
-          throw new HttpError(403, 'Esta tarea la gestiona DeerSystems.');
-        }
-      }
-      db.setTaskStatus(task.id, status);
-      return json(res, 200, { progress: db.progressOf(project.id) });
-    }
 
     // ── Clientes (equipo y administrador)
     case 'GET clients':
@@ -658,6 +617,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       return void res.end(mail.sample().html);
     }
   }
+  if (await handleWork(route, id, req, res, v)) return;
   throw new HttpError(404, 'Ruta no encontrada.');
 }
 

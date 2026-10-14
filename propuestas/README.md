@@ -47,6 +47,17 @@ Los datos viven en `DATA_DIR`: `propuestas.sqlite` y `files/{id}/v{versión}/`.
 
 El **% de avance** es tareas completadas / total. Los estados son fijos: Pendiente, En progreso, En revisión, Bloqueada y Completada.
 
+**En cada proyecto:**
+- **Tareas** en cuatro vistas:
+  - **Lista** por fase.
+  - **Tablero** por estado: se arrastra la tarea de una columna a otra.
+  - **Semana** y **Calendario** por fecha de entrega: el equipo arrastra una tarea a otro día y se conserva su duración.
+- **Filtros** por lado (DeerSystems o cliente), responsable, texto y completadas. **Panel de detalle** de cada tarea con comentarios e historial.
+- **Avances**: los publica el equipo para el cliente.
+- **Notas**: compartidas, o internas que el cliente nunca ve.
+- **Bitácora**: registra cada cambio. El cliente no ve las entradas internas.
+- El equipo crea, edita y elimina tareas y fases. El cliente cambia el estado de sus tareas (sin completarlas), comenta y deja notas.
+
 **Configuración** (solo administrador):
 - **IA:** proveedor y modelo principal y de respaldo, claves (cifradas), privacidad en OpenRouter, tarifas y presupuesto mensual, y prueba de conexión.
 - **Consumo de IA:** costo, tokens y llamadas por modelo y por día, y saldo de la clave de OpenRouter.
