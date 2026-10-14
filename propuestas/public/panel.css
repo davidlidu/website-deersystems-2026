@@ -443,6 +443,22 @@ h2 {
   white-space: nowrap;
 }
 
+.tag--approved {
+  color: var(--verde);
+  border-color: rgba(126, 217, 87, 0.4);
+}
+
+.item__project {
+  display: block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--verde);
+}
+
+.item__project:hover {
+  text-decoration: underline;
+}
+
 .tag--paused {
   border-color: rgba(255, 183, 3, 0.5);
   color: var(--oro);

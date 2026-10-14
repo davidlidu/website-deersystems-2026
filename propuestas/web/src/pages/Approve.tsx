@@ -1,0 +1,461 @@
+import { useEffect, useState } from 'react';
+import { api, today, useApi, usd, type Side, type TeamMember } from '../lib';
+import { ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
+import type { ProposalRow } from './Proposals';
+
+interface DraftTask {
+  key: string;
+  title: string;
+  description: string;
+  side: Side;
+  assigneeId: number | null;
+  startDate: string | null;
+  dueDate: string | null;
+}
+interface DraftPhase {
+  key: string;
+  name: string;
+  tasks: DraftTask[];
+}
+interface Draft {
+  projectName: string;
+  clientName: string;
+  contactName: string;
+  clientEmail: string;
+  clientPhone: string;
+  scope: string;
+  pricing: string;
+  startDate: string | null;
+  endDate: string | null;
+  phases: { name: string; tasks: Omit<DraftTask, 'key' | 'assigneeId'>[] }[];
+  warnings: string[];
+}
+interface DraftResponse {
+  draft: Draft;
+  ai: { provider: string; model: string; costUsd: number; latencyMs: number };
+  existingClientId: number | null;
+}
+interface ClientRow {
+  id: number;
+  name: string;
+  email: string;
+}
+interface Result {
+  project: { id: number; name: string };
+  client: { name: string; email: string };
+  password: string | null;
+  mail: { sent: boolean; error?: string };
+}
+
+const key = () => Math.random().toString(36).slice(2);
+const PRICE_RE = /(\$\s?\d)|(\b(COP|USD|US\$|EUR|pesos|d[oó]lares)\b)|(\b\d{1,3}(?:[.,]\d{3}){2,}\b)|(\b(anticipo|abono|cuota|IVA|precio|valor total|inversi[oó]n)\b)/i;
+
+const emptyTask = (): DraftTask => ({ key: key(), title: '', description: '', side: 'deersystems', assigneeId: null, startDate: null, dueDate: null });
+
+export function ApprovePage({ proposalId }: { proposalId: number }) {
+  const proposals = useApi<ProposalRow[]>('proposals');
+  const clients = useApi<ClientRow[]>('clients');
+  const team = useApi<TeamMember[]>('team');
+  const google = useApi<{ connected: boolean }>('settings/google');
+  const toast = useToast();
+  const { busy, run } = useAction();
+
+  const [generating, setGenerating] = useState(false);
+  const [aiInfo, setAiInfo] = useState<DraftResponse['ai'] | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
+
+  const [clientMode, setClientMode] = useState<'new' | 'existing'>('new');
+  const [existingId, setExistingId] = useState<number | null>(null);
+  const [client, setClient] = useState({ name: '', contactName: '', email: '', phone: '' });
+  const [project, setProject] = useState({ name: '', scope: '', pricing: '', startDate: today(), endDate: '' });
+  const [phases, setPhases] = useState<DraftPhase[]>([]);
+  const [notify, setNotify] = useState(true);
+  const [result, setResult] = useState<Result | null>(null);
+
+  const proposal = proposals.data?.find((p) => p.id === proposalId);
+
+  useEffect(() => {
+    if (proposal && !project.name) setProject((p) => ({ ...p, name: proposal.title || '' }));
+  }, [proposal, project.name]);
+
+  const generate = () => {
+    setGenerating(true);
+    setAiError(null);
+    api<DraftResponse>('POST', `proposals/${proposalId}/draft`)
+      .then(({ draft, ai, existingClientId }) => {
+        setAiInfo(ai);
+        setClient({ name: draft.clientName, contactName: draft.contactName, email: draft.clientEmail, phone: draft.clientPhone });
+        if (existingClientId) {
+          setClientMode('existing');
+          setExistingId(existingClientId);
+        }
+        setProject({
+          name: draft.projectName || proposal?.title || '',
+          scope: draft.scope,
+          pricing: draft.pricing,
+          startDate: draft.startDate ?? today(),
+          endDate: draft.endDate ?? '',
+        });
+        setPhases(
+          draft.phases.map((ph) => ({ key: key(), name: ph.name, tasks: ph.tasks.map((t) => ({ ...t, key: key(), assigneeId: null })) })),
+        );
+        setStarted(true);
+      })
+      .catch((err) => setAiError(err.message))
+      .finally(() => setGenerating(false));
+  };
+
+  const startBlank = () => {
+    setPhases([{ key: key(), name: 'Fase 1', tasks: [emptyTask()] }]);
+    setStarted(true);
+  };
+
+  if (proposals.loading || clients.loading || team.loading) return <Loading />;
+  if (proposals.error) return <ErrorBox message={proposals.error} />;
+  if (!proposal) return <ErrorBox message="La propuesta no existe." />;
+
+  if (result) {
+    return (
+      <>
+        <PageHead eyebrow="Propuesta aprobada" title={<>Proyecto <span className="grad">creado</span></>}>
+          <p>
+            <strong>{result.project.name}</strong> ya está en el espacio de {result.client.name}.
+          </p>
+        </PageHead>
+        <div className="stack">
+          {result.mail.sent ? (
+            <p className="callout">
+              Se envió el correo {result.password ? 'de bienvenida con el acceso' : 'avisando del nuevo proyecto'} a {result.client.email}.
+            </p>
+          ) : (
+            result.mail.error && <p className="alert">El correo no salió: {result.mail.error}</p>
+          )}
+          {result.password && (
+            <SecretBox
+              label={`Contraseña de ${result.client.email}`}
+              value={result.password}
+              note="Solo se muestra esta vez. Si el correo no llegó, compártela por otro medio."
+            />
+          )}
+          <div className="actions">
+            <Link className="btn btn--primary" to={`/proyectos/${result.project.id}`}>
+              Ver el proyecto
+            </Link>
+            <Link className="btn btn--outline" to="/propuestas">
+              Volver a propuestas
+            </Link>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  const updatePhase = (k: string, patch: Partial<DraftPhase>) => setPhases((ps) => ps.map((p) => (p.key === k ? { ...p, ...patch } : p)));
+  const updateTask = (pk: string, tk: string, patch: Partial<DraftTask>) =>
+    setPhases((ps) => ps.map((p) => (p.key === pk ? { ...p, tasks: p.tasks.map((t) => (t.key === tk ? { ...t, ...patch } : t)) } : p)));
+  const removeTask = (pk: string, tk: string) =>
+    setPhases((ps) => ps.map((p) => (p.key === pk ? { ...p, tasks: p.tasks.filter((t) => t.key !== tk) } : p)));
+  const move = (index: number, dir: -1 | 1) =>
+    setPhases((ps) => {
+      const next = [...ps];
+      const target = index + dir;
+      if (target < 0 || target >= next.length) return ps;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+
+  const taskCount = phases.reduce((n, p) => n + p.tasks.filter((t) => t.title.trim()).length, 0);
+  const clientTasks = phases.reduce((n, p) => n + p.tasks.filter((t) => t.side === 'cliente' && t.title.trim()).length, 0);
+  const priceWarning =
+    PRICE_RE.test(project.scope) || phases.some((p) => p.tasks.some((t) => PRICE_RE.test(`${t.title} ${t.description}`)));
+  const activeTeam = (team.data ?? []).filter((m) => m.active);
+
+  const submit = () => {
+    if (!project.name.trim()) return toast('Falta el nombre del proyecto.', true);
+    if (clientMode === 'existing' && !existingId) return toast('Elige el cliente.', true);
+    if (clientMode === 'new' && (!client.name.trim() || !client.email.trim())) return toast('Falta el nombre o el correo del cliente.', true);
+    if (!taskCount) return toast('Agrega al menos una tarea.', true);
+    if (priceWarning && !confirm('El alcance o alguna tarea parece mencionar valores, y tu equipo puede verlos. ¿Crear el proyecto igual?')) return;
+    run(async () => {
+      const r = await api<Result>('POST', 'projects', {
+        proposalId,
+        client: clientMode === 'existing' ? { id: existingId } : client,
+        project,
+        phases: phases.map((p) => ({ name: p.name, tasks: p.tasks.filter((t) => t.title.trim()) })).filter((p) => p.tasks.length),
+        notify: notify && !!google.data?.connected,
+      });
+      setResult(r);
+      window.scrollTo(0, 0);
+    });
+  };
+
+  return (
+    <>
+      <div className="crumbs">
+        <Link to="/propuestas">Propuestas</Link> / {proposal.title || proposal.slug}
+      </div>
+      <PageHead eyebrow="Propuesta aprobada" title={<>Arma el <span className="grad">plan de trabajo</span></>}>
+        <p>
+          La IA lee{' '}
+          <a href={proposal.url} target="_blank" rel="noopener">
+            la propuesta
+          </a>{' '}
+          y sugiere alcance, fases, tareas y fechas. Revisa todo antes de crear el proyecto: nada se guarda hasta que confirmes.
+        </p>
+        {proposal.projects.length > 0 && (
+          <p className="callout">Esta propuesta ya generó {proposal.projects.map((p) => p.name).join(', ')}. Si sigues, se crea otro proyecto.</p>
+        )}
+      </PageHead>
+
+      {!started && (
+        <div className="card generate">
+          {generating ? (
+            <Loading label="Leyendo la propuesta y armando el plan… puede tardar hasta un minuto." />
+          ) : (
+            <>
+              {aiError && <ErrorBox message={aiError} />}
+              <div className="actions">
+                <button className="btn btn--primary" onClick={generate}>
+                  {aiError ? 'Reintentar con IA' : 'Generar plan con IA'}
+                </button>
+                <button className="btn btn--outline" onClick={startBlank}>
+                  Empezar en blanco
+                </button>
+              </div>
+              {aiError && (
+                <p className="hint">
+                  Revisa el modelo y la clave en <Link to="/configuracion">Configuración</Link>.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {started && (
+        <div className="approve">
+          {aiInfo && (
+            <p className="hint mono">
+              Plan sugerido por {aiInfo.model} · {(aiInfo.latencyMs / 1000).toFixed(1)} s · {aiInfo.costUsd ? usd(aiInfo.costUsd) : 'sin costo'}
+            </p>
+          )}
+
+          <section className="card form-section">
+            <h2>Cliente</h2>
+            <div className="segmented">
+              <button className={clientMode === 'new' ? 'is-active' : ''} onClick={() => setClientMode('new')}>
+                Cliente nuevo
+              </button>
+              <button
+                className={clientMode === 'existing' ? 'is-active' : ''}
+                onClick={() => setClientMode('existing')}
+                disabled={!clients.data?.length}
+              >
+                Cliente existente
+              </button>
+            </div>
+            {clientMode === 'existing' ? (
+              <label className="field">
+                <span className="field__label">Cliente (el proyecto se suma a su historial)</span>
+                <span className="input">
+                  <select value={existingId ?? ''} onChange={(e) => setExistingId(Number(e.target.value) || null)}>
+                    <option value="">Elige…</option>
+                    {clients.data?.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} · {c.email}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </label>
+            ) : (
+              <div className="form-grid">
+                <label className="field">
+                  <span className="field__label">Empresa o cliente *</span>
+                  <span className="input">
+                    <input value={client.name} onChange={(e) => setClient({ ...client, name: e.target.value })} />
+                  </span>
+                </label>
+                <label className="field">
+                  <span className="field__label">Persona de contacto</span>
+                  <span className="input">
+                    <input value={client.contactName} onChange={(e) => setClient({ ...client, contactName: e.target.value })} />
+                  </span>
+                </label>
+                <label className="field">
+                  <span className="field__label">Correo de acceso *</span>
+                  <span className="input">
+                    <input type="email" value={client.email} onChange={(e) => setClient({ ...client, email: e.target.value })} />
+                  </span>
+                </label>
+                <label className="field">
+                  <span className="field__label">Teléfono</span>
+                  <span className="input">
+                    <input value={client.phone} onChange={(e) => setClient({ ...client, phone: e.target.value })} />
+                  </span>
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className="card form-section">
+            <h2>Proyecto</h2>
+            <div className="form-grid">
+              <label className="field field--wide">
+                <span className="field__label">Nombre *</span>
+                <span className="input">
+                  <input value={project.name} onChange={(e) => setProject({ ...project, name: e.target.value })} />
+                </span>
+              </label>
+              <label className="field">
+                <span className="field__label">Inicio</span>
+                <span className="input">
+                  <input type="date" value={project.startDate} onChange={(e) => setProject({ ...project, startDate: e.target.value })} />
+                </span>
+              </label>
+              <label className="field">
+                <span className="field__label">Entrega estimada</span>
+                <span className="input">
+                  <input type="date" value={project.endDate} onChange={(e) => setProject({ ...project, endDate: e.target.value })} />
+                </span>
+              </label>
+            </div>
+            <label className="field">
+              <span className="field__label">Alcance aprobado · lo ven el cliente y tu equipo (sin valores)</span>
+              <textarea rows={10} value={project.scope} onChange={(e) => setProject({ ...project, scope: e.target.value })} />
+            </label>
+            {PRICE_RE.test(project.scope) && <p className="alert">El alcance parece mencionar valores o pagos. Tu equipo puede verlo.</p>}
+            <label className="field">
+              <span className="field__label">Valores y condiciones · solo tú y el cliente</span>
+              <textarea rows={6} value={project.pricing} onChange={(e) => setProject({ ...project, pricing: e.target.value })} />
+            </label>
+          </section>
+
+          <section className="card form-section">
+            <div className="form-section__head">
+              <h2>Fases y tareas</h2>
+              <span className="mono">
+                {taskCount} tareas · {clientTasks} del cliente
+              </span>
+            </div>
+            {phases.map((ph, i) => (
+              <div key={ph.key} className="draft-phase">
+                <div className="draft-phase__head">
+                  <span className="input">
+                    <input value={ph.name} aria-label="Nombre de la fase" onChange={(e) => updatePhase(ph.key, { name: e.target.value })} />
+                  </span>
+                  <button className="btn btn--outline btn--sm" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Subir fase">
+                    ↑
+                  </button>
+                  <button className="btn btn--outline btn--sm" onClick={() => move(i, 1)} disabled={i === phases.length - 1} aria-label="Bajar fase">
+                    ↓
+                  </button>
+                  <button
+                    className="btn btn--outline btn--sm btn--danger"
+                    onClick={() => setPhases((ps) => ps.filter((p) => p.key !== ph.key))}
+                  >
+                    Quitar fase
+                  </button>
+                </div>
+                {ph.tasks.map((t) => (
+                  <div key={t.key} className={`draft-task side-${t.side}`}>
+                    <div className="draft-task__row">
+                      <span className="input draft-task__title">
+                        <input
+                          value={t.title}
+                          placeholder="Tarea…"
+                          aria-label="Título de la tarea"
+                          onChange={(e) => updateTask(ph.key, t.key, { title: e.target.value })}
+                        />
+                      </span>
+                      <span className="input">
+                        <select
+                          value={t.side}
+                          aria-label="Quién la resuelve"
+                          onChange={(e) => updateTask(ph.key, t.key, { side: e.target.value as Side, assigneeId: null })}
+                        >
+                          <option value="deersystems">DeerSystems</option>
+                          <option value="cliente">Cliente</option>
+                        </select>
+                      </span>
+                      {t.side === 'deersystems' && activeTeam.length > 0 && (
+                        <span className="input">
+                          <select
+                            value={t.assigneeId ?? ''}
+                            aria-label="Responsable"
+                            onChange={(e) => updateTask(ph.key, t.key, { assigneeId: Number(e.target.value) || null })}
+                          >
+                            <option value="">Sin asignar</option>
+                            {activeTeam.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.name}
+                              </option>
+                            ))}
+                          </select>
+                        </span>
+                      )}
+                      <span className="input">
+                        <input
+                          type="date"
+                          value={t.startDate ?? ''}
+                          aria-label="Inicio"
+                          onChange={(e) => updateTask(ph.key, t.key, { startDate: e.target.value || null })}
+                        />
+                      </span>
+                      <span className="input">
+                        <input
+                          type="date"
+                          value={t.dueDate ?? ''}
+                          aria-label="Entrega"
+                          onChange={(e) => updateTask(ph.key, t.key, { dueDate: e.target.value || null })}
+                        />
+                      </span>
+                      <button className="btn btn--outline btn--sm btn--danger" onClick={() => removeTask(ph.key, t.key)} aria-label="Quitar tarea">
+                        ✕
+                      </button>
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={t.description}
+                      placeholder="Descripción y criterio de terminado"
+                      aria-label="Descripción"
+                      onChange={(e) => updateTask(ph.key, t.key, { description: e.target.value })}
+                    />
+                  </div>
+                ))}
+                <button className="btn btn--outline btn--sm" onClick={() => updatePhase(ph.key, { tasks: [...ph.tasks, emptyTask()] })}>
+                  + Tarea
+                </button>
+              </div>
+            ))}
+            <button
+              className="btn btn--outline"
+              onClick={() => setPhases((ps) => [...ps, { key: key(), name: `Fase ${ps.length + 1}`, tasks: [emptyTask()] }])}
+            >
+              + Fase
+            </button>
+          </section>
+
+          <section className="card form-section confirm">
+            <label className="check">
+              <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} disabled={!google.data?.connected} />
+              {clientMode === 'existing'
+                ? 'Avisar al cliente por correo del nuevo proyecto'
+                : 'Enviar al cliente el correo de bienvenida con su contraseña'}
+            </label>
+            {!google.data?.connected && (
+              <p className="hint">
+                Google no está conectado, así que no se envía correo: verás la contraseña aquí para compartirla. Conéctalo en{' '}
+                <Link to="/configuracion">Configuración</Link>.
+              </p>
+            )}
+            <button className="btn btn--primary" onClick={submit} disabled={busy}>
+              {busy ? 'Creando…' : 'Crear proyecto'}
+            </button>
+          </section>
+        </div>
+      )}
+    </>
+  );
+}

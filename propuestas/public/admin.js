@@ -119,6 +119,19 @@ function renderProposal(p) {
 
   const title = el('div', { className: 'item__title' }, p.title || p.slug);
   if (paused) title.append(el('span', { className: 'tag tag--paused', textContent: 'Pausada' }));
+  if (p.projects?.length) title.append(el('span', { className: 'tag tag--approved', textContent: 'Aprobada' }));
+
+  // Aprobar abre el asistente en partners: la IA arma el plan y tú lo confirmas.
+  const approve = el('a', {
+    className: `btn btn--sm ${p.projects?.length ? 'btn--outline' : 'btn--primary'}`,
+    href: `${me.partnersUrl}/propuestas/${p.id}/aprobar`,
+    target: '_blank',
+    rel: 'noopener',
+    textContent: p.projects?.length ? 'Aprobar de nuevo' : 'Propuesta aprobada',
+  });
+  const projectLinks = (p.projects ?? []).map((pr) =>
+    el('a', { className: 'item__project', href: `${me.partnersUrl}/proyectos/${pr.id}`, target: '_blank', rel: 'noopener', textContent: `→ ${pr.name}` }),
+  );
 
   const views = p.views
     ? `${p.views} ${p.views === 1 ? 'apertura' : 'aperturas'} · última ${formatDate(p.last_viewed_at)}`
@@ -139,8 +152,9 @@ function renderProposal(p) {
         el('span', { textContent: `${p.filename} · ${formatSize(p.size)}` }),
         el('span', { textContent: views }),
       ),
+      ...projectLinks,
     ),
-    el('div', { className: 'item__actions' }, copy, replace, toggle, rename, remove),
+    el('div', { className: 'item__actions' }, ...(me.superadmin ? [approve] : []), copy, replace, toggle, rename, remove),
   );
 }
 

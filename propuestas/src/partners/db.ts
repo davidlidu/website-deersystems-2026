@@ -1,0 +1,433 @@
+import { db } from '../db.ts';
+
+/** Estados fijos de una tarea, en el orden en que avanza. */
+export const TASK_STATUSES = ['pendiente', 'en_progreso', 'en_revision', 'bloqueada', 'completada'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+/** Lo que un cliente puede hacer con sus propias tareas: nunca darlas por completadas. */
+export const CLIENT_STATUSES: readonly TaskStatus[] = ['pendiente', 'en_progreso', 'en_revision'];
+
+export const PROJECT_STATUSES = ['activo', 'pausado', 'finalizado'] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
+export type Role = 'team' | 'client';
+/** "deersystems" = lo resuelve tu lado (tú o alguien del equipo); "cliente" = le toca al cliente. */
+export type Side = 'deersystems' | 'cliente';
+
+export interface Client {
+  id: number;
+  name: string;
+  contact_name: string;
+  email: string;
+  phone: string;
+  created_at: string;
+}
+
+export interface Account {
+  id: number;
+  email: string;
+  name: string;
+  role: Role;
+  client_id: number | null;
+  password_hash: string;
+  active: number;
+  session_version: number;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+export interface Project {
+  id: number;
+  client_id: number;
+  proposal_id: number | null;
+  name: string;
+  scope: string;
+  pricing: string;
+  status: ProjectStatus;
+  start_date: string | null;
+  end_date: string | null;
+  approved_at: string;
+  approved_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Phase {
+  id: number;
+  project_id: number;
+  name: string;
+  position: number;
+}
+
+export interface Task {
+  id: number;
+  project_id: number;
+  phase_id: number | null;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  side: Side;
+  assignee_id: number | null;
+  start_date: string | null;
+  due_date: string | null;
+  position: number;
+  source: 'propuesta' | 'manual' | 'reunion';
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+db.exec(`
+  PRAGMA foreign_keys = ON;
+  CREATE TABLE IF NOT EXISTS clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    contact_name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL UNIQUE,
+    phone TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS accounts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL CHECK (role IN ('team', 'client')),
+    client_id INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+    password_hash TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    session_version INTEGER NOT NULL DEFAULT 1,
+    last_login_at TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    proposal_id INTEGER,
+    name TEXT NOT NULL,
+    scope TEXT NOT NULL DEFAULT '',
+    pricing TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'activo',
+    start_date TEXT,
+    end_date TEXT,
+    approved_at TEXT NOT NULL,
+    approved_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS projects_client ON projects(client_id);
+  CREATE INDEX IF NOT EXISTS projects_proposal ON projects(proposal_id);
+  CREATE TABLE IF NOT EXISTS phases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    phase_id INTEGER REFERENCES phases(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pendiente',
+    side TEXT NOT NULL DEFAULT 'deersystems',
+    assignee_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+    start_date TEXT,
+    due_date TEXT,
+    position INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'manual',
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS tasks_project ON tasks(project_id);
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS ai_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    purpose TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL,
+    error TEXT
+  );
+  CREATE INDEX IF NOT EXISTS ai_usage_at ON ai_usage(at);
+`);
+
+const now = () => new Date().toISOString();
+const all = <T>(sql: string, ...params: (string | number | null)[]) => db.prepare(sql).all(...params) as unknown as T[];
+const one = <T>(sql: string, ...params: (string | number | null)[]) =>
+  db.prepare(sql).get(...params) as unknown as T | undefined;
+
+/** Ejecuta varias escrituras como una sola: o quedan todas o ninguna. */
+export function transaction<T>(fn: () => T): T {
+  db.exec('BEGIN');
+  try {
+    const result = fn();
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
+// ───────── Ajustes (JSON por clave) ─────────
+
+export function getSetting<T>(key: string): T | null {
+  const row = one<{ value: string }>('SELECT value FROM settings WHERE key = ?', key);
+  return row ? (JSON.parse(row.value) as T) : null;
+}
+
+export function setSetting(key: string, value: unknown): void {
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(
+    key,
+    JSON.stringify(value),
+  );
+}
+
+export function deleteSetting(key: string): void {
+  db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+}
+
+// ───────── Cuentas ─────────
+
+export const getAccount = (id: number) => one<Account>('SELECT * FROM accounts WHERE id = ?', id);
+export const getAccountByEmail = (email: string) => one<Account>('SELECT * FROM accounts WHERE email = ?', email);
+export const getClientAccount = (clientId: number) =>
+  one<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client'", clientId);
+export const listTeam = () => all<Account>("SELECT * FROM accounts WHERE role = 'team' ORDER BY name, email");
+
+export function createAccount(a: { email: string; name: string; role: Role; clientId: number | null; passwordHash: string }) {
+  const { lastInsertRowid } = db
+    .prepare('INSERT INTO accounts (email, name, role, client_id, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(a.email, a.name, a.role, a.clientId, a.passwordHash, now());
+  return getAccount(Number(lastInsertRowid))!;
+}
+
+/** Cambia la contraseña y cierra todas las sesiones abiertas de esa cuenta. */
+export function setPassword(id: number, passwordHash: string): void {
+  db.prepare('UPDATE accounts SET password_hash = ?, session_version = session_version + 1 WHERE id = ?').run(passwordHash, id);
+}
+
+export function updateAccount(id: number, fields: { name?: string; active?: boolean }): void {
+  if (fields.name !== undefined) db.prepare('UPDATE accounts SET name = ? WHERE id = ?').run(fields.name, id);
+  if (fields.active !== undefined) {
+    db.prepare('UPDATE accounts SET active = ?, session_version = session_version + 1 WHERE id = ?').run(
+      fields.active ? 1 : 0,
+      id,
+    );
+  }
+}
+
+export function touchLogin(id: number): void {
+  db.prepare('UPDATE accounts SET last_login_at = ? WHERE id = ?').run(now(), id);
+}
+
+export function deleteAccount(id: number): void {
+  db.prepare('DELETE FROM accounts WHERE id = ?').run(id);
+}
+
+export function createReset(tokenHash: string, accountId: number, expiresAt: string): void {
+  db.prepare('DELETE FROM password_resets WHERE account_id = ? OR expires_at < ?').run(accountId, now());
+  db.prepare('INSERT INTO password_resets (token_hash, account_id, expires_at) VALUES (?, ?, ?)').run(
+    tokenHash,
+    accountId,
+    expiresAt,
+  );
+}
+
+/** Consume el enlace de recuperación: sirve una sola vez y solo antes de vencer. */
+export function useReset(tokenHash: string): number | null {
+  const row = one<{ account_id: number; expires_at: string; used: number }>(
+    'SELECT * FROM password_resets WHERE token_hash = ?',
+    tokenHash,
+  );
+  if (!row || row.used || row.expires_at < now()) return null;
+  db.prepare('UPDATE password_resets SET used = 1 WHERE token_hash = ?').run(tokenHash);
+  return row.account_id;
+}
+
+// ───────── Clientes ─────────
+
+export const getClient = (id: number) => one<Client>('SELECT * FROM clients WHERE id = ?', id);
+export const getClientByEmail = (email: string) => one<Client>('SELECT * FROM clients WHERE email = ?', email);
+
+export function listClients() {
+  return all<Client & { projects: number; active_projects: number; last_login_at: string | null; account_active: number | null }>(
+    `SELECT c.*,
+       (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id) AS projects,
+       (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id AND p.status = 'activo') AS active_projects,
+       a.last_login_at, a.active AS account_active
+     FROM clients c LEFT JOIN accounts a ON a.client_id = c.id AND a.role = 'client'
+     ORDER BY c.name`,
+  );
+}
+
+export function createClient(c: { name: string; contactName: string; email: string; phone: string }): Client {
+  const { lastInsertRowid } = db
+    .prepare('INSERT INTO clients (name, contact_name, email, phone, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(c.name, c.contactName, c.email, c.phone, now());
+  return getClient(Number(lastInsertRowid))!;
+}
+
+export function updateClient(id: number, fields: { name?: string; contact_name?: string; phone?: string }): void {
+  for (const [col, value] of Object.entries(fields)) {
+    if (value !== undefined) db.prepare(`UPDATE clients SET ${col} = ? WHERE id = ?`).run(value, id);
+  }
+}
+
+// ───────── Proyectos, fases y tareas ─────────
+
+export interface Progress {
+  total: number;
+  done: number;
+  percent: number;
+}
+
+/** % de avance = tareas completadas / total. Sin tareas, 0 %. */
+export function progressOf(projectId: number): Progress {
+  const row = one<{ total: number; done: number }>(
+    "SELECT COUNT(*) AS total, COALESCE(SUM(status = 'completada'), 0) AS done FROM tasks WHERE project_id = ?",
+    projectId,
+  )!;
+  return { ...row, percent: row.total ? Math.round((row.done / row.total) * 100) : 0 };
+}
+
+export const getProject = (id: number) => one<Project>('SELECT * FROM projects WHERE id = ?', id);
+export const listProjects = (clientId?: number) =>
+  clientId === undefined
+    ? all<Project>("SELECT * FROM projects ORDER BY status = 'activo' DESC, approved_at DESC")
+    : all<Project>("SELECT * FROM projects WHERE client_id = ? ORDER BY status = 'activo' DESC, approved_at DESC", clientId);
+export const projectsForProposal = (proposalId: number) =>
+  all<Project>('SELECT * FROM projects WHERE proposal_id = ? ORDER BY approved_at', proposalId);
+
+export function createProject(p: {
+  clientId: number;
+  proposalId: number | null;
+  name: string;
+  scope: string;
+  pricing: string;
+  startDate: string | null;
+  endDate: string | null;
+  by: string;
+}): Project {
+  const t = now();
+  const { lastInsertRowid } = db
+    .prepare(
+      `INSERT INTO projects (client_id, proposal_id, name, scope, pricing, start_date, end_date, approved_at, approved_by, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(p.clientId, p.proposalId, p.name, p.scope, p.pricing, p.startDate, p.endDate, t, p.by, t, t);
+  return getProject(Number(lastInsertRowid))!;
+}
+
+export function updateProject(
+  id: number,
+  fields: Partial<Pick<Project, 'name' | 'scope' | 'pricing' | 'status' | 'start_date' | 'end_date'>>,
+): void {
+  for (const [col, value] of Object.entries(fields)) {
+    if (value !== undefined) db.prepare(`UPDATE projects SET ${col} = ?, updated_at = ? WHERE id = ?`).run(value, now(), id);
+  }
+}
+
+export function deleteProject(id: number): void {
+  db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+}
+
+export const listPhases = (projectId: number) =>
+  all<Phase>('SELECT * FROM phases WHERE project_id = ? ORDER BY position, id', projectId);
+
+export function createPhase(projectId: number, name: string, position: number): Phase {
+  const { lastInsertRowid } = db
+    .prepare('INSERT INTO phases (project_id, name, position) VALUES (?, ?, ?)')
+    .run(projectId, name, position);
+  return one<Phase>('SELECT * FROM phases WHERE id = ?', Number(lastInsertRowid))!;
+}
+
+export const getTask = (id: number) => one<Task>('SELECT * FROM tasks WHERE id = ?', id);
+export const listTasks = (projectId: number) =>
+  all<Task>('SELECT * FROM tasks WHERE project_id = ? ORDER BY position, id', projectId);
+
+export function createTask(t: {
+  projectId: number;
+  phaseId: number | null;
+  title: string;
+  description: string;
+  side: Side;
+  assigneeId: number | null;
+  startDate: string | null;
+  dueDate: string | null;
+  position: number;
+  source: Task['source'];
+}): Task {
+  const ts = now();
+  const { lastInsertRowid } = db
+    .prepare(
+      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(t.projectId, t.phaseId, t.title, t.description, t.side, t.assigneeId, t.startDate, t.dueDate, t.position, t.source, ts, ts);
+  return getTask(Number(lastInsertRowid))!;
+}
+
+export function setTaskStatus(id: number, status: TaskStatus): void {
+  db.prepare(
+    `UPDATE tasks SET status = ?, updated_at = ?,
+       completed_at = CASE WHEN ? = 'completada' THEN COALESCE(completed_at, ?) ELSE NULL END
+     WHERE id = ?`,
+  ).run(status, now(), status, now(), id);
+}
+
+// ───────── Consumo de IA ─────────
+
+export interface UsageRow {
+  provider: string;
+  model: string;
+  purpose: string;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  latency_ms: number;
+  ok: boolean;
+  error: string | null;
+}
+
+export function logUsage(u: UsageRow): void {
+  db.prepare(
+    `INSERT INTO ai_usage (at, provider, model, purpose, input_tokens, output_tokens, cost_usd, latency_ms, ok, error)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(now(), u.provider, u.model, u.purpose, u.input_tokens, u.output_tokens, u.cost_usd, u.latency_ms, u.ok ? 1 : 0, u.error);
+}
+
+/** Totales desde una fecha, agrupados por proveedor y modelo. */
+export function usageSince(since: string) {
+  return all<{ provider: string; model: string; calls: number; failed: number; input_tokens: number; output_tokens: number; cost_usd: number }>(
+    `SELECT provider, model, COUNT(*) AS calls, SUM(ok = 0) AS failed,
+       SUM(input_tokens) AS input_tokens, SUM(output_tokens) AS output_tokens, SUM(cost_usd) AS cost_usd
+     FROM ai_usage WHERE at >= ? GROUP BY provider, model ORDER BY cost_usd DESC, calls DESC`,
+    since,
+  );
+}
+
+export function usageByDay(since: string) {
+  return all<{ day: string; calls: number; tokens: number; cost_usd: number }>(
+    `SELECT substr(at, 1, 10) AS day, COUNT(*) AS calls, SUM(input_tokens + output_tokens) AS tokens, SUM(cost_usd) AS cost_usd
+     FROM ai_usage WHERE at >= ? GROUP BY day ORDER BY day`,
+    since,
+  );
+}
+
+export const recentUsage = (limit: number) =>
+  all<UsageRow & { id: number; at: string }>('SELECT * FROM ai_usage ORDER BY id DESC LIMIT ?', limit);

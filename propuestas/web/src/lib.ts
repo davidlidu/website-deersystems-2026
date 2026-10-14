@@ -1,0 +1,188 @@
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+
+// ───────── API ─────────
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
+
+export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(path.startsWith('/') ? path : `/api/${path}`, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    navigate('/login');
+    throw new ApiError(401, 'Tu sesión venció. Vuelve a entrar.');
+  }
+  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Error ${res.status}`);
+  return data as T;
+}
+
+/** Carga datos al montar (y cuando cambian las dependencias); `reload` vuelve a pedirlos. */
+export function useApi<T>(path: string | null) {
+  const [state, setState] = useState<{ data: T | null; error: string | null; loading: boolean }>({
+    data: null,
+    error: null,
+    loading: !!path,
+  });
+  const load = useCallback(async () => {
+    if (!path) return;
+    setState((s) => ({ ...s, loading: true }));
+    try {
+      setState({ data: await api<T>('GET', path), error: null, loading: false });
+    } catch (err) {
+      setState({ data: null, error: (err as Error).message, loading: false });
+    }
+  }, [path]);
+  useEffect(() => {
+    load();
+  }, [load]);
+  return { ...state, reload: load, setData: (data: T) => setState({ data, error: null, loading: false }) };
+}
+
+// ───────── Router mínimo (History API) ─────────
+
+const listeners = new Set<() => void>();
+window.addEventListener('popstate', () => listeners.forEach((l) => l()));
+
+export function navigate(to: string, replace = false): void {
+  if (to === location.pathname + location.search) return;
+  history[replace ? 'replaceState' : 'pushState'](null, '', to);
+  listeners.forEach((l) => l());
+  window.scrollTo(0, 0);
+}
+
+export function useLocation() {
+  const href = useSyncExternalStore(
+    (cb) => {
+      listeners.add(cb);
+      return () => listeners.delete(cb);
+    },
+    () => location.pathname + location.search,
+  );
+  const url = new URL(href, location.origin);
+  return { path: url.pathname.replace(/\/+$/, '') || '/', query: url.searchParams };
+}
+
+/** "/proyectos/:id" contra "/proyectos/12" → { id: "12" } o null. */
+export function match(pattern: string, path: string): Record<string, string> | null {
+  const p = pattern.split('/');
+  const s = path.split('/');
+  if (p.length !== s.length) return null;
+  const params: Record<string, string> = {};
+  for (let i = 0; i < p.length; i++) {
+    if (p[i].startsWith(':')) params[p[i].slice(1)] = decodeURIComponent(s[i]);
+    else if (p[i] !== s[i]) return null;
+  }
+  return params;
+}
+
+// ───────── Tipos compartidos con el servidor ─────────
+
+export type Role = 'owner' | 'team' | 'client';
+
+export interface Me {
+  email: string;
+  name: string;
+  role: Role;
+  proposalsUrl?: string;
+  client?: { id: number; name: string };
+}
+
+export type TaskStatus = 'pendiente' | 'en_progreso' | 'en_revision' | 'bloqueada' | 'completada';
+export type Side = 'deersystems' | 'cliente';
+
+export const STATUS: Record<TaskStatus, string> = {
+  pendiente: 'Pendiente',
+  en_progreso: 'En progreso',
+  en_revision: 'En revisión',
+  bloqueada: 'Bloqueada',
+  completada: 'Completada',
+};
+export const STATUSES = Object.keys(STATUS) as TaskStatus[];
+/** Lo que puede elegir el cliente en sus tareas. */
+export const CLIENT_STATUSES: TaskStatus[] = ['pendiente', 'en_progreso', 'en_revision'];
+
+export const PROJECT_STATUS = { activo: 'Activo', pausado: 'Pausado', finalizado: 'Finalizado' } as const;
+export type ProjectStatus = keyof typeof PROJECT_STATUS;
+
+export interface Progress {
+  total: number;
+  done: number;
+  percent: number;
+}
+
+export interface ProjectSummary {
+  id: number;
+  clientId: number;
+  clientName: string;
+  name: string;
+  status: ProjectStatus;
+  startDate: string | null;
+  endDate: string | null;
+  approvedAt: string;
+  progress: Progress;
+  proposalUrl?: string | null;
+}
+
+export interface Task {
+  id: number;
+  phaseId: number | null;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  side: Side;
+  assigneeId: number | null;
+  assigneeName: string | null;
+  startDate: string | null;
+  dueDate: string | null;
+  completedAt: string | null;
+  source: 'propuesta' | 'manual' | 'reunion';
+  canChangeStatus: boolean;
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  scope: string;
+  pricing?: string;
+  phases: { id: number; name: string }[];
+  tasks: Task[];
+}
+
+export interface TeamMember {
+  id: number;
+  name: string;
+  email: string;
+  active: boolean;
+  lastLoginAt: string | null;
+}
+
+// ───────── Formato ─────────
+
+export function formatDate(iso: string | null | undefined, withYear = true): string {
+  if (!iso) return '—';
+  // Las fechas "YYYY-MM-DD" son días, no instantes: se leen en hora local para no correrse un día.
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(iso) ? new Date(`${iso}T12:00:00`) : new Date(iso);
+  return d.toLocaleDateString('es-CO', { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) });
+}
+
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('es-CO', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+export const usd = (n: number) =>
+  `US$ ${n.toLocaleString('es-CO', { minimumFractionDigits: n > 0 && n < 0.01 ? 4 : 2, maximumFractionDigits: n < 0.01 ? 4 : 2 })}`;
+
+export const compact = (n: number) => n.toLocaleString('es-CO', { notation: 'compact', maximumFractionDigits: 1 });
+
+/** Hoy en Bogotá, como "YYYY-MM-DD". */
+export const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+
+export const isOverdue = (t: Pick<Task, 'dueDate' | 'status'>) => !!t.dueDate && t.status !== 'completada' && t.dueDate < today();

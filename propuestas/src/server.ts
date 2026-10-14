@@ -1,138 +1,18 @@
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { extname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { endSession, googleAuthUrl, googleCallback, googleConfigured, sessionEmail, startSession } from './auth.ts';
-import { DEV_LOGIN, HOME_URL, MAX_UPLOAD_BYTES, PORT, PUBLIC_URL, SUPERADMIN_EMAIL } from './config.ts';
+import { DEV_LOGIN, HOME_URL, MAX_UPLOAD_BYTES, PARTNERS_HOST, PARTNERS_URL, PORT, PUBLIC_URL, SUPERADMIN_EMAIL } from './config.ts';
 import * as db from './db.ts';
+import { HttpError, json, readBody, readJson, redirect, sendFile } from './http.ts';
+import { projectsForProposal } from './partners/db.ts';
+import { handlePartners } from './partners/routes.ts';
 import { checkSlug, removeAll, removeVersion, resolveFile, slugify, unpack, UploadError, writeVersion } from './storage.ts';
 
 const PUBLIC_DIR = fileURLToPath(new URL('../public/', import.meta.url));
 
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.htm': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.avif': 'image/avif',
-  '.ico': 'image/x-icon',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.ttf': 'font/ttf',
-  '.otf': 'font/otf',
-  '.mp4': 'video/mp4',
-  '.webm': 'video/webm',
-  '.mp3': 'audio/mpeg',
-  '.pdf': 'application/pdf',
-};
-
 /** Vistas previas de enlaces y rastreadores: no cuentan como apertura del cliente. */
 const BOT_UA = /bot|crawl|spider|preview|whatsapp|facebookexternalhit|slack|telegram|discord|curl|wget/i;
-
-class HttpError extends Error {
-  status: number;
-  constructor(status: number, message: string) {
-    super(message);
-    this.status = status;
-  }
-}
-
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(body));
-}
-
-function redirect(res: ServerResponse, location: string): void {
-  res.writeHead(302, { Location: location, 'Cache-Control': 'no-store' });
-  res.end();
-}
-
-function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const tooBig = () => new HttpError(413, `El archivo supera el máximo de ${Math.round(limit / 1024 / 1024)} MB.`);
-    if (Number(req.headers['content-length'] ?? 0) > limit) return reject(tooBig());
-    const chunks: Buffer[] = [];
-    let size = 0;
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length;
-      if (size > limit) {
-        chunks.length = 0;
-        reject(tooBig());
-      } else chunks.push(chunk);
-    });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
-}
-
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
-  try {
-    const body = JSON.parse((await readBody(req, 64 * 1024)).toString() || '{}');
-    if (body && typeof body === 'object') return body;
-  } catch (err) {
-    if (err instanceof HttpError) throw err;
-  }
-  throw new HttpError(400, 'JSON no válido.');
-}
-
-/** Sirve un archivo con ETag y rangos. Devuelve false si no existe. */
-async function sendFile(
-  req: IncomingMessage,
-  res: ServerResponse,
-  path: string,
-  headers: Record<string, string>,
-  status = 200,
-): Promise<boolean> {
-  const info = await stat(path).catch(() => null);
-  if (!info?.isFile()) return false;
-
-  const etag = `"${info.size.toString(36)}-${Math.round(info.mtimeMs).toString(36)}"`;
-  const base = {
-    'Content-Type': MIME[extname(path).toLowerCase()] ?? 'application/octet-stream',
-    'Accept-Ranges': 'bytes',
-    ETag: etag,
-    ...headers,
-  };
-  if (status === 200 && req.headers['if-none-match'] === etag) {
-    res.writeHead(304, base);
-    res.end();
-    return true;
-  }
-
-  let start = 0;
-  let end = info.size - 1;
-  const range = status === 200 && /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
-  if (range && (range[1] || range[2])) {
-    if (range[1]) {
-      start = Number(range[1]);
-      if (range[2]) end = Math.min(Number(range[2]), end);
-    } else {
-      start = Math.max(info.size - Number(range[2]), 0);
-    }
-    if (start > end) {
-      res.writeHead(416, { 'Content-Range': `bytes */${info.size}` });
-      res.end();
-      return true;
-    }
-    status = 206;
-    Object.assign(base, { 'Content-Range': `bytes ${start}-${end}/${info.size}` });
-  }
-
-  res.writeHead(status, { ...base, 'Content-Length': info.size === 0 ? 0 : end - start + 1 });
-  if (req.method === 'HEAD' || info.size === 0) res.end();
-  else createReadStream(path, { start, end }).pipe(res);
-  return true;
-}
 
 async function notFound(req: IncomingMessage, res: ServerResponse): Promise<void> {
   await sendFile(req, res, join(PUBLIC_DIR, '404.html'), { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' }, 404);
@@ -207,10 +87,17 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
 
   switch (route) {
     case 'GET me':
-      return json(res, 200, { email, superadmin: isSuper, publicUrl: PUBLIC_URL });
+      return json(res, 200, { email, superadmin: isSuper, publicUrl: PUBLIC_URL, partnersUrl: PARTNERS_URL });
 
     case 'GET proposals':
-      return json(res, 200, db.listProposals());
+      return json(
+        res,
+        200,
+        db.listProposals().map((p) => ({
+          ...p,
+          projects: projectsForProposal(p.id).map((pr) => ({ id: pr.id, name: pr.name })),
+        })),
+      );
 
     case 'POST proposals': {
       const upload = await readUpload(req, url);
@@ -313,11 +200,11 @@ async function handleProposal(req: IncomingMessage, res: ServerResponse, url: UR
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const url = new URL(req.url ?? '/', PUBLIC_URL);
+  // Un solo servidor para los dos subdominios: el Host decide cuál atiende.
+  const partners = req.headers.host === PARTNERS_HOST;
+  const url = new URL(req.url ?? '/', partners ? PARTNERS_URL : PUBLIC_URL);
   const path = url.pathname;
 
-  // La raíz no lista nada: con sesión lleva al panel y al resto lo manda al sitio principal.
-  if (path === '/') return redirect(res, sessionEmail(req) ? '/admin' : HOME_URL);
   if (path === '/healthz') return json(res, 200, { ok: true });
   if (path === '/robots.txt') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -327,6 +214,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     await sendFile(req, res, join(PUBLIC_DIR, 'favicon.svg'), { 'Cache-Control': 'public, max-age=86400' });
     return;
   }
+  if (partners) return handlePartners(req, res, url);
+  // La raíz no lista nada: con sesión lleva al panel y al resto lo manda al sitio principal.
+  if (path === '/') return redirect(res, sessionEmail(req) ? '/admin' : HOME_URL);
   if (path.startsWith('/auth/')) return handleAuth(req, res, url);
   if (path.startsWith('/admin/api/')) return handleApi(req, res, url);
   if (path === '/admin' || path.startsWith('/admin/')) return handleAdminPage(req, res, url);
@@ -344,7 +234,9 @@ createServer((req, res) => {
     json(res, status, { error: status === 500 ? 'Error interno.' : err.message });
   });
 }).listen(PORT, () => {
-  console.log(`Propuestas DeerSystems en ${PUBLIC_URL} (puerto ${PORT})`);
+  console.log(`Propuestas DeerSystems en ${PUBLIC_URL} y partners en ${PARTNERS_URL} (puerto ${PORT})`);
   if (!googleConfigured()) console.warn('Falta GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET: el login con Google no funcionará.');
-  if (DEV_LOGIN) console.warn(`DEV_LOGIN activo: ${PUBLIC_URL}/auth/dev entra como ${SUPERADMIN_EMAIL}.`);
+  if (DEV_LOGIN) {
+    console.warn(`DEV_LOGIN activo: ${PUBLIC_URL}/auth/dev y ${PARTNERS_URL}/auth/dev entran como ${SUPERADMIN_EMAIL}.`);
+  }
 });

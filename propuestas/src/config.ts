@@ -18,15 +18,27 @@ export const SUPERADMIN_EMAIL = (env.SUPERADMIN_EMAIL ?? 'ceo@deersystems.net').
 export const GOOGLE_CLIENT_ID = env.GOOGLE_CLIENT_ID ?? '';
 export const GOOGLE_CLIENT_SECRET = env.GOOGLE_CLIENT_SECRET ?? '';
 
+/** URL pública del portal de clientes, p. ej. https://partners.deersystems.net. Se distingue por el Host. */
+export const PARTNERS_URL = (env.PARTNERS_URL ?? `http://partners.localhost:${PORT}`).replace(/\/+$/, '');
+export const PARTNERS_HOST = new URL(PARTNERS_URL).host;
+export const PARTNERS_SECURE = PARTNERS_URL.startsWith('https://');
+
 /** A dónde va quien entra a la raíz del subdominio. */
 export const HOME_URL = env.HOME_URL ?? 'https://deersystems.net';
 
 /** Entrar sin Google como superusuario. Solo en local y fuera de producción. */
-export const DEV_LOGIN =
-  !production && env.DEV_LOGIN === '1' && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(PUBLIC_URL);
+const LOCAL_URL = /^http:\/\/([\w-]+\.)?(localhost|127\.0\.0\.1)(:\d+)?$/;
+export const DEV_LOGIN = !production && env.DEV_LOGIN === '1' && LOCAL_URL.test(PUBLIC_URL) && LOCAL_URL.test(PARTNERS_URL);
 
 if (production && !env.SESSION_SECRET) {
   console.error('Falta SESSION_SECRET.');
   process.exit(1);
 }
 export const SESSION_SECRET = env.SESSION_SECRET ?? randomBytes(32).toString('hex');
+
+/** Cifra los secretos guardados en la base (claves de IA, token de Google). Si cambia, hay que volver a cargarlos. */
+export const ENCRYPTION_KEY = env.ENCRYPTION_KEY || SESSION_SECRET;
+
+/** Claves de IA por defecto; las que se guarden desde el panel tienen prioridad. */
+export const GEMINI_API_KEY = env.GEMINI_API_KEY ?? '';
+export const OPENROUTER_API_KEY = env.OPENROUTER_API_KEY ?? '';

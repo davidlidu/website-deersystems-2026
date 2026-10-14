@@ -9,18 +9,48 @@ Panel para publicar las propuestas comerciales en HTML. Cada propuesta queda en 
 - El panel (`/admin`) entra con Google. `SUPERADMIN_EMAIL` siempre tiene acceso y es quien autoriza otros correos.
 - Cada propuesta muestra cuántas veces se abrió (no cuenta tus visitas con sesión ni las vistas previas de WhatsApp).
 
-Es un servidor Node sin framework: `node:http`, `node:sqlite` y `fflate` para los `.zip`. Node ejecuta el TypeScript directamente, no hay paso de build.
+El mismo servidor atiende también **`partners.deersystems.net`**, el portal de clientes (ver abajo). Lo distingue por el `Host`.
+
+Es un servidor Node sin framework: `node:http`, `node:sqlite` y `fflate` para los `.zip`. Node ejecuta el TypeScript directamente. Solo la interfaz de partners (React + Vite, en `web/`) tiene paso de build.
 
 ```
 src/
-  server.ts    Rutas: propuestas públicas, panel, API y login
-  auth.ts      OAuth de Google y cookie de sesión firmada
-  db.ts        SQLite: propuestas y correos autorizados
-  storage.ts   Slug, descompresión y archivos en disco
-public/        Panel, login y 404 (HTML/CSS/JS sin build)
+  server.ts       Rutas de propuestas; deriva a partners según el Host
+  http.ts         Utilidades HTTP compartidas (JSON, archivos, errores)
+  auth.ts         Login con Google del panel de propuestas
+  db.ts           SQLite: propuestas y correos autorizados
+  storage.ts      Slug, descompresión y archivos en disco
+  ai.ts           IA configurable (Gemini / OpenRouter), consumo y prueba de conexión
+  google.ts       "Conectar Google" (OAuth offline) y envío por Gmail
+  mail.ts         Correos con el sistema de diseño de la marca
+  secrets.ts      Cifrado AES-GCM de claves y tokens guardados
+  partners/
+    routes.ts     API y login del portal; permisos por rol
+    auth.ts       Contraseñas (scrypt), sesión, límite de intentos
+    db.ts         Clientes, cuentas, proyectos, fases, tareas, ajustes, consumo de IA
+    extract.ts    Propuesta HTML → plan de trabajo con IA
+public/           Panel de propuestas, login y 404 (HTML/CSS/JS sin build)
+web/              Interfaz de partners (React + Vite) → se compila a public/partners
 ```
 
 Los datos viven en `DATA_DIR`: `propuestas.sqlite` y `files/{id}/v{versión}/`.
+
+## Portal de clientes · partners.deersystems.net
+
+| Rol | Cómo entra | Qué ve |
+|---|---|---|
+| Administrador (`SUPERADMIN_EMAIL`) | Google | Todo: propuestas, precios, equipo, configuración |
+| Equipo | Correo y contraseña | Clientes, proyectos y tareas. **Nunca precios** ni la propuesta original |
+| Cliente | Correo y contraseña | Solo sus proyectos (en curso e historial), su alcance y sus valores. Solo cambia el estado de sus tareas, sin poder completarlas |
+
+**Flujo:** en el panel de propuestas, *Propuesta aprobada* → la IA lee la propuesta y sugiere cliente, alcance (sin valores), valores, fases, tareas de cada parte y fechas → lo revisas y confirmas → se crean el cliente, su cuenta y el proyecto, y se le envía la contraseña por Gmail. Si el cliente ya existe, el proyecto se suma a su historial.
+
+El **% de avance** es tareas completadas / total. Los estados son fijos: Pendiente, En progreso, En revisión, Bloqueada y Completada.
+
+**Configuración** (solo administrador):
+- **IA:** proveedor y modelo principal y de respaldo, claves (cifradas), privacidad en OpenRouter, tarifas y presupuesto mensual, y prueba de conexión.
+- **Consumo de IA:** costo, tokens y llamadas por modelo y por día, y saldo de la clave de OpenRouter.
+- **Google:** conecta `ceo@` una sola vez con Gmail, Drive, Calendar y Meet. Incluye correo de prueba y vista previa del diseño.
 
 ## Desarrollo
 
@@ -31,17 +61,25 @@ npm run dev
 npm run typecheck
 ```
 
-Con `DEV_LOGIN=1` se entra sin Google en `http://localhost:3000/auth/dev`. Solo funciona en localhost y fuera de producción.
+Con `DEV_LOGIN=1` se entra sin Google en `http://localhost:3000/auth/dev` (propuestas) y `http://partners.localhost:3000/auth/dev` (partners). Solo funciona en localhost y fuera de producción.
+
+Para la interfaz de partners:
+
+```bash
+npm run build:web      # compila web/ a public/partners (lo sirve el servidor)
+npm run dev:web        # o Vite con recarga en :5173; pon PARTNERS_URL=http://localhost:5173 en .env
+```
 
 ## Despliegue en Dokploy
 
-1. **DNS:** registro `A` de `propuestas.deersystems.net` a la IP del VPS.
-2. **Google Cloud Console** → APIs y servicios → Credenciales → Crear ID de cliente OAuth (Aplicación web), con URI de redirección `https://propuestas.deersystems.net/auth/google/callback`.
+1. **DNS:** registros `A` de `propuestas.deersystems.net` y `partners.deersystems.net` a la IP del VPS.
+2. **Google Cloud Console** → APIs y servicios → Credenciales → ID de cliente OAuth (Aplicación web), con las URIs de redirección `https://propuestas.deersystems.net/auth/google/callback` y `https://partners.deersystems.net/auth/google/callback`. Habilita las APIs de Gmail, Drive, Calendar y Meet, con la pantalla de consentimiento en *Interno*.
 3. **Dokploy** → nueva Application con este mismo repositorio:
    - Build Type: `Dockerfile` · Docker File: `propuestas/Dockerfile` · Docker Context Path: `propuestas`
    - Watch Paths: `propuestas/**`, para que no se redespliegue con cambios del sitio.
    - Environment: las variables de [`.env.example`](./.env.example).
    - Advanced → Volumes: un **Volume Mount** en `/data`. Sin él, las propuestas se pierden en cada despliegue.
-   - Domains: `propuestas.deersystems.net`, puerto `3000`, HTTPS con Let's Encrypt.
+   - Domains: `propuestas.deersystems.net` **y** `partners.deersystems.net`, ambos al puerto `3000`, con HTTPS y Let's Encrypt.
+4. Entra a `https://partners.deersystems.net` con Google → **Configuración** → *Conectar Google* y carga las claves de IA.
 
 Para respaldar basta copiar el volumen `/data`.
