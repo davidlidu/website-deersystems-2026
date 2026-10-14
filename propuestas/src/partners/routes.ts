@@ -36,7 +36,7 @@ import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { actor, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
-import { detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
+import { adjustPlan, detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
 const APP_DIR = fileURLToPath(new URL('../../public/partners/', import.meta.url));
 const PARTNERS_ORIGIN = new URL(PARTNERS_URL).origin;
@@ -684,6 +684,51 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         if (err instanceof ai.AiError) throw new HttpError(502, err.message);
         throw err;
       }
+    }
+
+    case 'POST proposals/:id/plan': {
+      // Ajusta con IA el plan que está en pantalla, antes de crear el proyecto. No guarda nada.
+      requireOwner(v);
+      if (!getProposal(id)) throw new HttpError(404, 'La propuesta no existe.');
+      const body = await readJson(req);
+      const instruction = str(body.instruction, 3000);
+      if (instruction.length < 5) throw new HttpError(400, 'Escribe qué quieres ajustar del plan.');
+      const draft = normalizeDraft((body.plan ?? {}) as Record<string, unknown>);
+      if (!draft.phases.length) throw new HttpError(400, 'El plan no tiene fases.');
+      try {
+        return json(
+          res,
+          200,
+          await adjustPlan({
+            plan: { startDate: draft.startDate, endDate: draft.endDate, phases: draft.phases, meetings: draft.meetings },
+            instruction,
+            projectName: str(body.projectName, 120),
+            scope: str(body.scope, 30_000),
+          }),
+        );
+      } catch (err) {
+        if (err instanceof ai.AiError) throw new HttpError(502, err.message);
+        throw err;
+      }
+    }
+
+    case 'POST proposals/:id/welcome-preview': {
+      // El correo que recibirá el cliente al crear el proyecto, con lo que hay en pantalla.
+      requireOwner(v);
+      const body = await readJson(req);
+      const c = (body.client ?? {}) as Record<string, unknown>;
+      const projectName = str(body.projectName, 120) || 'Tu proyecto';
+      const existing = Number(c.id) ? db.getClient(Number(c.id)) : db.getClientByEmail(str(c.email, 200).toLowerCase());
+      const account = existing ? db.getClientAccount(existing.id) : undefined;
+      const mailPreview = account
+        ? mail.newProjectForClient({ to: account.email, name: account.name, projectName })
+        : mail.welcomeClient({
+            to: existing?.email ?? (str(c.email, 200).toLowerCase() || 'cliente@correo.com'),
+            name: existing?.contact_name || existing?.name || str(c.contactName, 160) || str(c.name, 160) || 'Cliente',
+            projectName,
+            password: '(se genera al crear el proyecto)',
+          });
+      return json(res, 200, { subject: mailPreview.subject, to: mailPreview.to, html: mailPreview.html, kind: account ? 'nuevo_proyecto' : 'bienvenida' });
     }
 
     case 'POST projects':

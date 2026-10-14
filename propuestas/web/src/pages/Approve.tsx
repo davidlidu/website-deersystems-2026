@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, today, useApi, usd, type Side, type TeamMember } from '../lib';
 import { ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
 import type { ProposalRow } from './Proposals';
@@ -73,6 +73,154 @@ const PRICE_RE = /(\$\s?\d)|(\b(COP|USD|US\$|EUR|pesos|d[oó]lares)\b)|(\b\d{1,3
 
 const emptyTask = (): DraftTask => ({ key: key(), title: '', description: '', side: 'deersystems', assigneeId: null, startDate: null, dueDate: null });
 
+/** Estado del plan que se puede deshacer tras un ajuste con IA. */
+interface PlanSnapshot {
+  phases: DraftPhase[];
+  meetings: DraftMeeting[];
+  startDate: string;
+  endDate: string;
+}
+interface AdjustResponse {
+  plan: { startDate: string | null; endDate: string | null; phases: Draft['phases']; meetings: Draft['meetings'] };
+  changes: string[];
+  warnings: string[];
+  ai: DraftResponse['ai'];
+}
+
+const EXAMPLES = ['Mueve el arranque al próximo lunes', 'Agrega una fase de pruebas antes de la entrega', 'Las reuniones de avance a las 3 p. m.', 'El cliente entrega los accesos la primera semana'];
+
+/** Cuadro de texto para pedirle a la IA cambios al plan que está en pantalla. */
+function AdjustPlan({ onAdjust, onUndo, canUndo }: { onAdjust: (instruction: string) => Promise<string[]>; onUndo: () => void; canUndo: boolean }) {
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [changes, setChanges] = useState<string[] | null>(null);
+
+  const send = () => {
+    if (text.trim().length < 5) return setError('Escribe qué quieres ajustar.');
+    setBusy(true);
+    setError(null);
+    onAdjust(text.trim())
+      .then((c) => {
+        setChanges(c);
+        setText('');
+      })
+      .catch((err) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="card form-section adjust-plan">
+      <div className="form-section__head">
+        <h2>Ajustar el plan con IA</h2>
+        {canUndo && !busy && (
+          <button
+            className="linklike"
+            onClick={() => {
+              onUndo();
+              setChanges(null);
+            }}
+          >
+            Deshacer el último ajuste
+          </button>
+        )}
+      </div>
+      <p className="hint">Dile qué cambiar de las fases, tareas, fechas o reuniones. Puedes ajustar varias veces; nada se guarda hasta que crees el proyecto.</p>
+      <textarea
+        rows={3}
+        value={text}
+        disabled={busy}
+        placeholder="Ej.: el proyecto arranca el 3 de noviembre, junta Diseño y Maqueta en una sola fase y agrega una reunión para validar el catálogo."
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) send();
+        }}
+      />
+      <div className="adjust-plan__foot">
+        <span className="adjust-plan__examples">
+          {EXAMPLES.map((ex) => (
+            <button key={ex} className="chip" disabled={busy} onClick={() => setText((t) => (t.trim() ? `${t.trim()}. ${ex}` : ex))}>
+              {ex}
+            </button>
+          ))}
+        </span>
+        <button className="btn btn--primary btn--sm" onClick={send} disabled={busy || !text.trim()}>
+          {busy ? 'Ajustando…' : 'Ajustar plan'}
+        </button>
+      </div>
+      {busy && (
+        <p className="loading">
+          <span className="loading__dot" /> La IA está ajustando el plan…
+        </p>
+      )}
+      {error && <p className="alert">{error}</p>}
+      {changes && !busy && (
+        <div className="adjust-plan__changes">
+          <strong>Cambios aplicados</strong>
+          <ul className="md-list">
+            {changes.length ? changes.map((c, i) => <li key={i}>{c}</li>) : <li>Plan actualizado.</li>}
+          </ul>
+          <small>Revisa arriba las fases, tareas y reuniones. Cuando el plan esté listo, crea el proyecto.</small>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** Ventana emergente con el correo que recibirá el cliente al crear el proyecto. */
+function WelcomePreview({ proposalId, body, onClose }: { proposalId: number; body: unknown; onClose: () => void }) {
+  const [preview, setPreview] = useState<{ subject: string; to: string; html: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const ref = useRef<HTMLDialogElement>(null);
+  const payload = JSON.stringify(body);
+
+  useEffect(() => {
+    ref.current?.showModal();
+    api<{ subject: string; to: string; html: string }>('POST', `proposals/${proposalId}/welcome-preview`, JSON.parse(payload))
+      .then(setPreview)
+      .catch((err) => setError(err.message));
+  }, [proposalId, payload]);
+
+  return (
+    <dialog
+      ref={ref}
+      className="modal"
+      aria-labelledby="welcome-preview-title"
+      onClose={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) ref.current?.close();
+      }}
+    >
+      <div className="modal__in">
+        <header className="modal__head">
+          <h2 id="welcome-preview-title">Vista previa del correo</h2>
+          <button className="icon-btn" onClick={() => ref.current?.close()} aria-label="Cerrar">
+            ✕
+          </button>
+        </header>
+        {error && <p className="alert">{error}</p>}
+        {!preview && !error && <Loading />}
+        {preview && (
+          <>
+            <div className="mail-accordion__meta">
+              <span>
+                <small>Asunto</small>
+                {preview.subject}
+              </span>
+              <span>
+                <small>Para</small>
+                {preview.to}
+              </span>
+            </div>
+            {/* sandbox sin permisos: el HTML del correo no puede ejecutar nada en el portal. */}
+            <iframe className="mail-preview" sandbox="" srcDoc={preview.html} title="Vista previa del correo de bienvenida" />
+          </>
+        )}
+      </div>
+    </dialog>
+  );
+}
+
 export function ApprovePage({ proposalId }: { proposalId: number }) {
   const proposals = useApi<ProposalRow[]>('proposals');
   const clients = useApi<ClientRow[]>('clients');
@@ -107,6 +255,8 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const [phases, setPhases] = useState<DraftPhase[]>([]);
   const [notify, setNotify] = useState(true);
   const [result, setResult] = useState<Result | null>(null);
+  const [undo, setUndo] = useState<PlanSnapshot | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   const proposal = proposals.data?.find((p) => p.id === proposalId);
 
@@ -246,6 +396,60 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const priceWarning =
     PRICE_RE.test(`${project.scope} ${project.approvedOption} ${project.approvalNotes}`) || phases.some((p) => p.tasks.some((t) => PRICE_RE.test(`${t.title} ${t.description}`)));
   const activeTeam = (team.data ?? []).filter((m) => m.active);
+
+  /** Manda el plan en pantalla y la instrucción; aplica el plan ajustado y guarda el anterior para deshacer. */
+  const adjust = async (instruction: string) => {
+    const snapshot: PlanSnapshot = { phases, meetings, startDate: project.startDate, endDate: project.endDate };
+    const r = await api<AdjustResponse>('POST', `proposals/${proposalId}/plan`, {
+      instruction,
+      projectName: project.name,
+      scope: project.scope,
+      plan: {
+        startDate: project.startDate || null,
+        endDate: project.endDate || null,
+        phases: phases.map((p) => ({ name: p.name, tasks: p.tasks.filter((t) => t.title.trim()) })),
+        meetings: meetings
+          .filter((m) => m.title.trim())
+          .map((m) => ({ ...m, phaseIndex: Math.max(0, phases.findIndex((p) => p.key === m.phaseKey)), date: m.date || null })),
+      },
+    });
+    // Lo que la IA no conoce (responsable, si se agenda) se conserva por título.
+    const norm = (t: string) => t.trim().toLowerCase();
+    const assignees = new Map(phases.flatMap((p) => p.tasks.map((t) => [norm(t.title), t.assigneeId] as const)));
+    const scheduled = new Map(meetings.map((m) => [norm(m.title), m.schedule] as const));
+    const newPhases = r.plan.phases.map((ph) => ({
+      key: key(),
+      name: ph.name,
+      tasks: ph.tasks.map((t) => ({ ...t, key: key(), assigneeId: assignees.get(norm(t.title)) ?? null })),
+    }));
+    setPhases(newPhases);
+    setMeetings(
+      r.plan.meetings.map((m) => ({
+        key: key(),
+        title: m.title,
+        phaseKey: newPhases[m.phaseIndex]?.key ?? newPhases[0]?.key ?? '',
+        date: m.date ?? '',
+        time: m.time,
+        durationMinutes: m.durationMinutes,
+        purpose: m.purpose,
+        schedule: scheduled.get(norm(m.title)) ?? true,
+      })),
+    );
+    setProject((p) => ({ ...p, startDate: r.plan.startDate ?? p.startDate, endDate: r.plan.endDate ?? p.endDate }));
+    setUndo(snapshot);
+    setAiInfo(r.ai);
+    r.warnings.forEach((w) => toast(w, true));
+    return r.changes;
+  };
+
+  const undoAdjust = () => {
+    if (!undo) return;
+    setPhases(undo.phases);
+    setMeetings(undo.meetings);
+    setProject((p) => ({ ...p, startDate: undo.startDate, endDate: undo.endDate }));
+    setUndo(null);
+    toast('Se restauró el plan anterior.');
+  };
 
   const submit = () => {
     if (!project.name.trim()) return toast('Falta el nombre del proyecto.', true);
@@ -662,13 +866,33 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
             </button>
           </section>
 
+          <AdjustPlan onAdjust={adjust} onUndo={undoAdjust} canUndo={!!undo} />
+
           <section className="card form-section confirm">
             <label className="check">
               <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} disabled={!google.data?.connected} />
-              {clientMode === 'existing'
-                ? 'Avisar al cliente por correo del nuevo proyecto'
-                : 'Enviar al cliente el correo de bienvenida con su contraseña'}
+              <span>
+                {clientMode === 'existing' ? 'Avisar al cliente por correo del nuevo proyecto' : 'Enviar al cliente el correo de bienvenida con su contraseña'}{' '}
+                ·{' '}
+                <button
+                  type="button"
+                  className="linklike"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setPreviewing(true);
+                  }}
+                >
+                  ver el correo
+                </button>
+              </span>
             </label>
+            {previewing && (
+              <WelcomePreview
+                proposalId={proposalId}
+                body={{ client: clientMode === 'existing' ? { id: existingId } : client, projectName: project.name }}
+                onClose={() => setPreviewing(false)}
+              />
+            )}
             {!google.data?.connected && (
               <p className="hint">
                 Google no está conectado, así que no se envía correo: verás la contraseña aquí para compartirla. Conéctalo en{' '}
