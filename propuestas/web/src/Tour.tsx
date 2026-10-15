@@ -40,8 +40,8 @@ function projectSteps(me: Me): Step[] {
       target: 'project-tabs',
       title: 'Todo el proyecto en pestañas',
       body: client
-        ? 'Tareas · Reuniones (las próximas con su enlace de Meet y los resúmenes) · Avances que publicamos · Notas · Archivos · Bitácora con todo lo que ha pasado · Alcance aprobado · Propuesta y valores.'
-        : 'Tareas · Reuniones (agendar, Meet y resúmenes) · Avances para el cliente · Notas (internas o compartidas) · Archivos de Drive · Bitácora · Alcance aprobado' +
+        ? 'Tareas · Reuniones (las próximas con su enlace de Meet y los resúmenes) · Avances que publicamos · Notas · Archivos · Pagos (fechas y montos pactados) · Bitácora con todo lo que ha pasado · Alcance aprobado · Propuesta y valores.'
+        : 'Tareas · Reuniones (agendar, Meet y resúmenes) · Avances para el cliente · Notas (internas o compartidas) · Archivos de Drive · ' + (me.role === 'owner' ? 'Pagos (al marcarlos pagados van a tu Gestor financiero) · ' : '') + 'Bitácora · Alcance aprobado' +
           (me.role === 'owner' ? ' · Propuesta y valores (tu equipo no la ve).' : '.'),
     },
     {

@@ -3,6 +3,7 @@ import { AiError, completeJson, type Completion } from '../ai.ts';
 import type { Proposal } from '../db.ts';
 import { listVersionFiles, resolveFile } from '../storage.ts';
 import type { Side } from './db.ts';
+import { normalizePayment, PAYMENTS_PROMPT, type PaymentInput } from './payments.ts';
 
 export interface DraftTask {
   title: string;
@@ -41,6 +42,8 @@ export interface Draft {
   approvalNotes: string;
   phases: { name: string; tasks: DraftTask[] }[];
   meetings: DraftMeeting[];
+  /** Plan de pagos según la propuesta (solo tú y el cliente lo ven). */
+  payments: PaymentInput[];
   warnings: string[];
 }
 
@@ -128,7 +131,8 @@ Devuelve este JSON:
       "date": "YYYY-MM-DD",
       "purpose": "qué se revisa o se presenta al cliente, 1 frase"
     }
-  ]
+  ],
+  "payments": [{ "label": "...", "percent": 50, "amount": 1000, "currency": "USD | COP", "dueDate": "YYYY-MM-DD" }]
 }
 
 Reglas:
@@ -137,6 +141,7 @@ Reglas:
 - Incluye las tareas del cliente necesarias para que el proyecto avance (accesos, insumos, aprobaciones).
 - Entre 3 y 7 fases y entre 2 y 8 tareas por fase. Nada genérico: cada tarea debe salir de la propuesta.
 - Si un dato no aparece, usa "" (texto) y no lo inventes.
+- ${PAYMENTS_PROMPT}
 - "meetings": reuniones con el cliente para mostrar avances. Incluye un arranque (kickoff) en los primeros 3 días hábiles, una al cierre de cada fase principal para presentar lo avanzado y validar, y una de entrega final. Entre 3 y 6 en total, en días hábiles, con fecha coherente con el cronograma.
 
 PROPUESTA:
@@ -193,6 +198,10 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
     approvalNotes: str(raw.approvalNotes, 2000),
     phases,
     meetings,
+    payments: (Array.isArray(raw.payments) ? raw.payments : [])
+      .map((p) => normalizePayment(p as Record<string, unknown>))
+      .filter((p): p is PaymentInput => !!p)
+      .slice(0, 24),
     warnings: [],
   };
   if (mentionsPrice(draft.scope)) {

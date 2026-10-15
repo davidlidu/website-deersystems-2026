@@ -56,6 +56,7 @@ export function taskView(t: db.Task, v: Viewer, team: Map<number, string>, comme
     dueDate: t.due_date,
     completedAt: t.completed_at,
     source: t.source,
+    isMeeting: t.kind === 'reunion',
     comments: comments?.get(t.id) ?? 0,
     files: files?.get(t.id) ?? 0,
     // El cliente solo mueve las tareas de su lado, y nunca las que ya están completadas.

@@ -76,6 +76,10 @@ El **% de avance** es tareas completadas / total. Los estados son fijos: Pendien
 - **Correo:** con la marca, enviado desde Gmail. Los avisos de unos minutos se juntan en un solo correo.
 - **Configuración → Avisos:** cada tipo de aviso se enciende o apaga en la plataforma y por correo. Además, cada cliente o persona del equipo elige los suyos en **Mi cuenta**: solo puede apagar, no encender lo que tú desactivaste.
 
+**Pagos:** la IA lee los valores y la forma de pago de la propuesta y arma el plan de pagos (tipo de abono, %, monto, USD o COP, fecha); se revisa al aprobar y queda en la pestaña **Pagos** del proyecto, donde se edita, se agrega a mano o se vuelve a sugerir. La ven tú y el cliente; el equipo nunca. Al marcar un pago como **Pagado** se registra como ingreso en el Gestor financiero (`POST/PUT/DELETE /integrations/billing-payment/:ref` con `x-api-key`, referencia `deersystems-pago-<id>`): categoría = empresa del cliente, descripción = proyecto · tipo de abono · %. El Gestor lleva todo en COP: los pagos en USD se registran con los pesos recibidos (TRM oficial de datos.gov.co, editable). Desmarcar o borrar quita el ingreso. Configuración → Finanzas: URL de la API (por defecto `https://api.finanzas.lidutech.net/api`) y la `SERVICE_API_KEY`, cifrada.
+
+**Reuniones en el cronograma:** las tareas que son reuniones con el cliente (las de avance que propone la IA o las que marques en el detalle de la tarea) llevan una franja naranja a la derecha en lista, tablero, cronograma y calendario.
+
 **Tour guiado:** al iniciar sesión se muestra un recorrido con los pasos de cada rol. Abre el proyecto en curso con más tareas y explica el avance, las tareas pendientes del cliente, las pestañas, las vistas, los filtros y cómo cambiar el estado de las tareas (sin proyectos, esos pasos se omiten). «Terminar tour» lo guarda en la cuenta y no vuelve a salir en ningún dispositivo; «Ver después» lo pospone hasta el próximo inicio de sesión. El botón **?** del encabezado lo repite.
 
 **Reuniones (Calendar + Meet):**

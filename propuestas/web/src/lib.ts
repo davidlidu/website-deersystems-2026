@@ -148,6 +148,8 @@ export interface Task {
   dueDate: string | null;
   completedAt: string | null;
   source: 'propuesta' | 'manual' | 'reunion';
+  /** Reunión con el cliente: se marca con la franja naranja. */
+  isMeeting: boolean;
   comments: number;
   files: number;
   canChangeStatus: boolean;
@@ -357,3 +359,39 @@ export function timeAgo(iso: string): string {
   if (s < 172_800) return 'ayer';
   return new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' });
 }
+
+export type Currency = 'USD' | 'COP';
+
+/** Pago del proyecto según la propuesta. Lo de sincronización con el Gestor solo llega para el administrador. */
+export interface Payment {
+  id: number;
+  label: string;
+  percent: number | null;
+  amount: number;
+  currency: Currency;
+  dueDate: string | null;
+  paid: boolean;
+  paidAt: string | null;
+  amountCop?: number | null;
+  trm?: number | null;
+  sync?: 'ok' | 'error' | null;
+  syncError?: string | null;
+  syncedAt?: string | null;
+}
+
+/** "USD 1.500" / "COP 3.200.000": sin decimales si no hacen falta. */
+export const money = (n: number, currency: Currency) =>
+  `${currency} ${n.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+/** Pago en edición (aún sin guardar): los números como texto, tal como se escriben. */
+export type PaymentDraft = { label: string; percent: string; amount: string; currency: Currency; dueDate: string };
+
+export const emptyDraft = (currency: Currency = 'COP'): PaymentDraft => ({ label: '', percent: '', amount: '', currency, dueDate: '' });
+
+export const draftBody = (d: PaymentDraft) => ({
+  label: d.label,
+  percent: d.percent ? Number(d.percent) : null,
+  amount: Number(d.amount),
+  currency: d.currency,
+  dueDate: d.dueDate || null,
+});

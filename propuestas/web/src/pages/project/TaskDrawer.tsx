@@ -34,6 +34,7 @@ interface Form {
   assigneeId: number | null;
   startDate: string;
   dueDate: string;
+  isMeeting: boolean;
 }
 
 const toForm = (t: Partial<Task>, d: TaskDefaults = {}): Form => ({
@@ -44,6 +45,7 @@ const toForm = (t: Partial<Task>, d: TaskDefaults = {}): Form => ({
   assigneeId: t.assigneeId ?? null,
   startDate: t.startDate ?? '',
   dueDate: t.dueDate ?? d.dueDate ?? '',
+  isMeeting: t.isMeeting ?? false,
 });
 
 /** Panel lateral de una tarea: detalle, edición (equipo), estado, comentarios e historial. */
@@ -97,6 +99,7 @@ export function TaskDrawer({
       assigneeId: form.side === 'deersystems' ? form.assigneeId : null,
       startDate: form.startDate || null,
       dueDate: form.dueDate || null,
+      isMeeting: form.isMeeting,
     };
     run(async () => {
       const r = isNew
@@ -214,6 +217,10 @@ export function TaskDrawer({
                 </span>
               </label>
             </div>
+            <label className="check">
+              <input type="checkbox" checked={form.isMeeting} onChange={(e) => set({ isMeeting: e.target.checked })} />
+              Es una reunión con el cliente (franja naranja en el cronograma)
+            </label>
             <label className="field">
               <span className="field__label">Descripción y criterio de terminado</span>
               <textarea rows={5} value={form.description} onChange={(e) => set({ description: e.target.value })} />

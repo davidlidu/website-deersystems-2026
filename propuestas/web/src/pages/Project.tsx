@@ -20,10 +20,11 @@ import { FilesPanel } from './project/Files';
 import { ProjectMeetings } from './project/Meetings';
 import { NotesPanel } from './project/Notes';
 import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
+import { PaymentsPanel } from './project/Payments';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
 
-type Tab = 'tareas' | 'reuniones' | 'avances' | 'notas' | 'archivos' | 'bitacora' | 'alcance' | 'comercial';
-const TABS: Tab[] = ['tareas', 'reuniones', 'avances', 'notas', 'archivos', 'bitacora', 'alcance', 'comercial'];
+type Tab = 'tareas' | 'reuniones' | 'avances' | 'notas' | 'archivos' | 'pagos' | 'bitacora' | 'alcance' | 'comercial';
+const TABS: Tab[] = ['tareas', 'reuniones', 'avances', 'notas', 'archivos', 'pagos', 'bitacora', 'alcance', 'comercial'];
 
 /** La vista elegida se recuerda en este navegador. */
 function storedView(): View {
@@ -148,6 +149,8 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
     ['avances', 'Avances'],
     ['notas', 'Notas'],
     ['archivos', 'Archivos'],
+    // Los pagos son valores: los ves tú y el cliente, nunca el equipo.
+    ...(me.role !== 'team' ? ([['pagos', 'Pagos']] as [Tab, string][]) : []),
     ['bitacora', 'Bitácora'],
     ['alcance', 'Alcance aprobado'],
     ...(hasCommercial ? ([['comercial', 'Propuesta y valores']] as [Tab, string][]) : []),
@@ -330,6 +333,12 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
             )}
             {p.scope ? <Markdown text={p.scope} /> : <p>Sin alcance registrado.</p>}
           </div>
+        </section>
+      )}
+
+      {tab === 'pagos' && me.role !== 'team' && (
+        <section className="section section--flush">
+          <PaymentsPanel me={me} projectId={p.id} />
         </section>
       )}
 

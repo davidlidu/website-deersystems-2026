@@ -137,7 +137,7 @@ export function GanttView({ me, project, tasks, onOpen, onMove }: Props) {
           Hoy
         </button>
         <span className="gantt-legend">
-          <i className="lg lg--deersystems" /> DeerSystems <i className="lg lg--cliente" /> Cliente <i className="lg lg--done" /> Completada
+          <i className="lg lg--deersystems" /> DeerSystems <i className="lg lg--cliente" /> Cliente <i className="lg lg--done" /> Completada <i className="lg lg--meeting" /> Reunión
         </span>
         {editable && <span className="hint">Arrastra una barra para moverla o sus bordes para cambiar las fechas.</span>}
       </div>
@@ -209,7 +209,7 @@ export function GanttView({ me, project, tasks, onOpen, onMove }: Props) {
                         </button>
                         <div className="gantt__track" style={background}>
                           <div
-                            className={`gantt__bar side-${t.side} is-${t.status}${isOverdue(t) ? ' is-overdue' : ''}${drag?.id === t.id ? ' is-dragging' : ''}${canDrag ? ' can-drag' : ''}`}
+                            className={`gantt__bar side-${t.side} is-${t.status}${isOverdue(t) ? ' is-overdue' : ''}${drag?.id === t.id ? ' is-dragging' : ''}${canDrag ? ' can-drag' : ''}${t.isMeeting ? ' is-meeting' : ''}`}
                             style={{ left: x(s), width: w }}
                             title={`${t.title}\n${formatDate(s)} → ${formatDate(e)} · ${STATUS[t.status]}${t.assigneeName ? ` · ${t.assigneeName}` : ''}`}
                             onPointerDown={(ev) => (canDrag ? begin(ev, t, 'move') : undefined)}
@@ -240,7 +240,7 @@ export function GanttView({ me, project, tasks, onOpen, onMove }: Props) {
           <span className="field__label">Sin fechas ({unscheduled.length}) · ábrelas para asignarles inicio y entrega</span>
           <div className="unscheduled__list">
             {unscheduled.map((t) => (
-              <button key={t.id} className={`chip-task side-${t.side}`} onClick={() => onOpen(t)}>
+              <button key={t.id} className={`chip-task side-${t.side}${t.isMeeting ? ' is-meeting' : ''}`} onClick={() => onOpen(t)}>
                 <span className="chip-task__title">{t.title}</span>
               </button>
             ))}

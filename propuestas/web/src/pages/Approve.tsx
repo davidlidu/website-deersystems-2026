@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, today, useApi, usd, type Side, type TeamMember } from '../lib';
+import { api, draftBody, emptyDraft, money, today, useApi, usd, type PaymentDraft, type Side, type TeamMember } from '../lib';
 import { ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
 import type { ProposalRow } from './Proposals';
+import { DraftRow } from './project/Payments';
 
 interface DraftTask {
   key: string;
@@ -31,6 +32,7 @@ interface Draft {
   approvalNotes: string;
   phases: { name: string; tasks: Omit<DraftTask, 'key' | 'assigneeId'>[] }[];
   meetings: { title: string; phaseIndex: number; date: string | null; time: string; durationMinutes: number; purpose: string }[];
+  payments: { label: string; percent: number | null; amount: number; currency: 'USD' | 'COP'; dueDate: string | null }[];
   warnings: string[];
 }
 interface ProposalOption {
@@ -256,6 +258,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const [notify, setNotify] = useState(true);
   const [result, setResult] = useState<Result | null>(null);
   const [undo, setUndo] = useState<PlanSnapshot | null>(null);
+  const [payments, setPayments] = useState<(PaymentDraft & { key: string })[]>([]);
   const [previewing, setPreviewing] = useState(false);
 
   const proposal = proposals.data?.find((p) => p.id === proposalId);
@@ -296,6 +299,16 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
             durationMinutes: m.durationMinutes,
             purpose: m.purpose,
             schedule: true,
+          })),
+        );
+        setPayments(
+          (draft.payments ?? []).map((p) => ({
+            key: key(),
+            label: p.label,
+            percent: p.percent?.toString() ?? '',
+            amount: String(p.amount),
+            currency: p.currency,
+            dueDate: p.dueDate ?? '',
           })),
         );
         setStarted(true);
@@ -456,6 +469,8 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     if (clientMode === 'existing' && !existingId) return toast('Elige el cliente.', true);
     if (clientMode === 'new' && (!client.name.trim() || !client.email.trim())) return toast('Falta el nombre o el correo del cliente.', true);
     if (!taskCount) return toast('Agrega al menos una tarea.', true);
+    const badPayment = payments.find((p) => (p.label.trim() || p.amount) && !(p.label.trim() && Number(p.amount) > 0));
+    if (badPayment) return toast('Cada pago necesita el tipo de abono y un monto mayor a cero.', true);
     if (priceWarning && !confirm('El alcance o alguna tarea parece mencionar valores, y tu equipo puede verlos. ¿Crear el proyecto igual?')) return;
     run(async () => {
       const sent = phases.filter((p) => p.tasks.some((t) => t.title.trim()));
@@ -474,6 +489,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           purpose: m.purpose,
           schedule: canSchedule && m.schedule && !!m.date,
         })),
+        payments: payments.filter((p) => p.label.trim() && Number(p.amount) > 0).map(draftBody),
         notify: notify && !!google.data?.connected,
       });
       setResult(r);
@@ -863,6 +879,37 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               }
             >
               + Reunión
+            </button>
+          </section>
+
+          <section className="card form-section">
+            <div className="form-section__head">
+              <h2>Pagos</h2>
+              <span className="mono">
+                {(['COP', 'USD'] as const)
+                  .map((c) => [c, payments.filter((p) => p.currency === c).reduce((n, p) => n + (Number(p.amount) || 0), 0)] as const)
+                  .filter(([, total]) => total > 0)
+                  .map(([c, total]) => money(total, c))
+                  .join(' + ') || 'sin pagos'}
+              </span>
+            </div>
+            <p className="hint">
+              El plan de pagos según la propuesta. Queda en la pestaña Pagos del proyecto (lo ven tú y el cliente, nunca el equipo); al marcar uno como
+              pagado se registra en tu Gestor financiero.
+            </p>
+            {payments.map((p) => (
+              <DraftRow
+                key={p.key}
+                d={p}
+                onChange={(patch) => setPayments((ps) => ps.map((x) => (x.key === p.key ? { ...x, ...patch } : x)))}
+                onRemove={() => setPayments((ps) => ps.filter((x) => x.key !== p.key))}
+              />
+            ))}
+            <button
+              className="btn btn--outline btn--sm"
+              onClick={() => setPayments((ps) => [...ps, { ...emptyDraft(ps[0]?.currency), key: key() }])}
+            >
+              + Pago
             </button>
           </section>
 

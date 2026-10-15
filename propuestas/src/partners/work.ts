@@ -51,6 +51,7 @@ function taskFields(body: Record<string, unknown>, projectId: number, current?: 
   }
   if ('startDate' in body) f.start_date = optDate(body.startDate) ?? null;
   if ('dueDate' in body) f.due_date = optDate(body.dueDate) ?? null;
+  if ('isMeeting' in body) f.kind = body.isMeeting === true ? 'reunion' : 'tarea';
   // Una tarea del cliente no tiene responsable del equipo.
   if (f.side === 'cliente') f.assignee_id = null;
   // Se compara con lo que ya tiene la tarea: cambiar solo una de las dos fechas también cuenta.
@@ -88,6 +89,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         dueDate: f.due_date ?? null,
         position: db.nextTaskPosition(project.id),
         source: 'manual',
+        kind: f.kind,
       });
       log(v, project.id, 'task_created', { title: task.title, side: task.side }, { taskId: task.id });
       const path = taskPath(project.id, task.id);

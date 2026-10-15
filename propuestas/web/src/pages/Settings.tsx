@@ -674,6 +674,78 @@ function PickerKey() {
   );
 }
 
+// ───────── Finanzas ─────────
+
+/** Conexión con el Gestor financiero: los pagos marcados como pagados se registran allí como ingresos. */
+function FinanceTab() {
+  const { data, error, loading, reload, setData } = useApi<{ url: string; defaultUrl: string; hasKey: boolean; keyHint: string | null }>('settings/finanzas');
+  const [key, setKey] = useState('');
+  const [url, setUrl] = useState<string | null>(null);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  if (loading && !data) return <Loading />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
+  const save = (body: { url?: string; apiKey?: string }, msg: string) =>
+    run(async () => {
+      setData(await api('PUT', 'settings/finanzas', body));
+      setKey('');
+      setUrl(null);
+      toast(msg);
+    });
+  return (
+    <section className="card form-section narrow-col">
+      <h2>Gestor financiero</h2>
+      <p className="hint">
+        Al marcar un pago como <strong>Pagado</strong> en la pestaña Pagos de un proyecto, se registra como ingreso en tu Gestor: la categoría es la
+        empresa del cliente y la descripción lleva el proyecto, el tipo de abono y el porcentaje. Si lo desmarcas o lo borras, el ingreso se quita.
+        El Gestor lleva todo en pesos: los pagos en USD se registran con los pesos recibidos (TRM oficial del día, editable).
+      </p>
+      <label className="field">
+        <span className="field__label">URL de la API</span>
+        <span className="input">
+          <input value={url ?? data!.url} onChange={(e) => setUrl(e.target.value)} placeholder={data!.defaultUrl} spellCheck={false} />
+        </span>
+      </label>
+      {url !== null && url !== data!.url && (
+        <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => save({ url }, 'URL guardada.')}>
+          Guardar URL
+        </button>
+      )}
+      <div className="key-row">
+        <label className="field">
+          <span className="field__label">Clave de servicio (SERVICE_API_KEY) · {data!.hasKey ? `guardada ${data!.keyHint}` : 'sin clave'}</span>
+          <span className="input">
+            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="La misma SERVICE_API_KEY del Gestor" autoComplete="off" spellCheck={false} />
+          </span>
+        </label>
+        <button className="btn btn--outline btn--sm" disabled={busy || !key.trim()} onClick={() => save({ apiKey: key }, 'Clave guardada (cifrada).')}>
+          Guardar clave
+        </button>
+        {data!.hasKey && (
+          <button className="btn btn--outline btn--sm btn--danger" disabled={busy} onClick={() => save({ apiKey: '' }, 'Clave borrada.')}>
+            Borrar
+          </button>
+        )}
+      </div>
+      <p className="hint">Es la variable SERVICE_API_KEY del servicio del Gestor en Dokploy. Se guarda cifrada y nunca se muestra completa.</p>
+      <div>
+        <button
+          className="btn btn--primary btn--sm"
+          disabled={busy || !data!.hasKey}
+          onClick={() =>
+            run(async () => {
+              await api('POST', 'settings/finanzas/test');
+              toast('Conexión correcta con el Gestor financiero.');
+            })
+          }
+        >
+          Probar conexión
+        </button>
+      </div>
+    </section>
+  );
+}
+
 // ───────── Página ─────────
 
 // ───────── Avisos ─────────
@@ -772,7 +844,7 @@ function NotificationsTab() {
   );
 }
 
-const TABS = { ia: 'Inteligencia artificial', consumo: 'Consumo de IA', avisos: 'Avisos', google: 'Google y correo' } as const;
+const TABS = { ia: 'Inteligencia artificial', consumo: 'Consumo de IA', avisos: 'Avisos', google: 'Google y correo', finanzas: 'Finanzas' } as const;
 type Tab = keyof typeof TABS;
 
 const GOOGLE_MESSAGES: Record<string, [string, boolean]> = {
@@ -811,6 +883,7 @@ export function SettingsPage() {
       {tab === 'consumo' && <UsageTab />}
       {tab === 'avisos' && <NotificationsTab />}
       {tab === 'google' && <GoogleTab />}
+      {tab === 'finanzas' && <FinanceTab />}
     </>
   );
 }

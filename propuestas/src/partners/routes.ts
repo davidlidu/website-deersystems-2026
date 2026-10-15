@@ -33,6 +33,7 @@ import {
 import * as db from './db.ts';
 import { handleFiles } from './files.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
+import { createPayments, handlePayments } from './payments.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { actor, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
@@ -210,6 +211,7 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
     approvedOption: project.approvedOption,
     approvalNotes: project.approvalNotes,
     meetings: body.meetings,
+    payments: body.payments,
   });
   // Qué reuniones agendar en Calendar al crear el proyecto (las demás quedan solo como tarea).
   const rawMeetings = Array.isArray(body.meetings) ? (body.meetings as { schedule?: unknown }[]) : [];
@@ -300,8 +302,10 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
         dueDate: m.date,
         position: position++,
         source: 'propuesta',
+        kind: 'reunion',
       });
     }
+    createPayments(p.id, draft.payments);
     const a = actor(v);
     db.logActivity({ projectId: p.id, actorKind: a.kind, actorName: a.name, type: 'project_created', data: { tasks: position } });
     return { project: p, client: theClient };
@@ -857,6 +861,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   if (await handleWork(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
+  if (await handlePayments(route, id, req, res, v, url)) return;
   throw new HttpError(404, 'Ruta no encontrada.');
 }
 

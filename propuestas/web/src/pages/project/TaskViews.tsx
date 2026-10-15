@@ -66,7 +66,7 @@ function StatusControl({ task, me, onStatus }: { task: Task; me: Me; onStatus: P
 function TaskChip({ task, onOpen, draggable }: { task: Task; onOpen: (t: Task) => void; draggable: boolean }) {
   return (
     <button
-      className={`chip-task is-${task.status} side-${task.side}${isOverdue(task) ? ' is-overdue' : ''}`}
+      className={`chip-task is-${task.status} side-${task.side}${isOverdue(task) ? ' is-overdue' : ''}${task.isMeeting ? ' is-meeting' : ''}`}
       draggable={draggable}
       onDragStart={(e) => {
         e.dataTransfer.setData('text/task', String(task.id));
@@ -193,7 +193,7 @@ function ListView({ me, project, tasks, onOpen, onNew, onStatus, onPhasesChange 
           {g.tasks.length ? (
             <ul className="tasks card">
               {g.tasks.map((t) => (
-                <li key={t.id} className={`task is-${t.status}${isOverdue(t) ? ' is-overdue' : ''}`}>
+                <li key={t.id} className={`task is-${t.status}${isOverdue(t) ? ' is-overdue' : ''}${t.isMeeting ? ' is-meeting' : ''}`}>
                   <div className="task__main">
                     <button className="task__title" onClick={() => onOpen(t)}>
                       {t.title}

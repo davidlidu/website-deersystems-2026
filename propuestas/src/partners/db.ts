@@ -73,6 +73,8 @@ export interface Task {
   due_date: string | null;
   position: number;
   source: 'propuesta' | 'manual' | 'reunion';
+  /** 'reunion' = reunión con el cliente en el cronograma (se pinta con la franja naranja). */
+  kind: 'tarea' | 'reunion';
   completed_at: string | null;
   created_at: string;
   updated_at: string;
@@ -383,14 +385,15 @@ export function createTask(t: {
   dueDate: string | null;
   position: number;
   source: Task['source'];
+  kind?: Task['kind'];
 }): Task {
   const ts = now();
   const { lastInsertRowid } = db
     .prepare(
-      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, kind, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(t.projectId, t.phaseId, t.title, t.description, t.side, t.assigneeId, t.startDate, t.dueDate, t.position, t.source, ts, ts);
+    .run(t.projectId, t.phaseId, t.title, t.description, t.side, t.assigneeId, t.startDate, t.dueDate, t.position, t.source, t.kind ?? 'tarea', ts, ts);
   return getTask(Number(lastInsertRowid))!;
 }
 
@@ -476,7 +479,7 @@ db.exec(`
 `);
 
 export type TaskFields = Partial<
-  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position'>
+  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position' | 'kind'>
 >;
 
 export function updateTask(id: number, fields: TaskFields): void {
@@ -790,6 +793,11 @@ export function projectFolder(id: number): string | null {
 addColumn('attachments', 'drive_url', 'TEXT');
 addColumn('attachments', 'link_shared', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('attachments', 'linked', 'INTEGER NOT NULL DEFAULT 0');
+if (!(db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).some((c) => c.name === 'kind')) {
+  addColumn('tasks', 'kind', "TEXT NOT NULL DEFAULT 'tarea'");
+  // Proyectos creados antes: las reuniones de avance del plan se reconocen por el título.
+  db.exec("UPDATE tasks SET kind = 'reunion' WHERE source = 'propuesta' AND title LIKE 'Reuni_n%'");
+}
 
 export interface AttachmentExtra {
   drive_url: string | null;
