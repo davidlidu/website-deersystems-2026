@@ -624,6 +624,22 @@ export function Footer({ base = '' }: { base?: string }) {
             <Icon name="whatsapp" size={16} /> {WHATSAPP_DISPLAY}
           </a>
           <span className="muted">Colombia · Clientes en LATAM y USA</span>
+          <a
+            className="footer__partner"
+            href="https://www.hostinger.com/co?REFERRALCODE=1DVID89"
+            target="_blank"
+            rel="noopener sponsored"
+            title="Hosting en Hostinger con descuento (generalmente 20%)"
+          >
+            <img
+              src="/img/hostinger-partner.webp"
+              alt="Hostinger Partner"
+              width={160}
+              height={60}
+              loading="lazy"
+            />
+            <span className="muted">Obtén descuento en tu hosting</span>
+          </a>
         </div>
       </div>
       <div className="container footer__legal">
