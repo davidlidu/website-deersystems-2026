@@ -26,7 +26,7 @@ export interface User {
 }
 
 mkdirSync(DATA_DIR, { recursive: true });
-const db = new DatabaseSync(join(DATA_DIR, 'propuestas.sqlite'));
+export const db = new DatabaseSync(join(DATA_DIR, 'propuestas.sqlite'));
 db.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS proposals (
