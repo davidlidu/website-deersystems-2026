@@ -290,10 +290,10 @@ async function asDataUrl(v: string | null): Promise<string | null> {
   }
 }
 
-async function apply(snap: Snapshot, matches: Record<string, unknown>, withProfile: boolean) {
+async function apply(snap: Snapshot, matches: Record<string, unknown>, withProfile: boolean, refreshItems = false) {
   const logo = withProfile ? await asDataUrl(snap.profile?.logoUrl ?? null) : null;
   const signature = withProfile ? await asDataUrl(snap.profile?.signatureImageUrl ?? null) : null;
-  const created = { clients: 0, linked: 0, invoices: 0, receipts: 0, skipped: 0 };
+  const created = { clients: 0, linked: 0, invoices: 0, receipts: 0, skipped: 0, refreshed: 0 };
   const clientMap = new Map<string, number>();
 
   db.transaction(() => {
@@ -329,7 +329,17 @@ async function apply(snap: Snapshot, matches: Record<string, unknown>, withProfi
     for (const i of snap.invoices) {
       const clientId = clientMap.get(i.clientId);
       const taken = sqlite.prepare('SELECT sb_id FROM invoices WHERE number = ?').get(i.invoiceNumber) as { sb_id: string | null } | undefined;
-      if (!clientId || sqlite.prepare('SELECT 1 FROM invoices WHERE sb_id = ?').get(i.id) || (taken && taken.sb_id !== i.id)) {
+      const already = sqlite.prepare('SELECT id FROM invoices WHERE sb_id = ?').get(i.id) as { id: number } | undefined;
+      // Ya importada: solo se vuelven a traer sus ítems si se pidió (p. ej. para recuperar el formato), sin tocar el total.
+      if (already && refreshItems && i.lineItems.length) {
+        billing.replaceItems(
+          already.id,
+          i.lineItems.map((li) => ({ description: billing.sanitizeHtml(li.description) || 'Ítem', quantity: li.quantity || 1, unit: li.unit, unitPrice: li.unitPrice })),
+        );
+        created.refreshed++;
+        continue;
+      }
+      if (!clientId || already || (taken && taken.sb_id !== i.id)) {
         created.skipped++;
         continue;
       }
@@ -453,7 +463,7 @@ export async function handleImport(route: string, _id: number, req: IncomingMess
       const body = await readJson(req, 1024 * 1024);
       const snap = loadSnapshot(str(body.id, 40));
       const matches = body.matches && typeof body.matches === 'object' ? (body.matches as Record<string, unknown>) : {};
-      json(res, 200, await apply(snap, matches, body.profile === true));
+      json(res, 200, await apply(snap, matches, body.profile === true, body.refreshItems === true));
       return true;
     }
   }

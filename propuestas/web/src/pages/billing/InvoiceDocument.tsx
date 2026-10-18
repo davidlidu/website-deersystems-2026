@@ -74,7 +74,7 @@ export const InvoiceDocument = forwardRef<HTMLDivElement, { invoice: InvoiceDeta
         </thead>
         <tbody>
           {invoice.items.map((it, i) => (
-            <tr key={it.id ?? i}>
+            <tr key={it.id ?? i} data-pdf-break>
               <td className="c">{i + 1}</td>
               {/* HTML saneado en el servidor (lista blanca de etiquetas, sin atributos). */}
               <td className="cc-doc__desc" dangerouslySetInnerHTML={{ __html: it.description }} />
@@ -87,7 +87,7 @@ export const InvoiceDocument = forwardRef<HTMLDivElement, { invoice: InvoiceDeta
         </tbody>
       </table>
 
-      <div className="cc-doc__totals">
+      <div className="cc-doc__totals" data-pdf-break>
         <div className="cc-doc__total">
           <span>Valor total{usd ? ' USD' : ''}</span>
           <span>{formatMoney(invoice.total, invoice.currency)}</span>
@@ -106,10 +106,14 @@ export const InvoiceDocument = forwardRef<HTMLDivElement, { invoice: InvoiceDeta
         )}
       </div>
 
-      {invoice.notes && <p className="cc-doc__notes">{invoice.notes}</p>}
+      {invoice.notes && (
+        <p className="cc-doc__notes" data-pdf-break>
+          {invoice.notes}
+        </p>
+      )}
 
       {(profile.bankInfo || profile.qr || profile.legalNote) && (
-        <section className="cc-doc__pay">
+        <section className="cc-doc__pay" data-pdf-break="pay">
           <div className="cc-doc__pay-text">
             {(profile.bankInfo || profile.qr) && <h3>Forma de pago</h3>}
             {profile.bankInfo && <p className="cc-doc__notes">{profile.bankInfo}</p>}
@@ -119,7 +123,7 @@ export const InvoiceDocument = forwardRef<HTMLDivElement, { invoice: InvoiceDeta
         </section>
       )}
 
-      <section className="cc-doc__sign">
+      <section className="cc-doc__sign" data-pdf-break>
         {profile.signature ? <img src={profile.signature} alt="Firma" className="cc-doc__signature" /> : <div className="cc-doc__line" />}
         <p className="cc-doc__strong">{profile.signatureName || profile.name}</p>
         {profile.signatureDoc && <p>{profile.signatureDoc}</p>}

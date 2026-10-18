@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { api, docDate, formatMoney, navigate, useApi, useLocation, type InvoiceSummary, type Receipt } from '../../lib';
+import { api, docDate, emptyRange, formatMoney, inRange, navigate, useApi, useLocation, type DateRange, type InvoiceSummary, type Receipt } from '../../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../../ui';
 import { InvoiceStatus } from './InvoiceStatus';
+import { DateFilter } from './DateFilter';
 import { ImportTab } from './Import';
 import { ReceiptForm } from './ReceiptForm';
 import { ReportsTab } from './Reports';
@@ -13,14 +14,16 @@ function InvoicesTab() {
   const { data, error, loading, reload } = useApi<InvoiceSummary[]>('invoices');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<'todas' | 'emitida' | 'pagada' | 'anulada'>('todas');
+  const [range, setRange] = useState<DateRange>(emptyRange);
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
     return (data ?? []).filter(
       (i) =>
+        inRange(i.date, range) &&
         (!s || `${i.number} ${i.clientName} ${i.projectName ?? ''}`.toLowerCase().includes(s)) &&
         (status === 'todas' || (status === 'anulada' ? i.status === 'anulada' : status === 'pagada' ? i.paid : i.status === 'emitida' && !i.paid)),
     );
-  }, [data, q, status]);
+  }, [data, q, status, range]);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   return (
@@ -29,17 +32,25 @@ function InvoicesTab() {
         <div className="filters">
           {(['todas', 'emitida', 'pagada', 'anulada'] as const).map((s) => (
             <button key={s} className={`chip${status === s ? ' is-active' : ''}`} onClick={() => setStatus(s)}>
-              {{ todas: 'Todas', emitida: 'Sin pago aplicado', pagada: 'Pagadas', anulada: 'Anuladas' }[s]}
+              {{ todas: 'Todas', emitida: 'Pendientes', pagada: 'Pagadas', anulada: 'Anuladas' }[s]}
             </button>
           ))}
           <span className="input input--search input--chip">
             <input placeholder="Buscar número, cliente o proyecto…" value={q} onChange={(e) => setQ(e.target.value)} />
           </span>
+          <DateFilter value={range} onChange={setRange} />
         </div>
         <Link className="btn btn--primary btn--sm" to="/facturacion/nueva">
           + Nueva cuenta de cobro
         </Link>
       </div>
+      {shown.length > 0 && (
+        <p className="list-total">
+          {shown.length} {shown.length === 1 ? 'cuenta de cobro' : 'cuentas de cobro'} ·{' '}
+          <strong>{formatMoney(shown.filter((i) => i.status !== 'anulada').reduce((n, i) => n + i.totalCop, 0))}</strong>
+          {shown.some((i) => i.status === 'anulada') ? ' (sin anuladas)' : ''}
+        </p>
+      )}
       {shown.length ? (
         <div className="table card">
           <div className="table__row table__row--head cc-row">
@@ -71,7 +82,7 @@ function InvoicesTab() {
           ))}
         </div>
       ) : (
-        <Empty>{q || status !== 'todas' ? 'Ninguna cuenta de cobro coincide.' : 'Todavía no hay cuentas de cobro. Crea una o impórtalas de SmartBilling.'}</Empty>
+        <Empty>{q || status !== 'todas' || range.mode !== 'todas' ? 'Ninguna cuenta de cobro coincide.' : 'Todavía no hay cuentas de cobro. Crea una o impórtalas de SmartBilling.'}</Empty>
       )}
     </section>
   );
@@ -81,12 +92,15 @@ function ReceiptsTab() {
   const { data, error, loading, reload, setData } = useApi<Receipt[]>('receipts');
   const [editing, setEditing] = useState<Receipt | 'new' | null>(null);
   const [q, setQ] = useState('');
+  const [range, setRange] = useState<DateRange>(emptyRange);
   const { busy, run } = useAction();
   const toast = useToast();
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return (data ?? []).filter((r) => !s || `${r.clientName} ${r.method} ${r.notes ?? ''} ${r.invoiceNumber ?? ''}`.toLowerCase().includes(s));
-  }, [data, q]);
+    return (data ?? []).filter(
+      (r) => inRange(r.date, range) && (!s || `${r.clientName} ${r.method} ${r.notes ?? ''} ${r.invoiceNumber ?? ''}`.toLowerCase().includes(s)),
+    );
+  }, [data, q, range]);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const list = data!;
@@ -103,9 +117,12 @@ function ReceiptsTab() {
   return (
     <section className="section section--flush">
       <div className="toolbar">
-        <span className="input input--search input--chip">
-          <input placeholder="Buscar cliente, medio o nota…" value={q} onChange={(e) => setQ(e.target.value)} />
-        </span>
+        <div className="filters">
+          <span className="input input--search input--chip">
+            <input placeholder="Buscar cliente, medio o nota…" value={q} onChange={(e) => setQ(e.target.value)} />
+          </span>
+          <DateFilter value={range} onChange={setRange} />
+        </div>
         <button className="btn btn--primary btn--sm" onClick={() => setEditing(editing ? null : 'new')}>
           {editing === 'new' ? 'Cerrar' : '+ Registrar abono'}
         </button>
@@ -119,6 +136,11 @@ function ReceiptsTab() {
             reload();
           }}
         />
+      )}
+      {shown.length > 0 && (
+        <p className="list-total">
+          {shown.length} {shown.length === 1 ? 'abono' : 'abonos'} · <strong>{formatMoney(shown.reduce((n, r) => n + r.amountCop, 0))}</strong>
+        </p>
       )}
       {shown.length ? (
         <div className="table card">
@@ -186,7 +208,7 @@ function ReceiptsTab() {
           ))}
         </div>
       ) : (
-        <Empty>{q ? 'Ningún abono coincide.' : 'Todavía no hay abonos.'}</Empty>
+        <Empty>{q || range.mode !== 'todas' ? 'Ningún abono coincide.' : 'Todavía no hay abonos.'}</Empty>
       )}
     </section>
   );

@@ -518,3 +518,19 @@ export const formatTrm = (n: number | null | undefined) =>
 
 /** ¿El HTML tiene texto? (un editor vacío deja "<br>" o "<p></p>"). */
 export const hasText = (html: string) => html.replace(/<[^>]+>|&nbsp;/g, '').trim().length > 0;
+
+// ───────── Filtro por fecha (listas de facturación) ─────────
+
+export type DateRange = { mode: 'todas' | 'dia' | 'mes' | 'rango'; day: string; month: string; from: string; to: string };
+
+export const emptyRange = (): DateRange => ({ mode: 'todas', day: today(), month: today().slice(0, 7), from: '', to: '' });
+
+/** ¿La fecha (AAAA-MM-DD) entra en el filtro? */
+export function inRange(date: string, r: DateRange): boolean {
+  const d = date.slice(0, 10);
+  if (r.mode === 'dia') return d === r.day;
+  if (r.mode === 'mes') return d.slice(0, 7) === r.month;
+  if (r.mode === 'rango') return (!r.from || d >= r.from) && (!r.to || d <= r.to);
+  return true;
+}
+

@@ -4373,21 +4373,22 @@ textarea:focus {
   color: #4b5563;
 }
 
-.cc-doc__items th:nth-child(1) {
+/* Solo la tabla de ítems (no las tablas que van dentro de una descripción). */
+.cc-doc__items > thead > tr > th:nth-child(1) {
   width: 6%;
 }
 
-.cc-doc__items th:nth-child(2) {
+.cc-doc__items > thead > tr > th:nth-child(2) {
   width: 44%;
 }
 
-.cc-doc__items th:nth-child(3),
-.cc-doc__items th:nth-child(4) {
+.cc-doc__items > thead > tr > th:nth-child(3),
+.cc-doc__items > thead > tr > th:nth-child(4) {
   width: 10%;
 }
 
-.cc-doc__items th:nth-child(5),
-.cc-doc__items th:nth-child(6) {
+.cc-doc__items > thead > tr > th:nth-child(5),
+.cc-doc__items > thead > tr > th:nth-child(6) {
   width: 15%;
 }
 
@@ -4902,4 +4903,72 @@ textarea:focus {
 .send-to__chip.is-bad {
   border-color: var(--coral);
   color: var(--coral);
+}
+
+/* Tablas dentro de la descripción de los ítems */
+.rich__area table,
+.cc-doc__desc table {
+  width: 100%;
+  margin: 6px 0;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.rich__area th,
+.rich__area td,
+.cc-doc__desc th,
+.cc-doc__desc td {
+  padding: 3px 6px;
+  border: 1px solid #d1d5db;
+  text-align: left;
+  vertical-align: top;
+}
+
+.rich__area th,
+.rich__area td {
+  border-color: var(--hairline-strong);
+}
+
+.cc-doc__desc th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+.cc-doc__desc tr:last-child td {
+  border-bottom: 1px solid #d1d5db;
+}
+
+.cc-doc__desc th {
+  border-bottom: 1px solid #d1d5db;
+  font-size: inherit;
+  text-transform: none;
+  color: #374151;
+}
+
+.date-filter {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.list-total {
+  margin: 0 0 8px;
+  font-size: 0.88rem;
+  color: var(--mute);
+}
+
+.list-total strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-doc__desc table {
+  table-layout: auto;
+}
+
+.cc-doc__desc th,
+.cc-doc__desc td {
+  overflow-wrap: normal;
+  word-break: normal;
 }

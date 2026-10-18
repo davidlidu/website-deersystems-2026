@@ -146,7 +146,11 @@ const itemsOf = (invoiceId: number) =>
 
 // ───────── HTML de los ítems ─────────
 
-const ALLOWED = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'div', 'ul', 'ol', 'li', 'span', 'h3', 'h4', 'img']);
+const ALLOWED = new Set([
+  'b', 'strong', 'i', 'em', 'u', 'br', 'p', 'div', 'ul', 'ol', 'li', 'span', 'h3', 'h4', 'img',
+  // Tablas (SmartBilling las usa en los ítems; también llegan al pegar desde Excel o Sheets).
+  'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
+]);
 /** Solo imágenes incrustadas (data:) de tipos de imagen: nada que cargue de internet ni ejecute código. */
 const IMG_SRC = /\bsrc\s*=\s*["'](data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+)["']/i;
 
@@ -267,6 +271,13 @@ export function totalsOf(items: ItemInput[], currency: Currency, exchangeRate: n
 function numberTaken(number: string, exceptId?: number) {
   const row = sqlite.prepare('SELECT id FROM invoices WHERE number = ?').get(number) as { id: number } | undefined;
   return !!row && row.id !== exceptId;
+}
+
+/** Reemplaza solo los ítems (mismo total), p. ej. para volver a importar el formato de SmartBilling. */
+export function replaceItems(invoiceId: number, items: ItemInput[]): void {
+  sqlite.prepare('DELETE FROM invoice_items WHERE invoice_id = ?').run(invoiceId);
+  const ins = sqlite.prepare('INSERT INTO invoice_items (invoice_id, description, quantity, unit, unit_price, position) VALUES (?, ?, ?, ?, ?, ?)');
+  items.forEach((it, i) => ins.run(invoiceId, it.description, it.quantity, it.unit, it.unitPrice, i));
 }
 
 export function saveInvoice(input: InvoiceInput, opts: { id?: number; sbId?: string | null; totalCop?: number } = {}): InvoiceRow {

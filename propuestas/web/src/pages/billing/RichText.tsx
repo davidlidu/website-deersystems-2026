@@ -27,6 +27,42 @@ async function shrink(file: File): Promise<string> {
   }
 }
 
+const KEEP = new Set(['B', 'STRONG', 'I', 'EM', 'U', 'BR', 'P', 'DIV', 'UL', 'OL', 'LI', 'H3', 'H4', 'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD', 'IMG']);
+
+/**
+ * HTML pegado (Excel, Sheets, Word, otra página) → solo las etiquetas permitidas y sin atributos ni estilos.
+ * Se conservan tablas, negritas y listas; lo demás se queda como texto. El servidor vuelve a filtrar al guardar.
+ */
+function cleanHtml(html: string): string {
+  const src = new DOMParser().parseFromString(html, 'text/html');
+  const out = document.createElement('div');
+  const copy = (from: Node, to: Node) => {
+    from.childNodes.forEach((n) => {
+      if (n.nodeType === Node.TEXT_NODE) to.appendChild(document.createTextNode(n.textContent ?? ''));
+      else if (n.nodeType === Node.ELEMENT_NODE) {
+        const el = n as HTMLElement;
+        if (['SCRIPT', 'STYLE', 'META', 'LINK', 'TITLE', 'XML'].includes(el.tagName)) return;
+        if (el.tagName === 'IMG') {
+          const v = el.getAttribute('src') ?? '';
+          if (/^data:image\/(png|jpeg|gif|webp);base64,/.test(v)) {
+            const img = document.createElement('img');
+            img.src = v;
+            to.appendChild(img);
+          }
+          return;
+        }
+        if (KEEP.has(el.tagName)) {
+          const clean = document.createElement(el.tagName.toLowerCase());
+          copy(el, clean);
+          to.appendChild(clean);
+        } else copy(el, to); // se quita la etiqueta y se deja su contenido
+      }
+    });
+  };
+  copy(src.body, out);
+  return out.innerHTML;
+}
+
 const TOOLS = [
   ['bold', 'N', 'Negrita'],
   ['italic', 'K', 'Cursiva'],
@@ -74,7 +110,12 @@ export function RichText({ value, onChange, placeholder, label }: { value: strin
     e.preventDefault();
     const images = [...e.clipboardData.files];
     if (images.length) return void insertImages(images);
-    // El texto se pega sin el formato de otras páginas.
+    const html = e.clipboardData.getData('text/html');
+    if (html) {
+      // Desde Excel, Sheets o Word: se conservan tablas, negritas y listas, ya limpias.
+      document.execCommand('insertHTML', false, cleanHtml(html));
+      return emit();
+    }
     document.execCommand('insertText', false, e.clipboardData.getData('text/plain'));
   };
   const onDrop = (e: DragEvent<HTMLDivElement>) => {

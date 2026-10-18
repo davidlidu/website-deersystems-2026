@@ -11,7 +11,7 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
   - Cliente y, opcionalmente, proyecto.
   - Fecha y fecha límite de pago (opcional; por defecto, la fecha + los *días para pagar* configurados).
   - Moneda: **COP**, o **USD con la TRM del día**. La TRM es la oficial y se puede corregir. El total en COP queda guardado: así cuadran los reportes y los saldos.
-  - **Ítems:** descripción WYSIWYG (negrita, cursiva, subrayado, listas con viñetas o numeradas e **imágenes**: botón, pegar o arrastrar; se reducen a 900 px), cantidad, unidad y valor unitario. Las imágenes van incrustadas en la cuenta de cobro; nunca se cargan de internet.
+  - **Ítems:** descripción WYSIWYG (negrita, cursiva, subrayado, listas con viñetas o numeradas, **tablas** e **imágenes**: botón, pegar o arrastrar; se reducen a 900 px), cantidad, unidad y valor unitario. Al pegar desde Excel, Sheets o Word se conservan tablas, negritas y listas, sin estilos. Las imágenes van incrustadas en la cuenta de cobro; nunca se cargan de internet.
   - **Notas**, impresas debajo del total.
 - **Desde una cuota del plan de pagos** (pestaña *Pagos* del proyecto → *Generar cuenta de cobro*):
   - Llega armada con el proyecto, el tipo de abono, el %, el monto, la moneda y la fecha.
@@ -23,7 +23,8 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
   - Ítems y total (más TRM y equivalente en COP si es en USD).
   - Notas y **forma de pago**: datos bancarios y, debajo, el texto legal en letra pequeña, con el QR grande a la derecha para que se lea desde el celular.
   - Firma y pie con los datos del emisor.
-  - Siempre en blanco. En celular se reduce para caber. El PDF sale **en una sola página A4**: si el contenido es más largo, se reduce proporcionalmente.
+  - Siempre en blanco. En celular se reduce para caber.
+  - **PDF en A4 sin reducir el contenido.** Si no cabe en una página, la forma de pago, la firma y el pie pasan juntos a la siguiente. Con muchos ítems se corta entre filas, o entre párrafos y filas de una tabla dentro de un ítem muy largo; nunca a la mitad de una línea.
 - **Acciones:**
   - **Descargar PDF**: se genera en el navegador, como en SmartBilling.
   - **Enviar al cliente**: a uno o varios correos (y copia para ti si quieres), con la marca, el PDF adjunto, tus datos de pago, el **QR de pago** (como imagen en línea, que Gmail sí muestra) y el botón *Pagar en línea* si activaste Wompi para esa cuenta de cobro. El saludo usa el nombre del contacto, o la razón social si no hay contacto.
@@ -31,6 +32,8 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
   - **Anular**: deja de contar en el saldo y el número queda usado.
   - **Borrar**: solo si no tiene abonos aplicados.
 - **Estado:** *Pendiente*, *Abono parcial*, *Pagada* (cuando los abonos aplicados a ella la cubren) o *Anulada*. Las importadas de SmartBilling no traen esa relación: allá los pagos eran del cliente, no de cada cuenta de cobro. Por eso su saldo se ve en la ficha del cliente.
+
+- **Filtros** en la lista: estado, búsqueda y fecha (un día, un mes o un rango), con la cantidad y el total de lo filtrado.
 
 ## Abonos
 
@@ -40,6 +43,7 @@ Un abono es lo que entró. Va **ligado al cliente** (como en SmartBilling) y, si
 - **En USD:** la TRM del día y los pesos recibidos, que se pueden corregir.
 - **Gestor financiero:** cada abono es un ingreso (`PUT /integrations/billing-payment/{referencia}`), con la categoría = cliente y la descripción = proyecto, tipo de abono o cuenta de cobro.
   - Editar el abono actualiza el ingreso; borrarlo lo quita. Si el Gestor no responde, el abono queda con *⚠ Reintentar*.
+- **Filtros:** búsqueda y fecha (un día, un mes o un rango), con el total de lo filtrado.
 - **Las cuotas del plan de pagos** también son abonos: se crean al marcarlas pagadas y se editan desde la pestaña *Pagos* del proyecto.
 - **Referencias en el Gestor:**
 
@@ -121,7 +125,8 @@ En **Facturación → Importar de SmartBilling**:
    - Si usas su perfil de remitente.
 3. **Importar** (idempotente: repetirla no duplica):
    - Los clientes nuevos quedan solo para facturación.
-   - Las cuentas de cobro se traen con su total en COP original y sus ítems con formato (saneados).
+   - Las cuentas de cobro se traen con su total en COP original y sus ítems con formato (saneados), incluidas sus tablas.
+   - Si ya importaste antes, marca *Volver a traer los ítems…* para recuperar las tablas y el formato de esas cuentas de cobro, sin tocar totales ni abonos.
    - Los pagos se traen como abonos, con su referencia, categoría y descripción del Gestor: «Abono factura - Cliente». No se reenvían, porque ya están allá.
 4. **Cuadre:** por cliente, lo facturado, pagado y el saldo en SmartBilling contra Partners. **Debe dar ✓ en todos.**
 5. **Terminar el cambio:**

@@ -31,7 +31,7 @@ interface Preview {
 }
 
 interface Result {
-  created: { clients: number; linked: number; invoices: number; receipts: number; skipped: number };
+  created: { clients: number; linked: number; invoices: number; receipts: number; skipped: number; refreshed: number };
   ok: boolean;
   nextNumber: string;
   reconciliation: {
@@ -55,6 +55,7 @@ export function ImportTab() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [matches, setMatches] = useState<Record<string, string>>({});
   const [profile, setProfile] = useState(true);
+  const [refreshItems, setRefreshItems] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const file = useRef<HTMLInputElement>(null);
   const { busy, run } = useAction();
@@ -82,7 +83,7 @@ export function ImportTab() {
     const fresh = p.clients.filter((c) => matches[c.sbId] === 'new').length;
     if (!confirm(`¿Importar ${p.totals.invoices} cuentas de cobro y ${p.totals.payments} abonos? Se crean ${fresh} clientes nuevos y se unen ${p.clients.length - fresh} a clientes que ya existen.`)) return;
     run(async () => {
-      const r = await api<Result>('POST', 'import/smartbilling/apply', { id: p.id, matches: Object.fromEntries(Object.entries(matches).map(([k, v]) => [k, v === 'new' ? 'new' : Number(v)])), profile });
+      const r = await api<Result>('POST', 'import/smartbilling/apply', { id: p.id, matches: Object.fromEntries(Object.entries(matches).map(([k, v]) => [k, v === 'new' ? 'new' : Number(v)])), profile, refreshItems });
       setResult(r);
       toast(r.ok ? 'Importación completa: todo cuadra.' : 'Importado, pero hay diferencias: revisa el cuadre.', !r.ok);
     });
@@ -202,6 +203,13 @@ export function ImportTab() {
                 </div>
               ))}
             </div>
+            {preview.totals.alreadyImported.invoices > 0 && (
+              <label className="check">
+                <input type="checkbox" checked={refreshItems} onChange={(e) => setRefreshItems(e.target.checked)} />
+                Volver a traer los ítems de las {preview.totals.alreadyImported.invoices} cuentas de cobro ya importadas (recupera tablas y formato; no cambia
+                totales ni abonos)
+              </label>
+            )}
             {preview.profile && (
               <label className="check">
                 <input type="checkbox" checked={profile} onChange={(e) => setProfile(e.target.checked)} />
@@ -229,7 +237,8 @@ export function ImportTab() {
           <h2>{result.ok ? '✓ Importación completa: todo cuadra' : '⚠ Importado con diferencias'}</h2>
           <p>
             {plural(result.created.clients, 'cliente nuevo', 'clientes nuevos')}, {plural(result.created.linked, 'unido', 'unidos')} a clientes existentes,{' '}
-            {plural(result.created.invoices, 'cuenta de cobro', 'cuentas de cobro')} y {plural(result.created.receipts, 'abono', 'abonos')}{result.created.skipped ? ` (${result.created.skipped} ya estaban o se saltaron)` : ''}. La próxima cuenta de cobro será la{' '}
+            {plural(result.created.invoices, 'cuenta de cobro', 'cuentas de cobro')} y {plural(result.created.receipts, 'abono', 'abonos')}{result.created.refreshed ? ` · ${plural(result.created.refreshed, 'cuenta de cobro con ítems actualizados', 'cuentas de cobro con ítems actualizados')}` : ''}
+            {result.created.skipped ? ` (${result.created.skipped} ya estaban o se saltaron)` : ''}. La próxima cuenta de cobro será la{' '}
             <strong>{result.nextNumber}</strong>.
           </p>
           <div className="table card">
