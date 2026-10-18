@@ -203,7 +203,7 @@ function staffEmails(): Set<string> {
 function clientByEmail(): Map<string, number> {
   const map = new Map<string, number>();
   for (const c of db.listClients()) {
-    map.set(c.email.toLowerCase(), c.id);
+    if (c.email) map.set(c.email.toLowerCase(), c.id);
     const a = db.getClientAccount(c.id);
     if (a) map.set(a.email.toLowerCase(), c.id);
   }
@@ -500,7 +500,8 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
   const client = db.getClient(project.client_id)!;
   const account = db.getClientAccount(client.id);
   const emails = new Set<string>();
-  if (input.includeClient) emails.add((account?.email ?? client.email).toLowerCase());
+  const clientEmail = account?.email ?? client.email;
+  if (input.includeClient && clientEmail) emails.add(clientEmail.toLowerCase());
   const teamIds = new Set(input.teamIds);
   for (const a of db.listTeam()) if (a.active && teamIds.has(a.id)) emails.add(a.email.toLowerCase());
   for (const g of input.guests) {

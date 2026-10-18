@@ -372,6 +372,9 @@ export interface Payment {
   dueDate: string | null;
   paid: boolean;
   paidAt: string | null;
+  /** Cuenta de cobro que generó la cuota (si la tiene). */
+  invoiceId: number | null;
+  invoiceNumber: string | null;
   amountCop?: number | null;
   trm?: number | null;
   sync?: 'ok' | 'error' | null;
@@ -395,3 +398,121 @@ export const draftBody = (d: PaymentDraft) => ({
   currency: d.currency,
   dueDate: d.dueDate || null,
 });
+
+// ───────── Facturación ─────────
+
+/** Cuenta de cobro en listas y reportes. `totalCop` es siempre en pesos. */
+export interface InvoiceSummary {
+  id: number;
+  number: string;
+  date: string;
+  dueDate: string | null;
+  clientId: number;
+  clientName: string;
+  projectId: number | null;
+  projectName: string | null;
+  currency: Currency;
+  exchangeRate: number | null;
+  total: number;
+  totalCop: number;
+  status: 'emitida' | 'anulada';
+  applied: number;
+  paid: boolean;
+  sentAt: string | null;
+  imported: boolean;
+}
+
+export interface InvoiceItem {
+  id?: number;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+}
+
+export interface BillingProfile {
+  name: string;
+  docType: string;
+  docNumber: string;
+  personType: string;
+  address: string;
+  city: string;
+  phone: string;
+  email: string;
+  bankInfo: string;
+  signatureName: string;
+  signatureDoc: string;
+  defaultNotes: string;
+  defaultDueDays: number;
+  logo: string | null;
+  signature: string | null;
+  qr: string | null;
+}
+
+export interface BillingClient {
+  id: number;
+  name: string;
+  contactName: string;
+  docType: string;
+  docNumber: string;
+  city: string;
+  address: string;
+  phone: string;
+  email: string | null;
+}
+
+/** Abono (lo que entró). Los datos del Gestor solo llegan al administrador. */
+export interface Receipt {
+  id: number;
+  clientId?: number;
+  clientName?: string;
+  projectId?: number | null;
+  invoiceId: number | null;
+  invoiceNumber?: string | null;
+  paymentId?: number | null;
+  amountCop: number;
+  currency: Currency;
+  amount: number;
+  trm?: number | null;
+  date: string;
+  method: string;
+  notes?: string;
+  proofUrl?: string | null;
+  sync?: 'ok' | 'error' | null;
+  syncError?: string | null;
+  imported?: boolean;
+}
+
+export interface InvoiceDetail extends InvoiceSummary {
+  notes: string;
+  /** Link de pago en línea (Wompi), solo si lo activaste para esta cuenta de cobro. */
+  payUrl: string | null;
+  items: InvoiceItem[];
+  client: BillingClient;
+  receipts: Receipt[];
+  profile: BillingProfile;
+}
+
+export interface Statement {
+  totals: { invoiced: number; paid: number; balance: number };
+  invoices: InvoiceSummary[];
+  receipts: Receipt[];
+  howToPay?: { name: string; docType: string; docNumber: string; bankInfo: string; qr: string | null };
+}
+
+/** Como en SmartBilling: "$ 2.500.000" en COP y "US$ 1.500,00" en USD. */
+export const formatMoney = (n: number, currency: Currency = 'COP') =>
+  new Intl.NumberFormat('es-CO', { style: 'currency', currency, minimumFractionDigits: currency === 'USD' ? 2 : 0, maximumFractionDigits: currency === 'USD' ? 2 : 0 }).format(n || 0);
+
+/** "dd/mm/aaaa", el formato de la cuenta de cobro. */
+export const docDate = (iso: string | null | undefined) => {
+  if (!iso) return '—';
+  const [y, m, d] = iso.slice(0, 10).split('-');
+  return `${d}/${m}/${y}`;
+};
+
+export const formatTrm = (n: number | null | undefined) =>
+  n ? n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+
+/** ¿El HTML tiene texto? (un editor vacío deja "<br>" o "<p></p>"). */
+export const hasText = (html: string) => html.replace(/<[^>]+>|&nbsp;/g, '').trim().length > 0;

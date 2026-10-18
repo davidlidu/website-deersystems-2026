@@ -12,6 +12,8 @@ export function requireStaff(v: Viewer): void {
   if (!isStaff(v)) throw new HttpError(403, 'No tienes permiso para esto.');
 }
 
+export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export const str = (v: unknown, max = 500) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
 /** "YYYY-MM-DD" → fecha; null → borrar; cualquier otra cosa → no tocar. */

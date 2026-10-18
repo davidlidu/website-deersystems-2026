@@ -17,9 +17,18 @@ export interface Client {
   id: number;
   name: string;
   contact_name: string;
-  email: string;
+  /** Correo de acceso y contacto. Puede faltar en clientes solo de facturación (importados de SmartBilling). */
+  email: string | null;
   phone: string;
   created_at: string;
+  drive_folder_id: string | null;
+  /** Documento para la cuenta de cobro: NIT, CC, CE o pasaporte. */
+  doc_type: string;
+  doc_number: string;
+  city: string;
+  address: string;
+  /** Id del cliente en SmartBilling, si vino de allá (la importación es idempotente). */
+  sb_id: string | null;
 }
 
 export interface Account {
@@ -287,14 +296,40 @@ export function listClients() {
   );
 }
 
-export function createClient(c: { name: string; contactName: string; email: string; phone: string }): Client {
+export function createClient(c: {
+  name: string;
+  contactName: string;
+  email: string | null;
+  phone: string;
+  docType?: string;
+  docNumber?: string;
+  city?: string;
+  address?: string;
+  sbId?: string | null;
+}): Client {
   const { lastInsertRowid } = db
-    .prepare('INSERT INTO clients (name, contact_name, email, phone, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(c.name, c.contactName, c.email, c.phone, now());
+    .prepare(
+      `INSERT INTO clients (name, contact_name, email, phone, doc_type, doc_number, city, address, sb_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(c.name, c.contactName, c.email || null, c.phone, c.docType ?? '', c.docNumber ?? '', c.city ?? '', c.address ?? '', c.sbId ?? null, now());
   return getClient(Number(lastInsertRowid))!;
 }
 
-export function updateClient(id: number, fields: { name?: string; contact_name?: string; phone?: string }): void {
+export function updateClient(
+  id: number,
+  fields: {
+    name?: string;
+    contact_name?: string;
+    phone?: string;
+    email?: string | null;
+    doc_type?: string;
+    doc_number?: string;
+    city?: string;
+    address?: string;
+    sb_id?: string | null;
+  },
+): void {
   for (const [col, value] of Object.entries(fields)) {
     if (value !== undefined) db.prepare(`UPDATE clients SET ${col} = ? WHERE id = ?`).run(value, id);
   }
@@ -647,6 +682,45 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS attachments_project ON attachments(project_id, id);
 `);
 addColumn('clients', 'drive_folder_id', 'TEXT');
+
+// Clientes solo de facturación (sin acceso al portal): el correo deja de ser obligatorio.
+// SQLite no permite quitar NOT NULL: se reconstruye la tabla con las llaves foráneas apagadas
+// (si no, borrar la tabla vieja arrastraría en cascada sus proyectos).
+if ((db.prepare('PRAGMA table_info(clients)').all() as { name: string; notnull: number }[]).find((c) => c.name === 'email')?.notnull) {
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE clients_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        contact_name TEXT NOT NULL DEFAULT '',
+        email TEXT UNIQUE,
+        phone TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        drive_folder_id TEXT
+      );
+      INSERT INTO clients_new (id, name, contact_name, email, phone, created_at, drive_folder_id)
+        SELECT id, name, contact_name, email, phone, created_at, drive_folder_id FROM clients;
+      DROP TABLE clients;
+      ALTER TABLE clients_new RENAME TO clients;
+      COMMIT;
+    `);
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+  const broken = db.prepare('PRAGMA foreign_key_check').all();
+  if (broken.length) throw new Error(`Migración de clientes: ${broken.length} referencias rotas.`);
+}
+addColumn('clients', 'doc_type', "TEXT NOT NULL DEFAULT ''");
+addColumn('clients', 'doc_number', "TEXT NOT NULL DEFAULT ''");
+addColumn('clients', 'city', "TEXT NOT NULL DEFAULT ''");
+addColumn('clients', 'address', "TEXT NOT NULL DEFAULT ''");
+addColumn('clients', 'sb_id', 'TEXT');
+db.exec("CREATE UNIQUE INDEX IF NOT EXISTS clients_sb_id ON clients(sb_id) WHERE sb_id IS NOT NULL");
 addColumn('projects', 'drive_folder_id', 'TEXT');
 
 /** Destinatario de una notificación: el administrador (sin cuenta) o una cuenta del equipo o cliente. */

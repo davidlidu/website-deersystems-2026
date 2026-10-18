@@ -1,0 +1,129 @@
+diff --git a/backend/middleware/requireAuth.js b/backend/middleware/requireAuth.js
+new file mode 100644
+index 0000000..94c8f8a
+--- /dev/null
++++ b/backend/middleware/requireAuth.js
+@@ -0,0 +1,36 @@
++// Exige sesión en la API. Antes, las rutas de clientes, facturas, pagos y ajustes respondían sin token.
++//
++// Acepta:
++//  - El JWT que emite /api/auth/login (header Authorization: Bearer <token>).
++//  - Solo para lecturas (GET): la clave EXPORT_API_KEY, si está definida. La usa la importación desde
++//    DeerSystems Partners; quítala del entorno cuando termines de migrar.
++const crypto = require('crypto');
++const jwt = require('jsonwebtoken');
++
++const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
++if (!process.env.JWT_SECRET) {
++  console.warn('⚠️  JWT_SECRET no está definido: se usa un valor por defecto inseguro. Defínelo en el entorno.');
++}
++
++const sameSecret = (a, b) => {
++  const x = Buffer.from(String(a));
++  const y = Buffer.from(String(b));
++  return x.length === y.length && crypto.timingSafeEqual(x, y);
++};
++
++module.exports = function requireAuth(req, res, next) {
++  if (req.method === 'OPTIONS') return next();
++  const header = req.headers.authorization || '';
++  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
++  if (!token) return res.status(401).json({ message: 'Inicia sesión para continuar.' });
++
++  const exportKey = process.env.EXPORT_API_KEY;
++  if (exportKey && req.method === 'GET' && sameSecret(token, exportKey)) return next();
++
++  try {
++    req.user = jwt.verify(token, JWT_SECRET);
++    return next();
++  } catch {
++    return res.status(401).json({ message: 'Tu sesión venció. Vuelve a entrar.' });
++  }
++};
+diff --git a/backend/routes/authRoutes.js b/backend/routes/authRoutes.js
+index ae5c5de..fc77ade 100644
+--- a/backend/routes/authRoutes.js
++++ b/backend/routes/authRoutes.js
+@@ -36,7 +36,8 @@ router.post("/login", async (req, res) => {
+       { expiresIn: "8h" }
+     );
+ 
+-    res.json({ token, user });
++    // Nunca devolver el hash de la contraseña.
++    res.json({ token, user: { id: user.id, username: user.username } });
+ 
+   } catch (err) {
+     console.error(err);
+diff --git a/backend/server.js b/backend/server.js
+index f66d47d..ed979e8 100644
+--- a/backend/server.js
++++ b/backend/server.js
+@@ -9,6 +9,7 @@ const invoiceRoutes = require('./routes/invoiceRoutes');
+ const settingsRoutes = require('./routes/settingsRoutes');
+ const paymentRoutes = require('./routes/paymentRoutes');
+ const authRoutes = require('./routes/authRoutes');
++const requireAuth = require('./middleware/requireAuth');
+ 
+ const app = express();
+ const PORT = process.env.API_PORT || 3001;
+@@ -48,7 +49,8 @@ app.options('*', (req, res) => {
+ });
+ 
+ 
+-// API Routes
++// API Routes (todas exigen sesión, menos el login)
++app.use(['/api/clients', '/api/invoices', '/api/settings', '/api/payments'], requireAuth);
+ app.use('/api/clients', clientRoutes);
+ app.use('/api/invoices', invoiceRoutes);
+ app.use('/api/settings', settingsRoutes);
+diff --git a/contexts/AuthContext.tsx b/contexts/AuthContext.tsx
+index c25277b..d714233 100644
+--- a/contexts/AuthContext.tsx
++++ b/contexts/AuthContext.tsx
+@@ -26,9 +26,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
+   useEffect(() => {
+     // Check for token on initial load
+     try {
++        // Sesión vigente si hay un JWT sin vencer (antes solo se aceptaba 'mock-token' y había que entrar cada vez).
+         const token = localStorage.getItem('authToken');
+-        if (token === 'mock-token') {
++        const payload = token && token.split('.').length === 3 ? JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) : null;
++        if (payload?.exp && payload.exp * 1000 > Date.now()) {
+           setIsAuthenticated(true);
++        } else if (token) {
++          localStorage.removeItem('authToken');
+         }
+     } catch (e) {
+         console.error("Could not access localStorage:", e);
+diff --git a/index.tsx b/index.tsx
+index bce7f44..9ea2258 100644
+--- a/index.tsx
++++ b/index.tsx
+@@ -3,6 +3,27 @@ import ReactDOM from 'react-dom/client';
+ import App from './App';
+ import './index.css';
+ 
++// Todas las llamadas a la API llevan el token de la sesión (antes no lo enviaban y la API respondía sin sesión).
++// Si la sesión venció (401), se cierra y se vuelve al login.
++const API_HOST = 'https://api.facturador.lidutech.net';
++const nativeFetch = window.fetch.bind(window);
++window.fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
++  const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
++  const token = localStorage.getItem('authToken');
++  const isApi = url.startsWith(API_HOST);
++  if (isApi && token && !url.endsWith('/auth/login')) {
++    const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
++    headers.set('Authorization', `Bearer ${token}`);
++    init = { ...init, headers };
++  }
++  const res = await nativeFetch(input, init);
++  if (isApi && res.status === 401 && !url.endsWith('/auth/login')) {
++    localStorage.removeItem('authToken');
++    window.location.assign('/');
++  }
++  return res;
++};
++
+ const rootElement = document.getElementById('root');
+ if (!rootElement) {
+   throw new Error("Could not find root element to mount to");

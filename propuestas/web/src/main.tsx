@@ -5,6 +5,9 @@ import { Tour, tourPostponed } from './Tour';
 import { api, match, navigate, useLocation, type Me } from './lib';
 import { AccountPage } from './pages/Account';
 import { ApprovePage } from './pages/Approve';
+import { BillingPage } from './pages/billing/Billing';
+import { InvoiceFormPage } from './pages/billing/InvoiceForm';
+import { InvoiceViewPage } from './pages/billing/InvoiceView';
 import { ClientPage } from './pages/Client';
 import { HomePage } from './pages/Home';
 import { ForgotPage, LoginPage, ResetPage } from './pages/Login';
@@ -38,6 +41,7 @@ function Nav({ me, path }: { me: Me; path: string }) {
           ...(me.role === 'owner'
             ? ([
                 ['/propuestas', 'Propuestas'],
+                ['/facturacion', 'Facturación'],
                 ['/reuniones', 'Reuniones'],
                 ['/equipo', 'Equipo'],
                 ['/configuracion', 'Configuración'],
@@ -100,6 +104,8 @@ function Routes({ me, path }: { me: Me; path: string }) {
   if (path === '/') return <HomePage me={me} />;
   if ((m = match('/proyectos/:id', path))) return <ProjectPage me={me} id={Number(m.id)} />;
   if (path === '/cuenta' && me.role !== 'owner') return <AccountPage me={me} />;
+  // La cuenta de cobro la ven tú y el cliente (las suyas); el servidor no se la entrega al equipo.
+  if (me.role !== 'team' && (m = match('/cuentas-de-cobro/:id', path))) return <InvoiceViewPage me={me} id={Number(m.id)} />;
   if (me.role !== 'client') {
     if ((m = match('/clientes/:id', path))) return <ClientPage me={me} id={Number(m.id)} />;
   }
@@ -108,6 +114,9 @@ function Routes({ me, path }: { me: Me; path: string }) {
     if ((m = match('/propuestas/:id/aprobar', path))) return <ApprovePage proposalId={Number(m.id)} />;
     if (path === '/reuniones') return <MeetingsPage />;
     if ((m = match('/reuniones/:id', path))) return <MeetingReviewPage id={Number(m.id)} />;
+    if (path === '/facturacion') return <BillingPage />;
+    if (path === '/facturacion/nueva') return <InvoiceFormPage />;
+    if ((m = match('/cuentas-de-cobro/:id/editar', path))) return <InvoiceFormPage id={Number(m.id)} />;
     if (path === '/equipo') return <TeamPage />;
     if (path === '/configuracion') return <SettingsPage />;
   }

@@ -65,9 +65,9 @@ export function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
   });
 }
 
-export async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+export async function readJson(req: IncomingMessage, limit = 64 * 1024): Promise<Record<string, unknown>> {
   try {
-    const body = JSON.parse((await readBody(req, 64 * 1024)).toString() || '{}');
+    const body = JSON.parse((await readBody(req, limit)).toString() || '{}');
     if (body && typeof body === 'object') return body;
   } catch (err) {
     if (err instanceof HttpError) throw err;

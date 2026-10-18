@@ -120,16 +120,18 @@ function layout(b: Block): { html: string; text: string } {
 
 const loginUrl = `${PARTNERS_URL}/login`;
 
-export function welcomeClient(p: { to: string; name: string; projectName: string; password: string }): Mail {
+export function welcomeClient(p: { to: string; name: string; projectName: string | null; password: string }): Mail {
   const first = p.name.split(' ')[0] || p.name;
   return {
     to: p.to,
-    subject: `Bienvenido a DeerSystems Partners · ${p.projectName}`,
+    subject: p.projectName ? `Bienvenido a DeerSystems Partners · ${p.projectName}` : 'Bienvenido a DeerSystems Partners',
     ...layout({
-      eyebrow: 'Propuesta aprobada',
-      title: `¡Arrancamos, ${first}!`,
+      eyebrow: p.projectName ? 'Propuesta aprobada' : 'Tu espacio',
+      title: p.projectName ? `¡Arrancamos, ${first}!` : `Hola, ${first}`,
       paragraphs: [
-        `Gracias por aprobar la propuesta de "${p.projectName}". Desde hoy puedes seguir el avance del proyecto en tu espacio de DeerSystems Partners: el cronograma, las tareas de cada parte, las reuniones y los acuerdos.`,
+        p.projectName
+          ? `Gracias por aprobar la propuesta de "${p.projectName}". Desde hoy puedes seguir el avance del proyecto en tu espacio de DeerSystems Partners: el cronograma, las tareas de cada parte, las reuniones y los acuerdos.`
+          : 'Desde hoy tienes tu espacio en DeerSystems Partners: ahí ves tus proyectos, tus cuentas de cobro, tus pagos y tu saldo.',
         'Estos son tus datos de acceso:',
       ],
       facts: [
@@ -210,6 +212,47 @@ export function passwordReset(p: { to: string; url: string }): Mail {
 }
 
 /** Vista previa para el panel: el mismo diseño con datos de ejemplo. */
+/** La cuenta de cobro, con el PDF adjunto. Si el cliente tiene acceso al portal, también la ve allá. */
+export function invoiceForClient(p: {
+  to: string;
+  name: string;
+  number: string;
+  date: string;
+  total: string;
+  totalCop: string | null;
+  dueDate: string | null;
+  projectName: string | null;
+  bankInfo: string;
+  portal: boolean;
+  /** Link de pago en línea (opcional, solo si lo activaste para esta cuenta de cobro). */
+  payUrl?: string | null;
+}): Mail {
+  const first = p.name.split(' ')[0] || p.name;
+  return {
+    to: p.to,
+    subject: `Cuenta de cobro ${p.number}${p.projectName ? ` · ${p.projectName}` : ''}`,
+    ...layout({
+      eyebrow: 'Cuenta de cobro',
+      title: `Hola${first ? `, ${first}` : ''}: te enviamos la cuenta de cobro ${p.number}`,
+      paragraphs: [
+        `Adjuntamos la cuenta de cobro${p.projectName ? ` del proyecto "${p.projectName}"` : ''} en PDF.`,
+        ...(p.bankInfo ? ['Puedes pagar por transferencia a:', p.bankInfo] : []),
+      ],
+      facts: [
+        ['Número', p.number],
+        ['Fecha', p.date],
+        ['Valor', p.total],
+        ...(p.totalCop ? ([['Equivalente COP', p.totalCop]] as [string, string][]) : []),
+        ...(p.dueDate ? ([['Fecha límite de pago', p.dueDate]] as [string, string][]) : []),
+      ],
+      ...(p.payUrl ? { cta: { label: 'Pagar en línea', url: p.payUrl } } : p.portal ? { cta: { label: 'Ver en mi espacio', url: loginUrl } } : {}),
+      footnote: p.payUrl
+        ? 'También puedes pagar por transferencia y respondernos este correo con el comprobante. ¡Gracias!'
+        : 'Cuando hagas el pago, responde este correo con el comprobante. ¡Gracias!',
+    }),
+  };
+}
+
 export function sample(): Mail {
   return welcomeClient({ to: 'cliente@empresa.com', name: 'Laura Gómez', projectName: 'Portal de pedidos', password: 'Ejemplo-1234-abcd' });
 }

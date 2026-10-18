@@ -48,7 +48,8 @@ interface DraftResponse {
 interface ClientRow {
   id: number;
   name: string;
-  email: string;
+  /** Null en clientes solo de facturación (importados de SmartBilling): al aprobar se les crea el acceso. */
+  email: string | null;
 }
 /** Reunión de avance con el cliente propuesta por el plan. `phaseKey` apunta a la fase en pantalla. */
 interface DraftMeeting {
@@ -244,6 +245,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
 
   const [clientMode, setClientMode] = useState<'new' | 'existing'>('new');
   const [existingId, setExistingId] = useState<number | null>(null);
+  const [accessEmail, setAccessEmail] = useState('');
   const [client, setClient] = useState({ name: '', contactName: '', email: '', phone: '' });
   const [project, setProject] = useState({
     name: '',
@@ -477,7 +479,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
       const validMeetings = meetings.filter((m) => m.title.trim());
       const r = await api<Result>('POST', 'projects', {
         proposalId,
-        client: clientMode === 'existing' ? { id: existingId } : client,
+        client: clientMode === 'existing' ? { id: existingId, email: accessEmail } : client,
         project,
         phases: sent.map((p) => ({ name: p.name, tasks: p.tasks.filter((t) => t.title.trim()) })),
         meetings: validMeetings.map((m) => ({
@@ -624,13 +626,22 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                     <option value="">Elige…</option>
                     {clients.data?.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.name} · {c.email}
+                        {c.name} · {c.email ?? 'sin acceso al portal'}
                       </option>
                     ))}
                   </select>
                 </span>
               </label>
-            ) : (
+            ) : null}
+            {clientMode === 'existing' && existingId && !clients.data?.find((c) => c.id === existingId)?.email && (
+              <label className="field">
+                <span className="field__label">Correo para su acceso al portal *</span>
+                <span className="input">
+                  <input type="email" value={accessEmail} onChange={(e) => setAccessEmail(e.target.value)} placeholder="cliente@empresa.com" />
+                </span>
+              </label>
+            )}
+            {clientMode === 'existing' ? null : (
               <div className="form-grid">
                 <label className="field">
                   <span className="field__label">Empresa o cliente *</span>
@@ -936,7 +947,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
             {previewing && (
               <WelcomePreview
                 proposalId={proposalId}
-                body={{ client: clientMode === 'existing' ? { id: existingId } : client, projectName: project.name }}
+                body={{ client: clientMode === 'existing' ? { id: existingId, email: accessEmail } : client, projectName: project.name }}
                 onClose={() => setPreviewing(false)}
               />
             )}

@@ -1,5 +1,21 @@
 import { useEffect, useState } from 'react';
-import { api, draftBody, emptyDraft, formatDate, money, today, useApi, type Currency, type Me, type Payment, type PaymentDraft } from '../../lib';
+import {
+  api,
+  docDate,
+  draftBody,
+  emptyDraft,
+  formatDate,
+  formatMoney,
+  money,
+  today,
+  useApi,
+  type Currency,
+  type InvoiceSummary,
+  type Me,
+  type Payment,
+  type PaymentDraft,
+  type Statement,
+} from '../../lib';
 import { Empty, ErrorBox, Link, Loading, useAction, useToast } from '../../ui';
 
 interface PaymentsResponse {
@@ -128,7 +144,19 @@ function MarkPaid({ p, onDone, onCancel }: { p: Payment; onDone: (p: Payment) =>
 }
 
 /** Fila editable (administrador): los cambios se guardan al salir del campo. */
-function PaymentRow({ p, finance, onChange, onRemove }: { p: Payment; finance: boolean; onChange: (p: Payment) => void; onRemove: (p: Payment) => void }) {
+function PaymentRow({
+  p,
+  finance,
+  newInvoiceUrl,
+  onChange,
+  onRemove,
+}: {
+  p: Payment;
+  finance: boolean;
+  newInvoiceUrl: string;
+  onChange: (p: Payment) => void;
+  onRemove: (p: Payment) => void;
+}) {
   const [d, setD] = useState<Draft>({ label: p.label, percent: p.percent?.toString() ?? '', amount: String(p.amount), currency: p.currency, dueDate: p.dueDate ?? '' });
   const [marking, setMarking] = useState(false);
   const { busy, run } = useAction();
@@ -187,6 +215,15 @@ function PaymentRow({ p, finance, onChange, onRemove }: { p: Payment; finance: b
       </div>
       <div className="pay-row__status">
         <StatusPill p={p} />
+        {p.invoiceId ? (
+          <Link to={`/cuentas-de-cobro/${p.invoiceId}`} className="hint">
+            Cuenta de cobro {p.invoiceNumber}
+          </Link>
+        ) : (
+          <Link to={newInvoiceUrl} className="linklike">
+            Generar cuenta de cobro
+          </Link>
+        )}
         {p.paid && p.currency === 'USD' && p.amountCop ? (
           <span className="hint">
             Recibido {money(p.amountCop, 'COP')}
@@ -291,7 +328,7 @@ export function DraftRow({ d, onChange, onRemove }: { d: Draft; onChange: (patch
 }
 
 /** Pestaña Pagos: seguimiento de los pagos pactados. Tú los editas y marcas; el cliente los ve. */
-export function PaymentsPanel({ me, projectId }: { me: Me; projectId: number }) {
+export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: number; clientId: number }) {
   const { data, error, loading, reload, setData } = useApi<PaymentsResponse>(`projects/${projectId}/payments`);
   const [suggested, setSuggested] = useState<Draft[] | null>(null);
   const [adding, setAdding] = useState<Draft | null>(null);
@@ -391,7 +428,14 @@ export function PaymentsPanel({ me, projectId }: { me: Me; projectId: number }) 
                 <span className="pay-head__date">Fecha de pago</span>
               </div>
               {payments.map((p) => (
-                <PaymentRow key={p.id} p={p} finance={finance} onChange={(u) => setPayments(payments.map((x) => (x.id === u.id ? u : x)))} onRemove={remove} />
+                <PaymentRow
+                  key={p.id}
+                  p={p}
+                  finance={finance}
+                  newInvoiceUrl={`/facturacion/nueva?cliente=${clientId}&proyecto=${projectId}&cuota=${p.id}`}
+                  onChange={(u) => setPayments(payments.map((x) => (x.id === u.id ? u : x)))}
+                  onRemove={remove}
+                />
               ))}
             </div>
           ) : (
@@ -415,6 +459,61 @@ export function PaymentsPanel({ me, projectId }: { me: Me; projectId: number }) 
       ) : (
         <Empty>{owner ? 'Aún no hay pagos. Sugiérelos desde la propuesta o agrégalos a mano.' : 'Aún no hay pagos registrados en este proyecto.'}</Empty>
       )}
+
+      <ProjectInvoices me={me} projectId={projectId} clientId={clientId} />
     </div>
+  );
+}
+
+/** Cuentas de cobro del proyecto y, para el cliente, cómo pagar. */
+function ProjectInvoices({ me, projectId, clientId }: { me: Me; projectId: number; clientId: number }) {
+  const invoices = useApi<InvoiceSummary[]>(`invoices?projectId=${projectId}`);
+  const statement = useApi<Statement>(me.role === 'client' ? `clients/${clientId}/statement` : null);
+  const pay = statement.data?.howToPay;
+  const list = invoices.data ?? [];
+  return (
+    <>
+      <section>
+        <div className="section__head">
+          <h3 className="subhead">Cuentas de cobro</h3>
+          {me.role === 'owner' && (
+            <Link className="btn btn--outline btn--sm" to={`/facturacion/nueva?cliente=${clientId}&proyecto=${projectId}`}>
+              + Cuenta de cobro
+            </Link>
+          )}
+        </div>
+        {list.length ? (
+          <div className="table card">
+            {list.map((i) => (
+              <Link key={i.id} to={`/cuentas-de-cobro/${i.id}`} className={`table__row pay-client${i.status === 'anulada' ? ' is-void' : ''}`}>
+                <span className="mono">
+                  <strong>{i.number}</strong>
+                </span>
+                <span className="mono">{docDate(i.date)}</span>
+                <span className="mono">
+                  {formatMoney(i.currency === 'USD' ? i.total : i.totalCop, i.currency)}
+                  {i.currency === 'USD' && <small>{formatMoney(i.totalCop)}</small>}
+                </span>
+                <span>
+                  {i.status === 'anulada' ? <span className="pill pill--bloqueada">Anulada</span> : i.paid ? <span className="pill pill--completada">Pagada</span> : <span className="hint">Ver y descargar</span>}
+                </span>
+              </Link>
+            ))}
+          </div>
+        ) : (
+          <Empty>{me.role === 'owner' ? 'Sin cuentas de cobro: genérala desde una cuota o crea una.' : 'Aún no hay cuentas de cobro de este proyecto.'}</Empty>
+        )}
+      </section>
+      {pay && (pay.bankInfo || pay.qr) && (
+        <section className="card how-to-pay">
+          <div>
+            <h3 className="subhead">Cómo pagar</h3>
+            {pay.bankInfo && <p className="pre">{pay.bankInfo}</p>}
+            <p className="hint">Cuando pagues, envíanos el comprobante respondiendo el correo de la cuenta de cobro.</p>
+          </div>
+          {pay.qr && <img src={pay.qr} alt="Código QR para pagar" />}
+        </section>
+      )}
+    </>
   );
 }

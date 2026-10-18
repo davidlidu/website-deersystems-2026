@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { formatDate, formatDateTime, PROJECT_STATUS, useApi, type Me, type ProjectSummary } from '../lib';
+import { docDate, formatDate, formatDateTime, formatMoney, PROJECT_STATUS, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, ProgressBar } from '../ui';
 
 export function ProjectCard({ p, showClient }: { p: ProjectSummary; showClient?: boolean }) {
@@ -28,6 +28,58 @@ export function ProjectCard({ p, showClient }: { p: ProjectSummary; showClient?:
   );
 }
 
+/** Para el cliente: sus cuentas de cobro (de todos sus proyectos), lo abonado, su saldo y cómo pagar. */
+function MyAccount({ clientId }: { clientId: number }) {
+  const { data } = useApi<Statement>(`clients/${clientId}/statement`);
+  if (!data || (!data.invoices.length && !data.receipts.length)) return null;
+  const { totals, invoices, howToPay } = data;
+  return (
+    <section className="section">
+      <div className="section__head">
+        <h2>Mi estado de cuenta</h2>
+      </div>
+      <div className="kpis">
+        <div className="kpi card">
+          <small>Facturado</small>
+          <strong>{formatMoney(totals.invoiced)}</strong>
+        </div>
+        <div className="kpi card">
+          <small>Pagado</small>
+          <strong>{formatMoney(totals.paid)}</strong>
+        </div>
+        <div className="kpi card">
+          <small>{totals.balance < 0 ? 'Saldo a tu favor' : 'Saldo por pagar'}</small>
+          <strong>{formatMoney(Math.abs(totals.balance))}</strong>
+        </div>
+      </div>
+      {invoices.length > 0 && (
+        <div className="table card">
+          {invoices.map((i) => (
+            <Link key={i.id} to={`/cuentas-de-cobro/${i.id}`} className="table__row pay-client">
+              <span>
+                <strong>Cuenta de cobro {i.number}</strong>
+                {i.projectName && <small>{i.projectName}</small>}
+              </span>
+              <span className="mono">{docDate(i.date)}</span>
+              <span className="mono">{formatMoney(i.currency === 'USD' ? i.total : i.totalCop, i.currency)}</span>
+              <span>{i.paid ? <span className="pill pill--completada">Pagada</span> : <span className="hint">Ver y descargar</span>}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+      {howToPay && (howToPay.bankInfo || howToPay.qr) && totals.balance > 0 && (
+        <section className="card how-to-pay" style={{ marginTop: 12 }}>
+          <div>
+            <h3 className="subhead">Cómo pagar</h3>
+            {howToPay.bankInfo && <p className="pre">{howToPay.bankInfo}</p>}
+          </div>
+          {howToPay.qr && <img src={howToPay.qr} alt="Código QR para pagar" />}
+        </section>
+      )}
+    </section>
+  );
+}
+
 function ClientHome({ me }: { me: Me }) {
   const { data, error, loading, reload } = useApi<ProjectSummary[]>('projects');
   if (loading) return <Loading />;
@@ -50,6 +102,7 @@ function ClientHome({ me }: { me: Me }) {
           <Empty>No tienes proyectos en curso.</Empty>
         )}
       </section>
+      {me.client && <MyAccount clientId={me.client.id} />}
       {history.length > 0 && (
         <section className="section">
           <div className="section__head">
@@ -67,7 +120,7 @@ interface ClientRow {
   id: number;
   name: string;
   contact_name: string;
-  email: string;
+  email: string | null;
   projects: number;
   active_projects: number;
   last_login_at: string | null;
@@ -80,7 +133,7 @@ function StaffHome({ me }: { me: Me }) {
   const [filter, setFilter] = useState('');
   const shown = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    return (clients.data ?? []).filter((c) => !q || `${c.name} ${c.contact_name} ${c.email}`.toLowerCase().includes(q));
+    return (clients.data ?? []).filter((c) => !q || `${c.name} ${c.contact_name} ${c.email ?? ''}`.toLowerCase().includes(q));
   }, [clients.data, filter]);
 
   if (clients.loading || projects.loading) return <Loading />;
@@ -131,7 +184,7 @@ function StaffHome({ me }: { me: Me }) {
               <Link key={c.id} to={`/clientes/${c.id}`} className="table__row">
                 <span>
                   <strong>{c.name}</strong>
-                  <small>{c.contact_name ? `${c.contact_name} · ${c.email}` : c.email}</small>
+                  <small>{[c.contact_name, c.email ?? 'Solo facturación'].filter(Boolean).join(' · ')}</small>
                 </span>
                 <span className="mono">
                   {c.active_projects} activos · {c.projects} total

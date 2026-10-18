@@ -338,7 +338,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
 
       {tab === 'pagos' && me.role !== 'team' && (
         <section className="section section--flush">
-          <PaymentsPanel me={me} projectId={p.id} />
+          <PaymentsPanel me={me} projectId={p.id} clientId={p.clientId} />
         </section>
       )}
 

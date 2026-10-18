@@ -2,18 +2,19 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AiError, completeJson } from '../ai.ts';
 import { db as sqlite } from '../db.ts';
 import { HttpError, json, readJson } from '../http.ts';
-import { decrypt, encrypt, mask } from '../secrets.ts';
 import type { Viewer } from './auth.ts';
+import * as billing from './billing.ts';
 import { optDate, requireOwner, str, visibleProject } from './common.ts';
 import * as db from './db.ts';
+import { financeConfigured, todayBogota, trmFor } from './finance.ts';
 
 /**
  * Pagos del proyecto según la propuesta (anticipo, cuotas, contra entrega). Solo tú los editas;
  * el cliente los ve; el equipo nunca (son valores).
  *
- * Al marcar uno como pagado se registra como ingreso en el Gestor financiero
- * (POST /integrations/billing-payment, idempotente por referencia). El Gestor lleva todo en COP:
- * los pagos en USD se registran con el valor recibido en pesos (por defecto, monto × TRM del día).
+ * Al marcar una cuota como pagada se crea su abono (billing.ts), que es el que va al Gestor financiero con la
+ * referencia de siempre (deersystems-pago-{id}). El Gestor lleva todo en COP: los pagos en USD se registran con
+ * el valor recibido en pesos (por defecto, monto × TRM del día). Cada cuota puede generar su cuenta de cobro.
  */
 export type Currency = 'USD' | 'COP';
 type SyncStatus = 'ok' | 'error' | null;
@@ -31,11 +32,13 @@ interface Row {
   paid_at: string | null;
   amount_cop: number | null;
   trm: number | null;
+  /** Histórico: el estado de sincronización ahora vive en el abono de la cuota. */
   sync_status: SyncStatus;
   sync_error: string | null;
   synced_at: string | null;
   created_at: string;
   updated_at: string;
+  invoice_id: number | null;
 }
 
 sqlite.exec(`
@@ -60,9 +63,12 @@ sqlite.exec(`
   );
   CREATE INDEX IF NOT EXISTS payments_project ON payments(project_id, position);
 `);
+if (!(sqlite.prepare('PRAGMA table_info(payments)').all() as { name: string }[]).some((c) => c.name === 'invoice_id')) {
+  // La cuenta de cobro que generó la cuota (si la tiene).
+  sqlite.exec('ALTER TABLE payments ADD COLUMN invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL');
+}
 
 const now = () => new Date().toISOString();
-const todayBogota = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 const get = (id: number) => sqlite.prepare('SELECT * FROM payments WHERE id = ?').get(id) as Row | undefined;
 const listFor = (projectId: number) =>
   sqlite.prepare('SELECT * FROM payments WHERE project_id = ? ORDER BY position, id').all(projectId) as unknown as Row[];
@@ -99,6 +105,11 @@ export function createPayments(projectId: number, items: PaymentInput[]): void {
   items.forEach((p, i) => ins.run(projectId, p.label, p.percent, p.amount, p.currency, p.dueDate, start + i, ts, ts));
 }
 
+function syncOf(r: Row) {
+  const receipt = billing.receiptForPayment(r.id);
+  return { receiptId: receipt?.id ?? null, sync: receipt?.sync_status ?? null, syncError: receipt?.sync_error ?? null, syncedAt: receipt?.synced_at ?? null };
+}
+
 function view(r: Row, v: Viewer) {
   const owner = v.kind === 'owner';
   return {
@@ -111,7 +122,10 @@ function view(r: Row, v: Viewer) {
     paid: !!r.paid,
     paidAt: r.paid_at,
     // Lo del Gestor (pesos recibidos, TRM, sincronización) es solo para ti.
-    ...(owner ? { amountCop: r.amount_cop, trm: r.trm, sync: r.sync_status, syncError: r.sync_error, syncedAt: r.synced_at } : {}),
+    invoiceId: r.invoice_id,
+    invoiceNumber: r.invoice_id ? (billing.getInvoice(r.invoice_id)?.number ?? null) : null,
+    // Lo del Gestor (pesos recibidos, TRM, sincronización) es solo para ti. La sincronización es la del abono.
+    ...(owner ? { amountCop: r.amount_cop, trm: r.trm, ...syncOf(r) } : {}),
   };
 }
 
@@ -123,109 +137,58 @@ function visiblePayment(id: number, v: Viewer): Row {
   return r;
 }
 
-// ───────── Gestor financiero ─────────
+// ───────── Abono de la cuota ─────────
 
-const DEFAULT_URL = 'https://api.finanzas.lidutech.net/api';
-
-interface FinanceConfig {
-  url: string;
-  apiKey: string | null;
-}
-
-function financeConfig(): FinanceConfig {
-  const s = db.getSetting<{ url?: string; apiKey?: string }>('finanzas');
-  return { url: (s?.url || DEFAULT_URL).replace(/\/+$/, ''), apiKey: decrypt(s?.apiKey) };
-}
-
-export function financeConfigured(): boolean {
-  return !!financeConfig().apiKey;
-}
-
-class FinanceError extends Error {}
-
-async function financeCall(method: 'PUT' | 'DELETE', path: string, body?: unknown): Promise<void> {
-  const cfg = financeConfig();
-  if (!cfg.apiKey) throw new FinanceError('El Gestor financiero no está conectado (Configuración → Finanzas).');
-  let r: Response;
-  try {
-    r = await fetch(`${cfg.url}${path}`, {
-      method,
-      headers: { 'x-api-key': cfg.apiKey, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (err) {
-    throw new FinanceError(`No se pudo conectar con el Gestor: ${(err as Error).message}`);
-  }
-  if (r.ok) return;
-  const text = await r.text().catch(() => '');
-  let msg = text.slice(0, 300);
-  try {
-    msg = (JSON.parse(text) as { error?: string }).error ?? msg;
-  } catch {
-    /* no es JSON */
-  }
-  if (r.status === 401) msg = 'La clave del Gestor no es válida.';
-  throw new FinanceError(`Gestor financiero (${r.status}): ${msg || r.statusText}`);
-}
-
-const reference = (r: Row) => `deersystems-pago-${r.id}`;
-
-const money = (n: number, currency: Currency) =>
-  `${currency} ${n.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-
-/** Ingreso en el Gestor: categoría = empresa; descripción = proyecto, tipo de abono y porcentaje. */
-function financePayload(r: Row) {
+/**
+ * La cuota pagada es un abono del cliente (billing.ts): ahí vive el ingreso del Gestor.
+ * Pagada → crea o actualiza su abono y lo sincroniza. Desmarcar o borrar la cuota quita el abono (ver rutas).
+ */
+async function syncPaid(r: Row): Promise<Row> {
+  if (!r.paid) return r;
   const project = db.getProject(r.project_id)!;
-  const client = db.getClient(project.client_id);
-  const parts = [`${project.name} — ${r.label}`];
-  if (r.percent) parts.push(`${r.percent}%`);
-  if (r.currency === 'USD') parts.push(`${money(r.amount, 'USD')}${r.trm ? ` a TRM ${r.trm.toLocaleString('es-CO')}` : ''}`);
-  return {
-    amount: r.currency === 'USD' ? r.amount_cop : r.amount,
-    date: r.paid_at,
-    clientName: client?.name ?? 'Cliente',
-    description: parts.join(' · '),
-    paymentMethod: 'transfer',
-  };
-}
-
-/** Lleva el estado del pago al Gestor: pagado → crea o actualiza el ingreso; no pagado → lo borra. */
-async function sync(r: Row): Promise<Row> {
-  const set = (status: SyncStatus, error: string | null) =>
-    sqlite
-      .prepare('UPDATE payments SET sync_status = ?, sync_error = ?, synced_at = ? WHERE id = ?')
-      .run(status, error, status === 'ok' ? now() : r.synced_at, r.id);
-  try {
-    if (r.paid) await financeCall('PUT', `/integrations/billing-payment/${reference(r)}`, financePayload(r));
-    else if (r.sync_status) await financeCall('DELETE', `/integrations/billing-payment/${reference(r)}`);
-    else return r; // nunca se sincronizó: no hay nada que borrar
-    set(r.paid ? 'ok' : null, null);
-  } catch (err) {
-    if (!(err instanceof FinanceError)) throw err;
-    set('error', err.message);
-  }
+  const current = billing.receiptForPayment(r.id);
+  const saved = billing.saveReceipt(
+    {
+      clientId: project.client_id,
+      projectId: r.project_id,
+      invoiceId: r.invoice_id ?? current?.invoice_id ?? null,
+      paymentId: r.id,
+      amountCop: r.amount_cop ?? r.amount,
+      currency: r.currency,
+      amount: r.amount,
+      trm: r.trm,
+      date: r.paid_at ?? todayBogota(),
+      method: current?.method || 'Transferencia',
+      notes: current?.notes ?? '',
+    },
+    current ? { id: current.id } : { financeRef: `deersystems-pago-${r.id}` },
+  );
+  await billing.syncReceipt(saved);
   return get(r.id)!;
 }
 
-// ───────── TRM (Superintendencia Financiera, datos abiertos) ─────────
-
-const trmCache = new Map<string, number>();
-
-/** TRM vigente para una fecha (la del día hábil anterior si cae en fin de semana o festivo). */
-export async function trmFor(date: string): Promise<number | null> {
-  if (trmCache.has(date)) return trmCache.get(date)!;
-  const q = new URLSearchParams({ $where: `vigenciadesde <= '${date}T00:00:00.000'`, $order: 'vigenciadesde DESC', $limit: '1' });
-  try {
-    const r = await fetch(`https://www.datos.gov.co/resource/32sa-8pi3.json?${q}`, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return null;
-    const value = Number(((await r.json()) as { valor?: string }[])[0]?.valor);
-    if (!Number.isFinite(value) || value <= 0) return null;
-    trmCache.set(date, value);
-    return value;
-  } catch {
-    return null;
-  }
+// Antes de los abonos, el estado de sincronización vivía en la cuota: se pasa a su abono, con la misma referencia.
+for (const r of sqlite.prepare('SELECT * FROM payments WHERE paid = 1').all() as unknown as Row[]) {
+  if (billing.receiptForPayment(r.id)) continue;
+  const project = db.getProject(r.project_id);
+  if (!project) continue;
+  const saved = billing.saveReceipt(
+    {
+      clientId: project.client_id,
+      projectId: r.project_id,
+      invoiceId: null,
+      paymentId: r.id,
+      amountCop: r.amount_cop ?? r.amount,
+      currency: r.currency,
+      amount: r.amount,
+      trm: r.trm,
+      date: r.paid_at ?? r.updated_at.slice(0, 10),
+      method: 'Transferencia',
+      notes: '',
+    },
+    { financeRef: `deersystems-pago-${r.id}`, synced: r.sync_status === 'ok' },
+  );
+  if (r.sync_status === 'error') sqlite.prepare("UPDATE receipts SET sync_status = 'error', sync_error = ? WHERE id = ?").run(r.sync_error, saved.id);
 }
 
 // ───────── IA: pagos a partir de la propuesta ─────────
@@ -259,7 +222,7 @@ Usa solo los valores de la opción aprobada.`,
 
 // ───────── Rutas ─────────
 
-export async function handlePayments(route: string, id: number, req: IncomingMessage, res: ServerResponse, v: Viewer, url: URL): Promise<boolean> {
+export async function handlePayments(route: string, id: number, req: IncomingMessage, res: ServerResponse, v: Viewer): Promise<boolean> {
   switch (route) {
     case 'GET projects/:id/payments': {
       if (v.kind === 'team') throw new HttpError(403, 'No tienes acceso a los pagos.');
@@ -310,7 +273,7 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
       // Si ya estaba pagado en COP, el ingreso del Gestor sigue el nuevo monto. En USD manda el valor recibido en pesos.
       if (updated.paid) {
         if (updated.currency === 'COP') sqlite.prepare('UPDATE payments SET amount_cop = amount WHERE id = ?').run(r.id);
-        updated = await sync(get(r.id)!);
+        updated = await syncPaid(get(r.id)!);
       }
       json(res, 200, view(updated, v));
       return true;
@@ -322,6 +285,9 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
       const r = visiblePayment(id, v);
       const body = await readJson(req);
       if (body.paid === false) {
+        // Primero se quita el abono (y su ingreso del Gestor); si el Gestor falla, la cuota sigue pagada.
+        const receipt = billing.receiptForPayment(r.id);
+        if (receipt) await billing.deleteReceipt(receipt);
         sqlite.prepare('UPDATE payments SET paid = 0, paid_at = NULL, amount_cop = NULL, trm = NULL, updated_at = ? WHERE id = ?').run(now(), r.id);
       } else {
         const paidAt = optDate(body.paidAt) ?? todayBogota();
@@ -337,76 +303,27 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
           .prepare('UPDATE payments SET paid = 1, paid_at = ?, amount_cop = ?, trm = ?, updated_at = ? WHERE id = ?')
           .run(paidAt, amountCop, trm, now(), r.id);
       }
-      json(res, 200, view(await sync(get(r.id)!), v));
+      json(res, 200, view(await syncPaid(get(r.id)!), v));
       return true;
     }
 
     case 'POST payments/:id/sync': {
       requireOwner(v);
-      json(res, 200, view(await sync(visiblePayment(id, v)), v));
+      json(res, 200, view(await syncPaid(visiblePayment(id, v)), v));
       return true;
     }
 
     case 'DELETE payments/:id': {
       requireOwner(v);
       const r = visiblePayment(id, v);
-      if (r.sync_status) {
-        // Primero se quita el ingreso del Gestor; si falla, el pago se queda para no dejar un ingreso huérfano.
-        try {
-          await financeCall('DELETE', `/integrations/billing-payment/${reference(r)}`);
-        } catch (err) {
-          if (err instanceof FinanceError) throw new HttpError(502, `${err.message} El pago no se borró.`);
-          throw err;
-        }
-      }
+      // Primero se quita su abono (y el ingreso del Gestor); si falla, la cuota se queda para no dejar un ingreso huérfano.
+      const receipt = billing.receiptForPayment(r.id);
+      if (receipt) await billing.deleteReceipt(receipt);
       sqlite.prepare('DELETE FROM payments WHERE id = ?').run(r.id);
       json(res, 200, { ok: true });
       return true;
     }
 
-    case 'GET trm': {
-      requireOwner(v);
-      const date = optDate(url.searchParams.get('date')) ?? todayBogota();
-      json(res, 200, { date, trm: await trmFor(date) });
-      return true;
-    }
-
-    // ── Configuración: Gestor financiero
-    case 'GET settings/finanzas': {
-      requireOwner(v);
-      const cfg = financeConfig();
-      json(res, 200, { url: cfg.url, defaultUrl: DEFAULT_URL, hasKey: !!cfg.apiKey, keyHint: mask(cfg.apiKey) });
-      return true;
-    }
-
-    case 'PUT settings/finanzas': {
-      requireOwner(v);
-      const body = await readJson(req);
-      const current = db.getSetting<{ url?: string; apiKey?: string }>('finanzas') ?? {};
-      const urlIn = str(body.url, 300);
-      if (urlIn && !/^https?:\/\/[^\s]+$/.test(urlIn)) throw new HttpError(400, 'La URL del Gestor no es válida.');
-      const key = typeof body.apiKey === 'string' ? body.apiKey.trim() : undefined;
-      db.setSetting('finanzas', {
-        url: urlIn || current.url || DEFAULT_URL,
-        apiKey: key === undefined ? current.apiKey : key ? encrypt(key) : undefined,
-      });
-      const cfg = financeConfig();
-      json(res, 200, { url: cfg.url, defaultUrl: DEFAULT_URL, hasKey: !!cfg.apiKey, keyHint: mask(cfg.apiKey) });
-      return true;
-    }
-
-    case 'POST settings/finanzas/test': {
-      // Borrar una referencia que no existe es inofensivo e idempotente: sirve para probar URL y clave.
-      requireOwner(v);
-      try {
-        await financeCall('DELETE', '/integrations/billing-payment/deersystems-prueba-conexion');
-      } catch (err) {
-        if (err instanceof FinanceError) throw new HttpError(502, err.message);
-        throw err;
-      }
-      json(res, 200, { ok: true });
-      return true;
-    }
   }
   return false;
 }

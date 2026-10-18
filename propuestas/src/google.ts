@@ -133,20 +133,15 @@ export interface Mail {
   html: string;
   text: string;
   replyTo?: string;
+  /** Adjuntos (p. ej. el PDF de la cuenta de cobro). */
+  attachments?: { name: string; mime: string; data: Buffer }[];
 }
 
 /** Envía desde la cuenta conectada (normalmente ceo@deersystems.net). */
 export async function sendMail(mail: Mail): Promise<void> {
   const from = getSetting<Connection>('google')?.email;
   const boundary = `ds-${Date.now().toString(36)}`;
-  const raw = [
-    `From: ${header('DeerSystems')} <${from}>`,
-    `To: ${mail.to}`,
-    `Subject: ${header(mail.subject)}`,
-    ...(mail.replyTo ? [`Reply-To: ${mail.replyTo}`] : []),
-    'MIME-Version: 1.0',
-    `Content-Type: multipart/alternative; boundary="${boundary}"`,
-    '',
+  const body = [
     `--${boundary}`,
     'Content-Type: text/plain; charset=UTF-8',
     'Content-Transfer-Encoding: base64',
@@ -158,7 +153,39 @@ export async function sendMail(mail: Mail): Promise<void> {
     '',
     b64(mail.html),
     `--${boundary}--`,
-  ].join('\r\n');
+  ];
+  const head = [
+    `From: ${header('DeerSystems')} <${from}>`,
+    `To: ${mail.to}`,
+    `Subject: ${header(mail.subject)}`,
+    ...(mail.replyTo ? [`Reply-To: ${mail.replyTo}`] : []),
+    'MIME-Version: 1.0',
+  ];
+  let raw: string;
+  if (mail.attachments?.length) {
+    // multipart/mixed: el cuerpo (texto + HTML) y luego cada adjunto en base64 con líneas de 76 caracteres.
+    const mixed = `${boundary}-m`;
+    raw = [
+      ...head,
+      `Content-Type: multipart/mixed; boundary="${mixed}"`,
+      '',
+      `--${mixed}`,
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      '',
+      ...body,
+      ...mail.attachments.flatMap((a) => [
+        `--${mixed}`,
+        `Content-Type: ${a.mime}; name="${header(a.name)}"`,
+        `Content-Disposition: attachment; filename="${header(a.name)}"`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        a.data.toString('base64').replace(/.{76}/g, '$&\r\n'),
+      ]),
+      `--${mixed}--`,
+    ].join('\r\n');
+  } else {
+    raw = [...head, `Content-Type: multipart/alternative; boundary="${boundary}"`, '', ...body].join('\r\n');
+  }
 
   const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',

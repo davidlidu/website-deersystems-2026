@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api, compact, formatDateTime, navigate, useApi, useLocation, usd } from '../lib';
+import { api, compact, formatDateTime, navigate, useApi, useLocation, usd, type BillingProfile } from '../lib';
 import { ErrorBox, Loading, PageHead, useAction, useToast } from '../ui';
 
 type Provider = 'gemini' | 'openrouter';
@@ -132,7 +132,11 @@ function ModelPicker({ value, onChange, label }: { value: Target; onChange: (t: 
       {info && (
         <p className="hint mono">
           {info.name} · contexto {info.context ? compact(info.context) : '?'} tokens ·{' '}
-          {info.free ? 'gratis' : info.price ? `${usd(info.price.input)} / ${usd(info.price.output)} por 1M (entrada/salida)` : 'precio: configúralo abajo'}
+          {info.free
+            ? 'gratis'
+            : info.price
+              ? `${usd(info.price.input)} / ${usd(info.price.output)} por 1M (entrada/salida)`
+              : 'precio: configúralo abajo'}
           {!info.jsonMode && ' · ⚠ no garantiza JSON estructurado'}
         </p>
       )}
@@ -213,7 +217,9 @@ function AiTab() {
     <div className="stack">
       <section className="card form-section">
         <h2>Claves</h2>
-        <p className="hint">Se guardan cifradas. Si dejas una variable de entorno (GEMINI_API_KEY / OPENROUTER_API_KEY), se usa cuando no hay clave guardada aquí.</p>
+        <p className="hint">
+          Se guardan cifradas. Si dejas una variable de entorno (GEMINI_API_KEY / OPENROUTER_API_KEY), se usa cuando no hay clave guardada aquí.
+        </p>
         {(['gemini', 'openrouter'] as Provider[]).map((p) => (
           <div key={p} className="key-row">
             <label className="field">
@@ -292,8 +298,8 @@ function AiTab() {
       <section className="card form-section">
         <h2>Costos y presupuesto</h2>
         <p className="hint">
-          OpenRouter informa el costo real de cada llamada. Gemini no: se calcula con la tarifa por millón de tokens que pongas aquí (consúltala
-          en ai.google.dev/pricing).
+          OpenRouter informa el costo real de cada llamada. Gemini no: se calcula con la tarifa por millón de tokens que pongas aquí (consúltala en
+          ai.google.dev/pricing).
         </p>
         {priceModels.map((model) => {
           const price = form.prices[model] ?? { input: 0, output: 0 };
@@ -344,8 +350,8 @@ function AiTab() {
         <div className="md">
           <ul>
             <li>
-              <strong>Recomendado: Gemini Flash (gemini-flash-latest) con facturación activa.</strong> Google no entrena con los datos de la
-              API de pago, maneja transcripciones largas y el costo por reunión de 1 hora es de fracciones de centavo de dólar.
+              <strong>Recomendado: Gemini Flash (gemini-flash-latest) con facturación activa.</strong> Google no entrena con los datos de la API de
+              pago, maneja transcripciones largas y el costo por reunión de 1 hora es de fracciones de centavo de dólar.
             </li>
             <li>
               <strong>Gratis en OpenRouter:</strong> <code>nvidia/nemotron-3-super-120b-a12b:free</code> y <code>google/gemma-4-31b-it:free</code>{' '}
@@ -386,7 +392,14 @@ interface Usage {
     error: string | null;
   }[];
   budgetUsd: number;
-  openrouter: { error?: string; label?: string; usageUsd?: number; limitUsd?: number | null; remainingUsd?: number | null; freeTier?: boolean | null } | null;
+  openrouter: {
+    error?: string;
+    label?: string;
+    usageUsd?: number;
+    limitUsd?: number | null;
+    remainingUsd?: number | null;
+    freeTier?: boolean | null;
+  } | null;
 }
 
 function UsageTab() {
@@ -540,8 +553,8 @@ function GoogleTab() {
       <section className="card form-section">
         <h2>Cuenta de Google Workspace</h2>
         <p className="hint">
-          La plataforma usa esta cuenta para enviar los correos (Gmail), guardar adjuntos (Drive, fase 3) y leer reuniones y transcripciones
-          (Calendar y Meet, fase 4).
+          La plataforma usa esta cuenta para enviar los correos (Gmail), guardar adjuntos (Drive, fase 3) y leer reuniones y transcripciones (Calendar
+          y Meet, fase 4).
         </p>
         {g.connected ? (
           <>
@@ -560,7 +573,9 @@ function GoogleTab() {
             </p>
             {g.error && <p className="alert">{g.error}</p>}
             {!!g.missingScopes?.length && (
-              <p className="alert">Faltan permisos: {g.missingScopes.map((s) => s.split('/').pop()).join(', ')}. Vuelve a conectar y acéptalos todos.</p>
+              <p className="alert">
+                Faltan permisos: {g.missingScopes.map((s) => s.split('/').pop()).join(', ')}. Vuelve a conectar y acéptalos todos.
+              </p>
             )}
             <div className="actions">
               <button
@@ -630,8 +645,8 @@ function PickerKey() {
     <section className="card form-section">
       <h2>Agregar archivos desde tu Drive</h2>
       <p className="hint">
-        El botón «Desde mi Drive» abre el selector de Google dentro de la plataforma. Necesita una clave de API de tu proyecto de Google Cloud
-        (el mismo del login).
+        El botón «Desde mi Drive» abre el selector de Google dentro de la plataforma. Necesita una clave de API de tu proyecto de Google Cloud (el
+        mismo del login).
       </p>
       <ol className="steps">
         <li>
@@ -674,11 +689,204 @@ function PickerKey() {
   );
 }
 
+/** Lo que sale en la cuenta de cobro como emisor: datos, cuenta bancaria, QR de pago, logo y firma. */
+function IssuerProfile() {
+  const { data, error, loading, reload, setData } = useApi<BillingProfile>('billing/profile');
+  const [f, setF] = useState<BillingProfile | null>(null);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  if (loading && !data) return <Loading />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
+  const p = f ?? data!;
+  const set = (patch: Partial<BillingProfile>) => setF({ ...p, ...patch });
+  const pick = (k: 'logo' | 'signature' | 'qr') => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/png,image/jpeg,image/webp,image/gif';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (file.size > 1_500_000) return toast('La imagen pesa más de 1,5 MB.', true);
+      const reader = new FileReader();
+      reader.onload = () => set({ [k]: String(reader.result) });
+      reader.readAsDataURL(file);
+    };
+    input.click();
+  };
+  const text = (k: keyof BillingProfile, label: string, opts: { area?: boolean; hint?: string } = {}) => (
+    <label className="field" key={k}>
+      <span className="field__label">{label}</span>
+      {opts.area ? (
+        <textarea rows={3} value={String(p[k] ?? '')} onChange={(e) => set({ [k]: e.target.value })} placeholder={opts.hint} />
+      ) : (
+        <span className="input">
+          <input value={String(p[k] ?? '')} onChange={(e) => set({ [k]: e.target.value })} placeholder={opts.hint} />
+        </span>
+      )}
+    </label>
+  );
+  return (
+    <section className="card form-section">
+      <h2>Datos de la cuenta de cobro</h2>
+      <p className="hint">Lo que sale como emisor en cada cuenta de cobro y lo que ve el cliente para pagarte.</p>
+      <div className="form-grid">
+        {text('name', 'Nombre')}
+        {text('docType', 'Tipo de documento', { hint: 'CC o NIT' })}
+        {text('docNumber', 'Número de documento')}
+        {text('personType', 'Régimen', { hint: 'Persona natural · No responsable de IVA' })}
+        {text('address', 'Dirección')}
+        {text('city', 'Ciudad')}
+        {text('phone', 'Celular')}
+        {text('email', 'Correo')}
+        {text('signatureName', 'Nombre de quien firma')}
+        {text('signatureDoc', 'Documento de quien firma', { hint: 'CC 1.012.345.678' })}
+      </div>
+      {text('bankInfo', 'Forma de pago (sale en la cuenta de cobro y en el portal del cliente)', {
+        area: true,
+        hint: 'Cuenta de ahorros Bancolombia 000-000000-00 a nombre de…',
+      })}
+      {text('defaultNotes', 'Notas por defecto de cada cuenta de cobro', { area: true })}
+      <label className="field">
+        <span className="field__label">Días para pagar (fecha límite por defecto; 0 = sin fecha límite)</span>
+        <span className="input">
+          <input type="number" min={0} max={120} value={p.defaultDueDays} onChange={(e) => set({ defaultDueDays: Number(e.target.value) })} />
+        </span>
+      </label>
+      <div className="issuer-images">
+        {(
+          [
+            ['logo', 'Logo'],
+            ['signature', 'Firma'],
+            ['qr', 'QR de pago (Bre-B, Bancolombia, Nequi…)'],
+          ] as const
+        ).map(([k, label]) => (
+          <div key={k} className="issuer-image">
+            <span className="field__label">{label}</span>
+            {p[k] ? <img src={p[k]!} alt={label} /> : <span className="issuer-image__empty">Sin imagen</span>}
+            <span className="actions actions--tight">
+              <button className="btn btn--outline btn--sm" onClick={() => pick(k)}>
+                {p[k] ? 'Cambiar' : 'Subir'}
+              </button>
+              {p[k] && (
+                <button className="btn btn--outline btn--sm btn--danger" onClick={() => set({ [k]: null })}>
+                  Quitar
+                </button>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      <button
+        className="btn btn--primary btn--sm"
+        disabled={busy || !f}
+        onClick={() =>
+          run(async () => {
+            setData(await api<BillingProfile>('PUT', 'billing/profile', p));
+            setF(null);
+            toast('Datos de la cuenta de cobro guardados.');
+          })
+        }
+      >
+        Guardar
+      </button>
+    </section>
+  );
+}
+
+/** Pago en línea opcional (Wompi). Apagado por defecto: cobra comisión; se activa por cuenta de cobro. */
+function OnlinePayments() {
+  const { data, error, loading, reload, setData } = useApi<{
+    enabled: boolean;
+    env: 'sandbox' | 'production';
+    publicKey: string;
+    hasPrivateKey: boolean;
+    privateKeyHint: string | null;
+    hasEventsSecret: boolean;
+    webhookUrl: string;
+  }>('settings/online-payments');
+  const [keys, setKeys] = useState({ publicKey: '', privateKey: '', eventsSecret: '' });
+  const { busy, run } = useAction();
+  const toast = useToast();
+  if (loading && !data) return <Loading />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
+  const d = data!;
+  const save = (body: Record<string, unknown>, msg: string) =>
+    run(async () => {
+      await api('PUT', 'settings/online-payments', body);
+      setKeys({ publicKey: '', privateKey: '', eventsSecret: '' });
+      await reload();
+      toast(msg);
+    });
+  return (
+    <section className="card form-section narrow-col" style={{ marginTop: 16 }}>
+      <h2>Pago en línea (opcional)</h2>
+      <p className="hint">
+        Por defecto tus clientes pagan por transferencia o QR a tu cuenta, que no cobra comisión. Si un cliente pide pagar con PSE, Nequi, botón Bancolombia o
+        tarjeta, activas el pago en línea <strong>solo en esa cuenta de cobro</strong>: se crea un link de Wompi de un solo uso por el saldo y, cuando se aprueba,
+        el abono se registra solo (y va al Gestor). Wompi cobra ≈2,65 % + $700 + IVA por pago; confirma la tarifa vigente en wompi.com.
+      </p>
+      <label className="check">
+        <input type="checkbox" checked={d.enabled} disabled={busy} onChange={(e) => save({ enabled: e.target.checked }, e.target.checked ? 'Pago en línea disponible.' : 'Pago en línea apagado.')} />
+        Permitir activar el pago en línea en las cuentas de cobro
+      </label>
+      {d.enabled && (
+        <>
+          <div className="segmented segmented--sm">
+            {(['sandbox', 'production'] as const).map((e) => (
+              <button key={e} className={d.env === e ? 'is-active' : ''} onClick={() => setData({ ...d, env: e })}>
+                {e === 'sandbox' ? 'Pruebas (sandbox)' : 'Producción'}
+              </button>
+            ))}
+          </div>
+          <div className="form-grid">
+            <label className="field">
+              <span className="field__label">Llave pública {d.publicKey ? `· ${d.publicKey.slice(0, 12)}…` : ''}</span>
+              <span className="input">
+                <input value={keys.publicKey} onChange={(e) => setKeys({ ...keys, publicKey: e.target.value })} placeholder="pub_test_… / pub_prod_…" autoComplete="off" />
+              </span>
+            </label>
+            <label className="field">
+              <span className="field__label">Llave privada · {d.hasPrivateKey ? `guardada ${d.privateKeyHint}` : 'sin guardar'}</span>
+              <span className="input">
+                <input type="password" value={keys.privateKey} onChange={(e) => setKeys({ ...keys, privateKey: e.target.value })} placeholder="prv_test_… / prv_prod_…" autoComplete="off" />
+              </span>
+            </label>
+            <label className="field">
+              <span className="field__label">Secreto de eventos · {d.hasEventsSecret ? 'guardado' : 'sin guardar'}</span>
+              <span className="input">
+                <input type="password" value={keys.eventsSecret} onChange={(e) => setKeys({ ...keys, eventsSecret: e.target.value })} placeholder="test_events_… / prod_events_…" autoComplete="off" />
+              </span>
+            </label>
+          </div>
+          <p className="hint">
+            En el panel de Wompi → Desarrolladores, configura la URL de eventos: <code>{d.webhookUrl}</code>. Las llaves y el secreto están en Mi cuenta → Secretos para
+            integración técnica. Se guardan cifrados.
+          </p>
+          <button
+            className="btn btn--primary btn--sm"
+            disabled={busy}
+            onClick={() =>
+              save(
+                { env: d.env, ...(keys.publicKey ? { publicKey: keys.publicKey } : {}), ...(keys.privateKey ? { privateKey: keys.privateKey } : {}), ...(keys.eventsSecret ? { eventsSecret: keys.eventsSecret } : {}) },
+                'Datos de Wompi guardados.',
+              )
+            }
+          >
+            Guardar
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
 // ───────── Finanzas ─────────
 
 /** Conexión con el Gestor financiero: los pagos marcados como pagados se registran allí como ingresos. */
 function FinanceTab() {
-  const { data, error, loading, reload, setData } = useApi<{ url: string; defaultUrl: string; hasKey: boolean; keyHint: string | null }>('settings/finanzas');
+  const { data, error, loading, reload, setData } = useApi<{ url: string; defaultUrl: string; hasKey: boolean; keyHint: string | null }>(
+    'settings/finanzas',
+  );
   const [key, setKey] = useState('');
   const [url, setUrl] = useState<string | null>(null);
   const { busy, run } = useAction();
@@ -693,56 +901,71 @@ function FinanceTab() {
       toast(msg);
     });
   return (
-    <section className="card form-section narrow-col">
-      <h2>Gestor financiero</h2>
-      <p className="hint">
-        Al marcar un pago como <strong>Pagado</strong> en la pestaña Pagos de un proyecto, se registra como ingreso en tu Gestor: la categoría es la
-        empresa del cliente y la descripción lleva el proyecto, el tipo de abono y el porcentaje. Si lo desmarcas o lo borras, el ingreso se quita.
-        El Gestor lleva todo en pesos: los pagos en USD se registran con los pesos recibidos (TRM oficial del día, editable).
-      </p>
-      <label className="field">
-        <span className="field__label">URL de la API</span>
-        <span className="input">
-          <input value={url ?? data!.url} onChange={(e) => setUrl(e.target.value)} placeholder={data!.defaultUrl} spellCheck={false} />
-        </span>
-      </label>
-      {url !== null && url !== data!.url && (
-        <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => save({ url }, 'URL guardada.')}>
-          Guardar URL
-        </button>
-      )}
-      <div className="key-row">
+    <>
+      <IssuerProfile />
+      <OnlinePayments />
+      <section className="card form-section narrow-col" style={{ marginTop: 16 }}>
+        <h2>Gestor financiero</h2>
+        <p className="hint">
+          Al marcar un pago como <strong>Pagado</strong> en la pestaña Pagos de un proyecto, se registra como ingreso en tu Gestor: la categoría es la
+          empresa del cliente y la descripción lleva el proyecto, el tipo de abono y el porcentaje. Si lo desmarcas o lo borras, el ingreso se quita.
+          El Gestor lleva todo en pesos: los pagos en USD se registran con los pesos recibidos (TRM oficial del día, editable).
+        </p>
         <label className="field">
-          <span className="field__label">Clave de servicio (SERVICE_API_KEY) · {data!.hasKey ? `guardada ${data!.keyHint}` : 'sin clave'}</span>
+          <span className="field__label">URL de la API</span>
           <span className="input">
-            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="La misma SERVICE_API_KEY del Gestor" autoComplete="off" spellCheck={false} />
+            <input value={url ?? data!.url} onChange={(e) => setUrl(e.target.value)} placeholder={data!.defaultUrl} spellCheck={false} />
           </span>
         </label>
-        <button className="btn btn--outline btn--sm" disabled={busy || !key.trim()} onClick={() => save({ apiKey: key }, 'Clave guardada (cifrada).')}>
-          Guardar clave
-        </button>
-        {data!.hasKey && (
-          <button className="btn btn--outline btn--sm btn--danger" disabled={busy} onClick={() => save({ apiKey: '' }, 'Clave borrada.')}>
-            Borrar
+        {url !== null && url !== data!.url && (
+          <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => save({ url }, 'URL guardada.')}>
+            Guardar URL
           </button>
         )}
-      </div>
-      <p className="hint">Es la variable SERVICE_API_KEY del servicio del Gestor en Dokploy. Se guarda cifrada y nunca se muestra completa.</p>
-      <div>
-        <button
-          className="btn btn--primary btn--sm"
-          disabled={busy || !data!.hasKey}
-          onClick={() =>
-            run(async () => {
-              await api('POST', 'settings/finanzas/test');
-              toast('Conexión correcta con el Gestor financiero.');
-            })
-          }
-        >
-          Probar conexión
-        </button>
-      </div>
-    </section>
+        <div className="key-row">
+          <label className="field">
+            <span className="field__label">Clave de servicio (SERVICE_API_KEY) · {data!.hasKey ? `guardada ${data!.keyHint}` : 'sin clave'}</span>
+            <span className="input">
+              <input
+                type="password"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                placeholder="La misma SERVICE_API_KEY del Gestor"
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </span>
+          </label>
+          <button
+            className="btn btn--outline btn--sm"
+            disabled={busy || !key.trim()}
+            onClick={() => save({ apiKey: key }, 'Clave guardada (cifrada).')}
+          >
+            Guardar clave
+          </button>
+          {data!.hasKey && (
+            <button className="btn btn--outline btn--sm btn--danger" disabled={busy} onClick={() => save({ apiKey: '' }, 'Clave borrada.')}>
+              Borrar
+            </button>
+          )}
+        </div>
+        <p className="hint">Es la variable SERVICE_API_KEY del servicio del Gestor en Dokploy. Se guarda cifrada y nunca se muestra completa.</p>
+        <div>
+          <button
+            className="btn btn--primary btn--sm"
+            disabled={busy || !data!.hasKey}
+            onClick={() =>
+              run(async () => {
+                await api('POST', 'settings/finanzas/test');
+                toast('Conexión correcta con el Gestor financiero.');
+              })
+            }
+          >
+            Probar conexión
+          </button>
+        </div>
+      </section>
+    </>
   );
 }
 
@@ -788,8 +1011,8 @@ function NotificationsTab() {
       <section className="card form-section">
         <h2>Qué avisar y por dónde</h2>
         <p className="hint">
-          «En la plataforma» aparece en la campana del encabezado. «Por correo» llega desde tu Gmail con el diseño de DeerSystems; si pasan
-          varias cosas seguidas, se juntan en un solo correo.
+          «En la plataforma» aparece en la campana del encabezado. «Por correo» llega desde tu Gmail con el diseño de DeerSystems; si pasan varias
+          cosas seguidas, se juntan en un solo correo.
         </p>
         {groups.map(({ aud, rows }) => (
           <div key={aud} className="notify-group">
@@ -871,7 +1094,14 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHead eyebrow="Configuración" title={<>Ajustes de la <span className="grad">plataforma</span></>} />
+      <PageHead
+        eyebrow="Configuración"
+        title={
+          <>
+            Ajustes de la <span className="grad">plataforma</span>
+          </>
+        }
+      />
       <div className="tabs" role="tablist">
         {(Object.keys(TABS) as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'is-active' : ''} onClick={() => setTab(t)}>

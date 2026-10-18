@@ -33,15 +33,18 @@ import {
 import * as db from './db.ts';
 import { handleFiles } from './files.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
+import { handleBilling } from './billing.ts';
+import { handleFinance } from './finance.ts';
+import { handleImport } from './import-smartbilling.ts';
+import { handleOnlinePayments, handleWompiWebhook } from './online-payments.ts';
 import { createPayments, handlePayments } from './payments.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
-import { actor, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
+import { actor, EMAIL_RE, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { adjustPlan, detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
 const APP_DIR = fileURLToPath(new URL('../../public/partners/', import.meta.url));
 const PARTNERS_ORIGIN = new URL(PARTNERS_URL).origin;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ───────── Vistas según quién mira ─────────
 
@@ -232,8 +235,10 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
   let password: string | null = null;
   let passwordHash = '';
   const needsAccount = !client || !db.getClientAccount(client.id);
+  // Un cliente solo de facturación (sin correo) recibe aquí su acceso: el correo llega en el formulario.
+  const loginEmail = client?.email || email;
   if (needsAccount) {
-    const loginEmail = client?.email ?? email;
+    if (!EMAIL_RE.test(loginEmail)) throw new HttpError(400, 'Ese cliente no tiene correo: escríbelo para crearle el acceso al portal.');
     const other = db.getAccountByEmail(loginEmail);
     if (other || loginEmail === SUPERADMIN_EMAIL) {
       throw new HttpError(409, `El correo ${loginEmail} ya se usa en otra cuenta (equipo o administrador).`);
@@ -248,8 +253,9 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
       client ??
       db.createClient({ name: str(c.name, 160), contactName: str(c.contactName, 160), email, phone: str(c.phone, 60) });
     if (needsAccount) {
+      if (!theClient.email) db.updateClient(theClient.id, { email: loginEmail });
       db.createAccount({
-        email: theClient.email,
+        email: loginEmail,
         name: theClient.contact_name || theClient.name,
         role: 'client',
         clientId: theClient.id,
@@ -499,10 +505,25 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       requireStaff(v);
       if (!db.getClient(id)) throw new HttpError(404, 'El cliente no existe.');
       const body = await readJson(req);
+      const text = (k: string, max: number) => (typeof body[k] === 'string' ? str(body[k], max) : undefined);
+      // Datos de facturación (documento, ciudad, dirección) y correo de contacto: solo el administrador.
+      const billingFields =
+        v.kind === 'owner'
+          ? { doc_type: text('docType', 20), doc_number: text('docNumber', 40), city: text('city', 100), address: text('address', 200) }
+          : {};
+      let email: string | null | undefined;
+      if (v.kind === 'owner' && typeof body.email === 'string') {
+        email = str(body.email, 200).toLowerCase() || null;
+        if (email && !EMAIL_RE.test(email)) throw new HttpError(400, 'El correo no es válido.');
+        const other = email ? db.getClientByEmail(email) : undefined;
+        if (other && other.id !== id) throw new HttpError(409, `Ese correo ya es de ${other.name}.`);
+      }
       db.updateClient(id, {
         name: str(body.name, 160) || undefined,
-        contact_name: typeof body.contactName === 'string' ? str(body.contactName, 160) : undefined,
-        phone: typeof body.phone === 'string' ? str(body.phone, 60) : undefined,
+        contact_name: text('contactName', 160),
+        phone: text('phone', 60),
+        email,
+        ...billingFields,
       });
       const account = db.getClientAccount(id);
       if (account && typeof body.active === 'boolean') {
@@ -510,6 +531,55 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         db.updateAccount(account.id, { active: body.active });
       }
       return json(res, 200, db.getClient(id));
+    }
+
+    case 'POST clients': {
+      // Cliente solo de facturación (sin acceso al portal), p. ej. para una cuenta de cobro suelta.
+      requireOwner(v);
+      const body = await readJson(req);
+      const name = str(body.name, 160);
+      if (!name) throw new HttpError(400, 'Falta el nombre del cliente.');
+      const email = str(body.email, 200).toLowerCase() || null;
+      if (email && !EMAIL_RE.test(email)) throw new HttpError(400, 'El correo no es válido.');
+      if (email && db.getClientByEmail(email)) throw new HttpError(409, 'Ya existe un cliente con ese correo.');
+      const client = db.createClient({
+        name,
+        contactName: str(body.contactName, 160),
+        email,
+        phone: str(body.phone, 60),
+        docType: str(body.docType, 20),
+        docNumber: str(body.docNumber, 40),
+        city: str(body.city, 100),
+        address: str(body.address, 200),
+      });
+      return json(res, 201, client);
+    }
+
+    case 'POST clients/:id/access': {
+      // Dar acceso al portal a un cliente que no lo tiene (p. ej. importado de SmartBilling).
+      requireOwner(v);
+      const client = db.getClient(id);
+      if (!client) throw new HttpError(404, 'El cliente no existe.');
+      if (db.getClientAccount(id)) throw new HttpError(409, 'Ese cliente ya tiene acceso.');
+      const body = await readJson(req);
+      const email = str(body.email, 200).toLowerCase() || client.email || '';
+      if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Escribe el correo con el que va a entrar.');
+      const other = db.getClientByEmail(email);
+      if ((other && other.id !== id) || db.getAccountByEmail(email) || email === SUPERADMIN_EMAIL) {
+        throw new HttpError(409, `El correo ${email} ya se usa en otra cuenta.`);
+      }
+      const password = generatePassword();
+      const passwordHash = await hashPassword(password);
+      db.transaction(() => {
+        if (client.email !== email) db.updateClient(id, { email });
+        db.createAccount({ email, name: client.contact_name || client.name, role: 'client', clientId: id, passwordHash });
+      });
+      const project = db.listProjects(id)[0];
+      const result =
+        body.notify === false
+          ? { sent: false }
+          : await trySend(mail.welcomeClient({ to: email, name: client.contact_name || client.name, projectName: project?.name ?? null, password }));
+      return json(res, 200, { password, mail: result });
     }
 
     case 'POST clients/:id/password': {
@@ -861,7 +931,11 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   if (await handleWork(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
-  if (await handlePayments(route, id, req, res, v, url)) return;
+  if (await handlePayments(route, id, req, res, v)) return;
+  if (await handleFinance(route, id, req, res, v, url)) return;
+  if (await handleBilling(route, id, req, res, v, url)) return;
+  if (await handleImport(route, id, req, res, v)) return;
+  if (await handleOnlinePayments(route, id, req, res, v)) return;
   throw new HttpError(404, 'Ruta no encontrada.');
 }
 
@@ -879,6 +953,8 @@ const APP_HEADERS = {
 export async function handlePartners(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
   const path = url.pathname;
   if (path.startsWith('/auth/')) return handleAuth(req, res, url);
+  // Webhook de Wompi: sin sesión ni Origin; lo autentica la firma del evento.
+  if (path === '/api/webhooks/wompi' && req.method === 'POST') return handleWompiWebhook(req, res);
   if (path.startsWith('/api/')) return handleApi(req, res, url);
   if (path.startsWith('/historial/')) return handleHistory(req, res, url);
   if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Método no permitido.');

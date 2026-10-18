@@ -1,0 +1,147 @@
+# Facturación: cuentas de cobro y abonos
+
+Lo que antes vivía en SmartBilling, ahora en Partners. Está en **Facturación** (menú del administrador) y en la ficha de cada cliente.
+
+Para persona natural no responsable de IVA, el documento de cobro es la **cuenta de cobro**, no la factura electrónica.
+
+## Cuentas de cobro
+
+- **Numeración:** continúa la de SmartBilling. El siguiente número es el mayor usado + 1, contando solo los dígitos, como en SmartBilling. Se puede cambiar a mano; nunca se repite.
+- **Campos:**
+  - Cliente y, opcionalmente, proyecto.
+  - Fecha y fecha límite de pago (opcional; por defecto, la fecha + los *días para pagar* configurados).
+  - Moneda: **COP**, o **USD con la TRM del día**. La TRM es la oficial y se puede corregir. El total en COP queda guardado: así cuadran los reportes y los saldos.
+  - **Ítems:** descripción con formato (negrita, cursiva, subrayado, listas), cantidad, unidad y valor unitario.
+  - **Notas**, impresas debajo del total.
+- **Desde una cuota del plan de pagos** (pestaña *Pagos* del proyecto → *Generar cuenta de cobro*):
+  - Llega armada con el proyecto, el tipo de abono, el %, el monto, la moneda y la fecha.
+  - La cuota queda ligada a su cuenta de cobro. Al marcarla pagada, el abono se aplica a esa cuenta de cobro.
+- **El documento** sigue el formato de SmartBilling:
+  - Logo y número.
+  - Datos del cliente y del emisor.
+  - Ítems y total (más TRM y equivalente en COP si es en USD).
+  - Notas y **forma de pago** (datos bancarios y QR).
+  - Firma y pie con los datos del emisor.
+  - Siempre en blanco. En celular se reduce para caber; el PDF siempre sale en A4 completo.
+- **Acciones:**
+  - **Descargar PDF**: se genera en el navegador, como en SmartBilling.
+  - **Enviar al cliente**: correo con la marca y el PDF adjunto, enviado desde Gmail.
+  - **Registrar abono**, **Editar**.
+  - **Anular**: deja de contar en el saldo y el número queda usado.
+  - **Borrar**: solo si no tiene abonos aplicados.
+- **Estado:** *Pagada* cuando los abonos aplicados a ella la cubren, *Abono parcial* o *Anulada*. Las importadas de SmartBilling no traen esa relación: allá los pagos eran del cliente, no de cada cuenta de cobro. Por eso su saldo se ve en la ficha del cliente.
+
+## Abonos
+
+Un abono es lo que entró. Va **ligado al cliente** (como en SmartBilling) y, si quieres, a un proyecto y a una cuenta de cobro.
+
+- **Campos:** fecha, monto, moneda, medio (transferencia, QR, Nequi, PSE, efectivo…) y notas.
+- **En USD:** la TRM del día y los pesos recibidos, que se pueden corregir.
+- **Gestor financiero:** cada abono es un ingreso (`PUT /integrations/billing-payment/{referencia}`), con la categoría = cliente y la descripción = proyecto, tipo de abono o cuenta de cobro.
+  - Editar el abono actualiza el ingreso; borrarlo lo quita. Si el Gestor no responde, el abono queda con *⚠ Reintentar*.
+- **Las cuotas del plan de pagos** también son abonos: se crean al marcarlas pagadas y se editan desde la pestaña *Pagos* del proyecto.
+- **Referencias en el Gestor:**
+
+  | Origen | Referencia |
+  |---|---|
+  | Cuota del plan | `deersystems-pago-{id}` (la de siempre) |
+  | Abono manual | `deersystems-abono-{uuid}` |
+  | Pago en línea | `deersystems-wompi-{transacción}` |
+  | Importado de SmartBilling | El UUID que ya tenía allá |
+
+## Estado de cuenta
+
+- **En la ficha del cliente** (administrador): facturado, abonado, saldo (o saldo a favor), sus cuentas de cobro y sus abonos, con botones para crear una cuenta de cobro o registrar un abono.
+- **Datos de facturación** en la misma ficha: razón social, NIT/CC/CE, ciudad, dirección, teléfono y correo.
+- **El cliente**, en su inicio, ve *Mi estado de cuenta*:
+  - Lo facturado, lo pagado y su saldo.
+  - Sus cuentas de cobro, que puede ver y descargar.
+  - **Cómo pagar**: datos bancarios y QR.
+- **En la pestaña *Pagos* de cada proyecto,** el cliente también ve las cuentas de cobro de ese proyecto.
+
+## Clientes solo de facturación
+
+Hay clientes que no entran al portal, como los importados de SmartBilling, que no traían correo. Existen igual, con sus cuentas de cobro y abonos.
+
+- Se crean desde la cuenta de cobro: *+ Cliente nuevo (solo facturación)*.
+- **Dar acceso al portal**, en su ficha: les crea la cuenta y les envía la contraseña.
+- **Al aprobar una propuesta** para uno de ellos, se pide el correo de acceso.
+
+## Reportes
+
+Son las mismas cifras de SmartBilling: cuentas de cobro (total en COP, sin anuladas) y abonos.
+
+- **Filtros:** año y cliente.
+- **Indicadores:** facturado total, total pagado, saldo pendiente y clientes.
+- **Facturado y pagado por mes**, con tooltip y tabla mensual de cuentas, facturado, pagado y pendiente.
+- **Mejores clientes**, histórico.
+- **Exportar CSV** por período: hoy, semana, mes, 3 o 6 meses, año o personalizado.
+
+> SmartBilling ubicaba en el mes anterior lo fechado el día 1: leía las fechas como UTC y en Colombia se corrían un día. Aquí se usa la fecha tal cual. Los totales y los saldos son iguales; solo puede cambiar en qué mes aparece algo fechado el 1.
+
+## Datos del emisor
+
+En *Configuración → Finanzas → Datos de la cuenta de cobro*:
+
+- Nombre, documento, régimen, dirección, ciudad, celular y correo.
+- **Forma de pago** (texto) y **QR de pago**: Bre-B, Bancolombia, Nequi…
+- Logo, firma y nombre/documento de quien firma.
+- Notas por defecto y días para pagar.
+
+Las imágenes se guardan en la base (máx. 1,5 MB cada una).
+
+## Pago en línea (opcional, apagado por defecto)
+
+Todas las pasarelas cobran comisión, también por PSE. La transferencia o el QR a tu cuenta (con Bre-B, el QR interbancario) no cobran nada. Por eso **lo normal es la transferencia**, y el pago en línea se activa **solo en la cuenta de cobro de un cliente que lo pida**.
+
+- **Proveedor: Wompi.** Según comparativas de 2026, es la tarifa más baja: ≈2,65 % + $700 + IVA. Acepta PSE, Nequi, botón Bancolombia y tarjetas. Confirma la tarifa vigente en su sitio.
+- **Configuración** (*Configuración → Finanzas → Pago en línea*):
+  - Encender la opción.
+  - Ambiente: pruebas o producción.
+  - Llave pública, llave privada y secreto de eventos (cifrados).
+  - La **URL de eventos**, que se configura en el panel de Wompi: `https://partners.deersystems.net/api/webhooks/wompi`.
+- **En la cuenta de cobro:** *Activar pago en línea* crea un **link de pago de un solo uso por el saldo**, en COP. El cliente lo ve como **Pagar en línea**, en el portal y en el correo.
+- **Cuando Wompi aprueba el pago:**
+  - El webhook llega firmado (SHA-256 con el secreto de eventos) y se rechaza si la firma no coincide.
+  - Se crea el abono aplicado a esa cuenta de cobro (medio «Wompi · PSE», por ejemplo) y se envía al Gestor.
+  - El link se cierra y te llega el aviso *Llega un pago en línea*.
+  - Si el evento se repite, no se duplica nada.
+- El abono se registra por el **valor bruto** que pagó el cliente. La comisión de Wompi es un gasto aparte en tu Gestor.
+
+## Migración desde SmartBilling
+
+En **Facturación → Importar de SmartBilling**:
+
+1. **Leer los datos:** URL de su API (`https://api.facturador.lidutech.net/api`) y, si ya la protegiste, la clave `EXPORT_API_KEY`. También se puede subir un JSON con `{ clients, invoices (con lineItems), payments, profile }`.
+2. **Revisar:**
+   - Totales y posibles problemas, como números que chocan o pagos de clientes que no vinieron.
+   - Para cada cliente de SmartBilling, si es uno que **ya existe aquí** o uno **nuevo**. Se sugiere solo: por NIT/CC, por nombre normalizado (sin tildes ni S.A.S./LTDA) o *nombre parecido: revisa*.
+   - Si usas su perfil de remitente.
+3. **Importar** (idempotente: repetirla no duplica):
+   - Los clientes nuevos quedan solo para facturación.
+   - Las cuentas de cobro se traen con su total en COP original y sus ítems con formato (saneados).
+   - Los pagos se traen como abonos, con su referencia, categoría y descripción del Gestor: «Abono factura - Cliente». No se reenvían, porque ya están allá.
+4. **Cuadre:** por cliente, lo facturado, pagado y el saldo en SmartBilling contra Partners. **Debe dar ✓ en todos.**
+5. **Terminar el cambio:**
+   - Quitar `GESTOR_API_URL` y `GESTOR_SERVICE_KEY` del backend de SmartBilling.
+   - Dejarlo en solo lectura uno o dos meses.
+   - Apagarlo, con un respaldo de su base.
+
+### Seguridad de SmartBilling (mientras siga encendido)
+
+Su API respondía sin sesión. [`smartbilling-seguridad.patch`](./smartbilling-seguridad.patch) lo corrige:
+
+- **Backend:** exige el token en todas las rutas salvo el login.
+- **Login:** deja de devolver el hash de la contraseña.
+- **Frontend:** envía el token en cada petición y conserva la sesión al recargar.
+- **Exportación:** acepta `EXPORT_API_KEY` solo para lecturas, para la importación.
+
+Para aplicarlo:
+
+```bash
+cd SmartBilling-App && git apply ../smartbilling-seguridad.patch
+```
+
+En Dokploy, define `JWT_SECRET` (si no, usa uno por defecto inseguro) y, para importar, `EXPORT_API_KEY`. Quítala al terminar.
+
+**Orden sugerido:** importar primero, aprovechando que la API aún responde, y luego aplicar el parche. O aplicar el parche ya y usar `EXPORT_API_KEY` en la importación.
