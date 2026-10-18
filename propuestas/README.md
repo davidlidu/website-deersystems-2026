@@ -26,6 +26,8 @@ Un servidor Node atiende dos subdominios desde un solo contenedor y los distingu
 
 ## Roles
 
+Menú del administrador: **Clientes** (y Reuniones) · **Propuestas** · **Facturación** · **Configuración** (y Equipo).
+
 | Rol | Entra con | Ve |
 |---|---|---|
 | Administrador (`SUPERADMIN_EMAIL`) | Google | Todo |

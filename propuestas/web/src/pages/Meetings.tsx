@@ -14,6 +14,7 @@ import {
   type TeamMember,
 } from '../lib';
 import { Empty, ErrorBox, Link, Loading, Markdown, PageHead, useAction, useToast } from '../ui';
+import { ClientsTabs } from './Home';
 import { ScheduleMeeting } from './project/Schedule';
 
 interface SyncState {
@@ -75,7 +76,8 @@ export function MeetingsPage() {
 
   return (
     <>
-      <PageHead eyebrow="Reuniones" title={<>Reuniones con <span className="grad">clientes</span></>}>
+      <ClientsTabs active="reuniones" />
+      <PageHead eyebrow="Clientes · Reuniones" title={<>Reuniones con <span className="grad">clientes</span></>}>
         <p>
           Agenda aquí las reuniones de cada proyecto en marcha: se crean en tu Google Calendar con Meet y quedan asignadas al proyecto. Al
           terminar, se busca la transcripción y la IA prepara el resumen y las tareas. Tú lo revisas y lo envías.

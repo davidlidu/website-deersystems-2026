@@ -16,6 +16,7 @@ import {
   type ProjectSummary,
 } from '../../lib';
 import { ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../../ui';
+import { Choice } from './Choice';
 import { RichText } from './RichText';
 
 interface ClientOption {
@@ -35,8 +36,8 @@ interface Item {
 
 const key = () => Math.random().toString(36).slice(2);
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const emptyItem = (): Item => ({ key: key(), description: '', quantity: '1', unit: 'Servicio', unitPrice: '' });
-const UNITS = ['Servicio', 'Hora', 'Mes', 'Unidad', 'Proyecto', 'Licencia'];
+const emptyItem = (): Item => ({ key: key(), description: '', quantity: '1', unit: 'UND', unitPrice: '' });
+const UNITS = ['UND', 'Servicio', 'Hora', 'Mes', 'Proyecto', 'Licencia'];
 
 /** Cliente nuevo solo de facturación (sin acceso al portal), desde el mismo formulario. */
 function QuickClient({ onCreated, onCancel }: { onCreated: (c: ClientOption) => void; onCancel: () => void }) {
@@ -202,6 +203,7 @@ export function InvoiceFormPage({ id }: { id?: number }) {
         )}
       </PageHead>
 
+      <div className="page-stack">
       <section className="card form-section">
         <h2>Cliente</h2>
         <div className="form-grid">
@@ -322,9 +324,7 @@ export function InvoiceFormPage({ id }: { id?: number }) {
               <span className="input">
                 <input inputMode="decimal" value={it.quantity} onChange={(e) => setItem(it.key, { quantity: e.target.value })} aria-label="Cantidad" />
               </span>
-              <span className="input">
-                <input list="cc-units" value={it.unit} onChange={(e) => setItem(it.key, { unit: e.target.value })} aria-label="Unidad" />
-              </span>
+              <Choice label="Unidad" value={it.unit} options={UNITS} onChange={(unit) => setItem(it.key, { unit })} />
               <span className="input">
                 <input inputMode="decimal" value={it.unitPrice} onChange={(e) => setItem(it.key, { unitPrice: e.target.value })} aria-label="Valor unitario" />
               </span>
@@ -334,11 +334,6 @@ export function InvoiceFormPage({ id }: { id?: number }) {
               </button>
             </div>
           ))}
-          <datalist id="cc-units">
-            {UNITS.map((u) => (
-              <option key={u} value={u} />
-            ))}
-          </datalist>
         </div>
         <button className="btn btn--outline btn--sm" onClick={() => setItems((l) => [...l, emptyItem()])}>
           + Ítem
@@ -376,6 +371,7 @@ export function InvoiceFormPage({ id }: { id?: number }) {
           </Link>
         </div>
       </section>
+      </div>
     </>
   );
 }

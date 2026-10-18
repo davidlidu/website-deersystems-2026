@@ -29,7 +29,7 @@ Los permisos se aplican **en el servidor** (`partners/common.ts`, `requireOwner`
 
 - **Al aprobar una propuesta** se crea la cuenta del cliente con una contraseña aleatoria, que se le envía por Gmail en el correo de bienvenida. Si Google no está conectado, la contraseña se muestra una sola vez en pantalla para compartirla a mano.
 - **Si el cliente ya existe**, el proyecto se suma a su cuenta y recibe el aviso de «nuevo proyecto», sin contraseña nueva.
-- **Al equipo lo invitas** desde *Equipo*. Recibe su contraseña por correo y puedes desactivarlo o generarle una nueva.
+- **Al equipo lo invitas** desde *Configuración → Equipo*. Recibe su contraseña por correo y puedes desactivarlo o generarle una nueva.
 - **Recuperar contraseña:** *¿Olvidaste tu contraseña?* envía un enlace válido por **1 hora**, de un solo uso.
 - **Las contraseñas** tienen mínimo 10 caracteres y se guardan con **scrypt** y sal. Al cambiarla, se cierran las otras sesiones de esa persona.
 

@@ -5,7 +5,8 @@ import { Empty, ErrorBox, Loading, PageHead, SecretBox, useAction, useToast } fr
 type Secret = { who: string; password: string; mailed: boolean; error?: string };
 type MailResult = { sent: boolean; error?: string };
 
-export function TeamPage() {
+/** `embedded`: dentro de Configuración (sin encabezado de página propio). */
+export function TeamPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { data, error, loading, reload } = useApi<TeamMember[]>('team');
   const [secret, setSecret] = useState<Secret | null>(null);
   const { busy, run } = useAction();
@@ -48,12 +49,19 @@ export function TeamPage() {
 
   return (
     <>
-      <PageHead eyebrow="Equipo" title={<>Tu <span className="grad">equipo</span></>}>
-        <p>
-          Entran con correo y contraseña. Ven clientes, proyectos, tareas y notas internas, pero <strong>nunca precios</strong> ni la
-          propuesta original.
+      {embedded ? (
+        <p className="hint">
+          Entran con correo y contraseña. Ven clientes, proyectos, tareas y notas internas, pero <strong>nunca precios</strong>, la propuesta
+          original ni la facturación.
         </p>
-      </PageHead>
+      ) : (
+        <PageHead eyebrow="Equipo" title={<>Tu <span className="grad">equipo</span></>}>
+          <p>
+            Entran con correo y contraseña. Ven clientes, proyectos, tareas y notas internas, pero <strong>nunca precios</strong> ni la
+            propuesta original.
+          </p>
+        </PageHead>
+      )}
 
       <form className="card form-section" onSubmit={add}>
         <h2>Agregar persona</h2>

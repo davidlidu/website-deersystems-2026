@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, docDate, formatDateTime, formatMoney, navigate, useApi, type InvoiceDetail, type Me } from '../../lib';
 import { ErrorBox, Link, Loading, useAction, useToast } from '../../ui';
+import { InvoiceStatus } from './InvoiceStatus';
 import { InvoiceDocument } from './InvoiceDocument';
 import { downloadPdf, pdfBase64, pdfName } from './pdf';
 import { ReceiptForm } from './ReceiptForm';
@@ -116,7 +117,7 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
 
       <div className="cc-toolbar">
         <div className="cc-toolbar__state">
-          {voided ? <span className="pill pill--bloqueada">Anulada</span> : inv.paid ? <span className="pill pill--completada">Pagada</span> : null}
+          <InvoiceStatus i={inv} />
           {owner && inv.sentAt && <span className="hint">Enviada el {formatDateTime(inv.sentAt)}</span>}
           {owner && inv.imported && <span className="hint">Importada de SmartBilling</span>}
           {inv.projectName && (

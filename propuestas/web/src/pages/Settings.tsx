@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, compact, formatDateTime, navigate, useApi, useLocation, usd, type BillingProfile } from '../lib';
 import { ErrorBox, Loading, PageHead, useAction, useToast } from '../ui';
+import { TeamPage } from './Team';
 
 type Provider = 'gemini' | 'openrouter';
 interface Target {
@@ -1114,7 +1115,7 @@ function NotificationsTab() {
   );
 }
 
-const TABS = { ia: 'Inteligencia artificial', consumo: 'Consumo de IA', avisos: 'Avisos', google: 'Google y correo', finanzas: 'Finanzas' } as const;
+const TABS = { equipo: 'Equipo', ia: 'Inteligencia artificial', consumo: 'Consumo de IA', avisos: 'Avisos', google: 'Google y correo', finanzas: 'Finanzas' } as const;
 type Tab = keyof typeof TABS;
 
 const GOOGLE_MESSAGES: Record<string, [string, boolean]> = {
@@ -1161,6 +1162,7 @@ export function SettingsPage() {
       {tab === 'avisos' && <NotificationsTab />}
       {tab === 'google' && <GoogleTab />}
       {tab === 'finanzas' && <FinanceTab />}
+      {tab === 'equipo' && <TeamPage embedded />}
     </>
   );
 }

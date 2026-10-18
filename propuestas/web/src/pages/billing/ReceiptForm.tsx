@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, formatMoney, today, useApi, type Currency, type InvoiceSummary, type Receipt } from '../../lib';
 import { useAction, useToast } from '../../ui';
+import { Choice } from './Choice';
 
 const METHODS = ['Transferencia', 'QR', 'Nequi', 'Daviplata', 'PSE', 'Efectivo', 'Consignación'];
 
@@ -136,14 +137,7 @@ export function ReceiptForm({
         )}
         <label className="field">
           <span className="field__label">Medio de pago</span>
-          <span className="input">
-            <input list="receipt-methods" value={f.method} onChange={(e) => set({ method: e.target.value })} />
-            <datalist id="receipt-methods">
-              {METHODS.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </span>
+          <Choice label="Medio de pago" value={f.method} options={METHODS} onChange={(method) => set({ method })} />
         </label>
         <label className="field">
           <span className="field__label">Aplicar a cuenta de cobro</span>

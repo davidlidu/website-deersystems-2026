@@ -21,7 +21,7 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
   - Logo y número.
   - Datos del cliente y del emisor.
   - Ítems y total (más TRM y equivalente en COP si es en USD).
-  - Notas y **forma de pago** (datos bancarios y QR).
+  - Notas y **forma de pago**: datos bancarios y, debajo, el texto legal en letra pequeña, con el QR grande a la derecha para que se lea desde el celular.
   - Firma y pie con los datos del emisor.
   - Siempre en blanco. En celular se reduce para caber; el PDF siempre sale en A4 completo.
 - **Acciones:**
@@ -30,7 +30,7 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
   - **Registrar abono**, **Editar**.
   - **Anular**: deja de contar en el saldo y el número queda usado.
   - **Borrar**: solo si no tiene abonos aplicados.
-- **Estado:** *Pagada* cuando los abonos aplicados a ella la cubren, *Abono parcial* o *Anulada*. Las importadas de SmartBilling no traen esa relación: allá los pagos eran del cliente, no de cada cuenta de cobro. Por eso su saldo se ve en la ficha del cliente.
+- **Estado:** *Pendiente*, *Abono parcial*, *Pagada* (cuando los abonos aplicados a ella la cubren) o *Anulada*. Las importadas de SmartBilling no traen esa relación: allá los pagos eran del cliente, no de cada cuenta de cobro. Por eso su saldo se ve en la ficha del cliente.
 
 ## Abonos
 

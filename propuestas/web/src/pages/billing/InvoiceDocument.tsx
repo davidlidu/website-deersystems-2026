@@ -108,17 +108,16 @@ export const InvoiceDocument = forwardRef<HTMLDivElement, { invoice: InvoiceDeta
 
       {invoice.notes && <p className="cc-doc__notes">{invoice.notes}</p>}
 
-      {(profile.bankInfo || profile.qr) && (
+      {(profile.bankInfo || profile.qr || profile.legalNote) && (
         <section className="cc-doc__pay">
-          <div>
-            <h3>Forma de pago</h3>
+          <div className="cc-doc__pay-text">
+            {(profile.bankInfo || profile.qr) && <h3>Forma de pago</h3>}
             {profile.bankInfo && <p className="cc-doc__notes">{profile.bankInfo}</p>}
+            {profile.legalNote && <p className="cc-doc__legal">{profile.legalNote}</p>}
           </div>
           {profile.qr && <img src={profile.qr} alt="Código QR para pagar" className="cc-doc__qr" />}
         </section>
       )}
-
-      {profile.legalNote && <p className="cc-doc__legal">{profile.legalNote}</p>}
 
       <section className="cc-doc__sign">
         {profile.signature ? <img src={profile.signature} alt="Firma" className="cc-doc__signature" /> : <div className="cc-doc__line" />}

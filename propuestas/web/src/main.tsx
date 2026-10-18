@@ -1,21 +1,29 @@
-import { StrictMode, useEffect, useState } from 'react';
+import { lazy, StrictMode, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Bell } from './Bell';
 import { Tour, tourPostponed } from './Tour';
 import { api, match, navigate, useLocation, type Me } from './lib';
-import { AccountPage } from './pages/Account';
-import { ApprovePage } from './pages/Approve';
-import { BillingPage } from './pages/billing/Billing';
-import { InvoiceFormPage } from './pages/billing/InvoiceForm';
-import { InvoiceViewPage } from './pages/billing/InvoiceView';
-import { ClientPage } from './pages/Client';
 import { HomePage } from './pages/Home';
 import { ForgotPage, LoginPage, ResetPage } from './pages/Login';
-import { ProjectPage } from './pages/Project';
-import { MeetingReviewPage, MeetingsPage } from './pages/Meetings';
-import { ProposalsPage } from './pages/Proposals';
-import { SettingsPage } from './pages/Settings';
-import { TeamPage } from './pages/Team';
+
+// Carga diferida: cada pantalla se descarga solo cuando se abre (la app inicial pesa mucho menos).
+const AccountPage = lazy(() => import('./pages/Account').then((m) => ({ default: m.AccountPage })));
+const ApprovePage = lazy(() => import('./pages/Approve').then((m) => ({ default: m.ApprovePage })));
+const BillingPage = lazy(() => import('./pages/billing/Billing').then((m) => ({ default: m.BillingPage })));
+const InvoiceFormPage = lazy(() => import('./pages/billing/InvoiceForm').then((m) => ({ default: m.InvoiceFormPage })));
+const InvoiceViewPage = lazy(() => import('./pages/billing/InvoiceView').then((m) => ({ default: m.InvoiceViewPage })));
+const ClientPage = lazy(() => import('./pages/Client').then((m) => ({ default: m.ClientPage })));
+const ProjectPage = lazy(() => import('./pages/Project').then((m) => ({ default: m.ProjectPage })));
+const MeetingsPage = lazy(() => import('./pages/Meetings').then((m) => ({ default: m.MeetingsPage })));
+const MeetingReviewPage = lazy(() => import('./pages/Meetings').then((m) => ({ default: m.MeetingReviewPage })));
+const ProposalsPage = lazy(() => import('./pages/Proposals').then((m) => ({ default: m.ProposalsPage })));
+const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })));
+
+/** /equipo ahora vive en Configuración. */
+function GoTo({ to }: { to: string }) {
+  useEffect(() => navigate(to, true), [to]);
+  return null;
+}
 import { ErrorBox, Link, Loading, ToastProvider } from './ui';
 import './styles.css';
 
@@ -42,8 +50,6 @@ function Nav({ me, path }: { me: Me; path: string }) {
             ? ([
                 ['/propuestas', 'Propuestas'],
                 ['/facturacion', 'Facturación'],
-                ['/reuniones', 'Reuniones'],
-                ['/equipo', 'Equipo'],
                 ['/configuracion', 'Configuración'],
               ] as [string, string][])
             : []),
@@ -51,7 +57,13 @@ function Nav({ me, path }: { me: Me; path: string }) {
   return (
     <nav className="nav" aria-label="Principal">
       {items.map(([to, label]) => {
-        const active = to === '/' ? path === '/' || path.startsWith('/clientes') || path.startsWith('/proyectos') : path.startsWith(to);
+        // Clientes agrupa también las reuniones; Facturación, las cuentas de cobro.
+        const active =
+          to === '/'
+            ? path === '/' || path.startsWith('/clientes') || path.startsWith('/proyectos') || path.startsWith('/reuniones')
+            : to === '/facturacion'
+              ? path.startsWith('/facturacion') || path.startsWith('/cuentas-de-cobro')
+              : path.startsWith(to);
         return (
           <Link key={to} to={to} data-tour={`nav-${to}`} className={`nav__link${active ? ' is-active' : ''}`} aria-current={active ? 'page' : undefined}>
             {label}
@@ -117,7 +129,7 @@ function Routes({ me, path }: { me: Me; path: string }) {
     if (path === '/facturacion') return <BillingPage />;
     if (path === '/facturacion/nueva') return <InvoiceFormPage />;
     if ((m = match('/cuentas-de-cobro/:id/editar', path))) return <InvoiceFormPage id={Number(m.id)} />;
-    if (path === '/equipo') return <TeamPage />;
+    if (path === '/equipo') return <GoTo to="/configuracion?tab=equipo" />;
     if (path === '/configuracion') return <SettingsPage />;
   }
   return (
@@ -178,7 +190,9 @@ function App() {
         setTour(true);
       }}
     >
-      <Routes me={me} path={path} />
+      <Suspense fallback={<Loading />}>
+        <Routes me={me} path={path} />
+      </Suspense>
       {tour && (
         <Tour
           me={me}

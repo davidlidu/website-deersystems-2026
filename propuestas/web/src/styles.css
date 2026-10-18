@@ -4470,9 +4470,17 @@ textarea:focus {
 }
 
 .cc-doc__qr {
-  width: 120px;
-  height: 120px;
+  flex-shrink: 0;
+  width: 190px;
+  height: 190px;
   object-fit: contain;
+}
+
+.cc-doc__pay-text {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
 }
 
 .cc-doc__sign {
@@ -4781,7 +4789,7 @@ textarea:focus {
 
 /* Texto legal de la cuenta de cobro (art. 616-2 del ET…): letra pequeña. */
 .cc-doc__legal {
-  margin: 10px 0 0 !important;
+  margin: 4px 0 0 !important;
   font-size: 9.5px;
   line-height: 1.45;
   white-space: pre-line;
@@ -4799,4 +4807,57 @@ textarea:focus {
   padding-top: 4px;
   padding-bottom: 4px;
   font-size: 0.82rem;
+}
+
+/* Subpestañas de una sección del menú (Clientes → Clientes y proyectos · Reuniones) */
+.subtabs {
+  margin: 0 0 8px;
+}
+
+.subtabs a {
+  padding: 10px 14px;
+  border-bottom: 2px solid transparent;
+  color: var(--mute);
+  font: 500 0.88rem var(--font-body);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.subtabs a:hover {
+  color: var(--ink);
+}
+
+.subtabs a.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--verde);
+}
+
+/* Selector con "Otro…" (medio de pago, unidad): muestra siempre todas las opciones */
+.choice {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.choice > .input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Secciones de los formularios de facturación: separadas, no pegadas */
+.page-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.cc-row__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.cc-row__state small {
+  display: inline;
+  color: var(--mute);
 }

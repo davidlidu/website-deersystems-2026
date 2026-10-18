@@ -11,7 +11,7 @@ programada ─(termina)→ esperando ─(hay transcripción)→ borrador ─(apr
 
 ## 1. Agendar desde la plataforma
 
-Se agenda en **Reuniones** o en la pestaña *Reuniones* del proyecto:
+Se agenda en **Clientes → Reuniones** o en la pestaña *Reuniones* del proyecto:
 
 - Eliges el proyecto en marcha, la fecha y hora, la duración y la agenda.
 - Eliges a quién invitar: el cliente, tu equipo y otros correos.

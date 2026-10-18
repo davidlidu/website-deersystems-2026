@@ -1,7 +1,8 @@
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname } from 'node:path';
+import zlib, { brotliCompressSync, gzipSync } from 'node:zlib';
 
 export const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -37,9 +38,39 @@ export class HttpError extends Error {
   }
 }
 
+// ───────── Compresión ─────────
+// Los archivos de la app (JS, CSS, HTML) se comprimen una vez y quedan en memoria; el JSON grande, al vuelo.
+
+const COMPRESSIBLE = /^(text\/|application\/(javascript|json|xml|manifest\+json)|image\/svg\+xml)/;
+
+/** br si el navegador lo acepta, si no gzip; null = sin compresión. */
+function pickEncoding(req: IncomingMessage | undefined): 'br' | 'gzip' | null {
+  const accept = String(req?.headers['accept-encoding'] ?? '');
+  if (/\bbr\b/.test(accept)) return 'br';
+  if (/\bgzip\b/.test(accept)) return 'gzip';
+  return null;
+}
+
+function compress(data: Buffer, encoding: 'br' | 'gzip', fast: boolean): Buffer {
+  return encoding === 'br'
+    ? brotliCompressSync(data, { params: { [zlib.constants.BROTLI_PARAM_QUALITY]: fast ? 4 : 11, [zlib.constants.BROTLI_PARAM_SIZE_HINT]: data.length } })
+    : gzipSync(data, { level: fast ? 6 : 9 });
+}
+
+const compressedCache = new Map<string, Buffer>();
+
 export function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(body));
+  const raw = Buffer.from(JSON.stringify(body));
+  const encoding = raw.length > 1024 ? pickEncoding(res.req) : null;
+  const data = encoding ? compress(raw, encoding, true) : raw;
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    Vary: 'Accept-Encoding',
+    'Content-Length': data.length,
+    ...(encoding ? { 'Content-Encoding': encoding } : {}),
+  });
+  res.end(data);
 }
 
 export function redirect(res: ServerResponse, location: string): void {
@@ -96,6 +127,21 @@ export async function sendFile(
   if (status === 200 && req.headers['if-none-match'] === etag) {
     res.writeHead(304, base);
     res.end();
+    return true;
+  }
+
+  // Texto comprimible y sin pedido de rango: se envía comprimido (y se recuerda, porque los archivos de la app no cambian).
+  const encoding = COMPRESSIBLE.test(base['Content-Type']) && !req.headers.range && info.size > 1024 && info.size < 8 * 1024 * 1024 ? pickEncoding(req) : null;
+  if (encoding) {
+    const key = `${path}|${etag}|${encoding}`;
+    let data = compressedCache.get(key);
+    if (!data) {
+      data = compress(await readFile(path), encoding, false);
+      if (compressedCache.size > 200) compressedCache.clear();
+      compressedCache.set(key, data);
+    }
+    res.writeHead(status, { ...base, 'Content-Encoding': encoding, Vary: 'Accept-Encoding', 'Content-Length': data.length });
+    res.end(req.method === 'HEAD' ? undefined : data);
     return true;
   }
 

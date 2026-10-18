@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, docDate, formatDateTime, formatMoney, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
+import { InvoiceStatus } from './billing/InvoiceStatus';
 import { ReceiptForm } from './billing/ReceiptForm';
 import { ProjectCard } from './Home';
 
@@ -146,7 +147,9 @@ function ClientStatement({ clientId }: { clientId: number }) {
                   </span>
                   <span className="mono">{docDate(i.date)}</span>
                   <span className="mono">{formatMoney(i.totalCop)}</span>
-                  <span>{i.status === 'anulada' ? <span className="pill pill--bloqueada">Anulada</span> : i.paid ? <span className="pill pill--completada">Pagada</span> : null}</span>
+                  <span>
+                    <InvoiceStatus i={i} />
+                  </span>
                 </Link>
               ))}
             </div>

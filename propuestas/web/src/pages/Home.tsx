@@ -1,6 +1,21 @@
 import { useMemo, useState } from 'react';
 import { docDate, formatDate, formatDateTime, formatMoney, PROJECT_STATUS, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, ProgressBar } from '../ui';
+import { InvoiceStatus } from './billing/InvoiceStatus';
+
+/** Clientes agrupa dos vistas para el administrador: clientes y proyectos, y reuniones. */
+export function ClientsTabs({ active }: { active: 'clientes' | 'reuniones' }) {
+  return (
+    <div className="tabs subtabs" role="tablist" data-tour="clients-tabs">
+      <Link to="/" role="tab" aria-selected={active === 'clientes'} className={active === 'clientes' ? 'is-active' : ''}>
+        Clientes y proyectos
+      </Link>
+      <Link to="/reuniones" role="tab" aria-selected={active === 'reuniones'} className={active === 'reuniones' ? 'is-active' : ''}>
+        Reuniones
+      </Link>
+    </div>
+  );
+}
 
 export function ProjectCard({ p, showClient }: { p: ProjectSummary; showClient?: boolean }) {
   return (
@@ -62,7 +77,9 @@ function MyAccount({ clientId }: { clientId: number }) {
               </span>
               <span className="mono">{docDate(i.date)}</span>
               <span className="mono">{formatMoney(i.currency === 'USD' ? i.total : i.totalCop, i.currency)}</span>
-              <span>{i.paid ? <span className="pill pill--completada">Pagada</span> : <span className="hint">Ver y descargar</span>}</span>
+              <span>
+                <InvoiceStatus i={i} />
+              </span>
             </Link>
           ))}
         </div>
@@ -142,6 +159,7 @@ function StaffHome({ me }: { me: Me }) {
 
   return (
     <>
+      {me.role === 'owner' && <ClientsTabs active="clientes" />}
       <PageHead eyebrow="Clientes" title={<>Proyectos <span className="grad">en marcha</span></>}>
         <p>
           {me.role === 'owner' ? (

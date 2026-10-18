@@ -85,6 +85,16 @@ Arrancan con el servidor (`startScheduler`, `startShareFixer`, `pruneNotificatio
 | Resumen de avisos por correo | Al juntarse avisos | Agrupa varios avisos de unos minutos en un solo correo. Antes de apagarse (`SIGTERM`) envía los pendientes |
 | Limpieza de avisos | Al arrancar | Borra avisos viejos |
 
+## Menú
+
+Administrador: **Clientes** (con las subpestañas *Clientes y proyectos* y *Reuniones*) · **Propuestas** · **Facturación** · **Configuración** (con *Equipo*). Equipo: Clientes. Cliente: Mis proyectos.
+
+## Velocidad
+
+- **Compresión:** el servidor envía JS, CSS y HTML con Brotli (o gzip), comprimidos una vez y guardados en memoria, y el JSON de más de 1 KB comprimido al vuelo. La app inicial pasó de 477 KB a ~65 KB.
+- **Carga diferida:** cada pantalla (proyecto, facturación, reuniones, configuración, aprobación…) se descarga solo al abrirla. El PDF (jsPDF + html2canvas) solo al descargar o enviar una cuenta de cobro.
+- **Caché:** los archivos de la app llevan su huella en el nombre y se guardan un año (`immutable`); el HTML y la API, nunca.
+
 ## Decisiones de diseño
 
 - **Sin build en el servidor ni dependencias pesadas.** Node ejecuta el TypeScript directamente y SQLite viene incluido en Node. La imagen es pequeña y respaldar es copiar `/data`.

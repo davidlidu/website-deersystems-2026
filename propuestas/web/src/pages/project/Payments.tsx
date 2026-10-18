@@ -18,6 +18,7 @@ import {
   type Statement,
 } from '../../lib';
 import { Empty, ErrorBox, Link, Loading, useAction, useToast } from '../../ui';
+import { InvoiceStatus } from '../billing/InvoiceStatus';
 
 interface PaymentsResponse {
   payments: Payment[];
@@ -520,7 +521,7 @@ function ProjectInvoices({ me, projectId, clientId }: { me: Me; projectId: numbe
                   {i.currency === 'USD' && <small>{formatMoney(i.totalCop)}</small>}
                 </span>
                 <span>
-                  {i.status === 'anulada' ? <span className="pill pill--bloqueada">Anulada</span> : i.paid ? <span className="pill pill--completada">Pagada</span> : <span className="hint">Ver y descargar</span>}
+                  <InvoiceStatus i={i} />
                 </span>
               </Link>
             ))}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { api, docDate, formatMoney, navigate, useApi, useLocation, type InvoiceSummary, type Receipt } from '../../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../../ui';
+import { InvoiceStatus } from './InvoiceStatus';
 import { ImportTab } from './Import';
 import { ReceiptForm } from './ReceiptForm';
 import { ReportsTab } from './Reports';
@@ -62,16 +63,9 @@ function InvoicesTab() {
                 {formatMoney(i.totalCop)}
                 {i.currency === 'USD' && <small>{formatMoney(i.total, 'USD')}</small>}
               </span>
-              <span>
-                {i.status === 'anulada' ? (
-                  <span className="pill pill--bloqueada">Anulada</span>
-                ) : i.paid ? (
-                  <span className="pill pill--completada">Pagada</span>
-                ) : i.applied > 0 ? (
-                  <span className="pill pill--en_progreso">Abono parcial</span>
-                ) : i.sentAt ? (
-                  <span className="hint">Enviada</span>
-                ) : null}
+              <span className="cc-row__state">
+                <InvoiceStatus i={i} />
+                {i.sentAt && i.status !== 'anulada' && <small>Enviada</small>}
               </span>
             </Link>
           ))}
