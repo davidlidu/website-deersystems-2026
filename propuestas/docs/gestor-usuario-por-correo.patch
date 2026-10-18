@@ -1,0 +1,89 @@
+diff --git a/server/index.js b/server/index.js
+index ed27d9e..0abeed6 100644
+--- a/server/index.js
++++ b/server/index.js
+@@ -193,20 +193,32 @@ const authenticateService = (req, res, next) => {
+ };
+ 
+ // Resuelve el id del usuario del Gestor que recibe los ingresos de facturación.
+-// Configurable por email (BILLING_INCOME_USER_EMAIL) o por id (BILLING_INCOME_USER_ID).
++// 1. El header x-user-email, si la integración lo envía (DeerSystems Partners: el correo con el que entras al Gestor).
++// 2. Si no, BILLING_INCOME_USER_ID o BILLING_INCOME_USER_EMAIL (como hasta ahora; lo usa SmartBilling).
++// Devuelve { userId } o { error, status } para responder con un mensaje claro.
+ let cachedBillingUserId = null;
+-const resolveBillingUserId = async () => {
+-  if (cachedBillingUserId) return cachedBillingUserId;
++const billingUserByEmail = new Map();
++const resolveBillingUserId = async (req) => {
++  const requested = String((req && req.headers['x-user-email']) || '').trim().toLowerCase();
++  if (requested) {
++    if (billingUserByEmail.has(requested)) return { userId: billingUserByEmail.get(requested) };
++    const r = await pool.query('SELECT id FROM users WHERE lower(email) = $1', [requested]);
++    if (r.rows.length === 0) return { status: 404, error: `No existe un usuario con el correo ${requested} en el Gestor.` };
++    billingUserByEmail.set(requested, r.rows[0].id);
++    return { userId: r.rows[0].id };
++  }
++  if (cachedBillingUserId) return { userId: cachedBillingUserId };
+   if (process.env.BILLING_INCOME_USER_ID) {
+     cachedBillingUserId = parseInt(process.env.BILLING_INCOME_USER_ID, 10);
+-    return cachedBillingUserId;
++    return { userId: cachedBillingUserId };
+   }
+   const email = process.env.BILLING_INCOME_USER_EMAIL;
+-  if (!email) return null;
++  const missing = { status: 503, error: 'Usuario de facturación no configurado (envía x-user-email o define BILLING_INCOME_USER_EMAIL / BILLING_INCOME_USER_ID).' };
++  if (!email) return missing;
+   const result = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+-  if (result.rows.length === 0) return null;
++  if (result.rows.length === 0) return missing;
+   cachedBillingUserId = result.rows[0].id;
+-  return cachedBillingUserId;
++  return { userId: cachedBillingUserId };
+ };
+ 
+ // Garantiza que exista una categoría de ingreso con el nombre del cliente.
+@@ -558,10 +570,11 @@ app.post('/api/integrations/billing-payment', authenticateService, async (req, r
+       return res.status(400).json({ error: 'date es requerido en formato YYYY-MM-DD.' });
+     }
+ 
+-    const userId = await resolveBillingUserId();
+-    if (!userId) {
+-      return res.status(503).json({ error: 'Usuario de facturación no configurado (BILLING_INCOME_USER_EMAIL / BILLING_INCOME_USER_ID).' });
++    const billingUser = await resolveBillingUserId(req);
++    if (!billingUser.userId) {
++      return res.status(billingUser.status).json({ error: billingUser.error });
+     }
++    const userId = billingUser.userId;
+ 
+     // Descripción legible
+     const parts = ['Abono factura'];
+@@ -611,10 +624,11 @@ app.put('/api/integrations/billing-payment/:reference', authenticateService, asy
+       return res.status(400).json({ error: 'date es requerido en formato YYYY-MM-DD.' });
+     }
+ 
+-    const userId = await resolveBillingUserId();
+-    if (!userId) {
+-      return res.status(503).json({ error: 'Usuario de facturación no configurado.' });
++    const billingUser = await resolveBillingUserId(req);
++    if (!billingUser.userId) {
++      return res.status(billingUser.status).json({ error: billingUser.error });
+     }
++    const userId = billingUser.userId;
+ 
+     const parts = ['Abono factura'];
+     if (invoiceNumber) parts.push(`#${invoiceNumber}`);
+@@ -653,10 +667,11 @@ app.put('/api/integrations/billing-payment/:reference', authenticateService, asy
+ app.delete('/api/integrations/billing-payment/:reference', authenticateService, async (req, res) => {
+   try {
+     const { reference } = req.params;
+-    const userId = await resolveBillingUserId();
+-    if (!userId) {
+-      return res.status(503).json({ error: 'Usuario de facturación no configurado.' });
++    const billingUser = await resolveBillingUserId(req);
++    if (!billingUser.userId) {
++      return res.status(billingUser.status).json({ error: billingUser.error });
+     }
++    const userId = billingUser.userId;
+     await pool.query(
+       'DELETE FROM transactions WHERE user_id = $1 AND external_ref = $2',
+       [userId, reference]

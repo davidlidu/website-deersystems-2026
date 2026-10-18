@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, json, readJson } from '../http.ts';
 import { decrypt, encrypt, mask } from '../secrets.ts';
 import type { Viewer } from './auth.ts';
-import { optDate, requireOwner, str } from './common.ts';
+import { EMAIL_RE, optDate, requireOwner, str } from './common.ts';
 import * as db from './db.ts';
 
 /**
@@ -14,9 +14,10 @@ export const DEFAULT_FINANCE_URL = 'https://api.finanzas.lidutech.net/api';
 
 export const todayBogota = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 
-function financeConfig(): { url: string; apiKey: string | null } {
-  const s = db.getSetting<{ url?: string; apiKey?: string }>('finanzas');
-  return { url: (s?.url || DEFAULT_FINANCE_URL).replace(/\/+$/, ''), apiKey: decrypt(s?.apiKey) };
+/** `userEmail`: el correo con el que entras al Gestor (puede ser distinto al de Partners). Va en el header x-user-email. */
+function financeConfig(): { url: string; apiKey: string | null; userEmail: string } {
+  const s = db.getSetting<{ url?: string; apiKey?: string; userEmail?: string }>('finanzas');
+  return { url: (s?.url || DEFAULT_FINANCE_URL).replace(/\/+$/, ''), apiKey: decrypt(s?.apiKey), userEmail: s?.userEmail ?? '' };
 }
 
 export function financeConfigured(): boolean {
@@ -32,7 +33,11 @@ export async function financeCall(method: 'PUT' | 'DELETE', path: string, body?:
   try {
     r = await fetch(`${cfg.url}${path}`, {
       method,
-      headers: { 'x-api-key': cfg.apiKey, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: {
+        'x-api-key': cfg.apiKey,
+        ...(cfg.userEmail ? { 'x-user-email': cfg.userEmail } : {}),
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(15_000),
     });
@@ -85,7 +90,7 @@ export async function trmFor(date: string): Promise<number | null> {
 
 const publicConfig = () => {
   const cfg = financeConfig();
-  return { url: cfg.url, defaultUrl: DEFAULT_FINANCE_URL, hasKey: !!cfg.apiKey, keyHint: mask(cfg.apiKey) };
+  return { url: cfg.url, defaultUrl: DEFAULT_FINANCE_URL, hasKey: !!cfg.apiKey, keyHint: mask(cfg.apiKey), userEmail: cfg.userEmail };
 };
 
 export async function handleFinance(route: string, _id: number, req: IncomingMessage, res: ServerResponse, v: Viewer, url: URL): Promise<boolean> {
@@ -105,13 +110,19 @@ export async function handleFinance(route: string, _id: number, req: IncomingMes
     case 'PUT settings/finanzas': {
       requireOwner(v);
       const body = await readJson(req);
-      const current = db.getSetting<{ url?: string; apiKey?: string }>('finanzas') ?? {};
+      const current = db.getSetting<{ url?: string; apiKey?: string; userEmail?: string }>('finanzas') ?? {};
+      let userEmail = current.userEmail ?? '';
+      if (typeof body.userEmail === 'string') {
+        userEmail = str(body.userEmail, 200).toLowerCase();
+        if (userEmail && !EMAIL_RE.test(userEmail)) throw new HttpError(400, 'El correo del Gestor no es válido.');
+      }
       const urlIn = str(body.url, 300);
       if (urlIn && !/^https?:\/\/[^\s]+$/.test(urlIn)) throw new HttpError(400, 'La URL del Gestor no es válida.');
       const key = typeof body.apiKey === 'string' ? body.apiKey.trim() : undefined;
       db.setSetting('finanzas', {
         url: urlIn || current.url || DEFAULT_FINANCE_URL,
         apiKey: key === undefined ? current.apiKey : key ? encrypt(key) : undefined,
+        userEmail,
       });
       json(res, 200, publicConfig());
       return true;

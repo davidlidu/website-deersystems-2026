@@ -55,6 +55,7 @@ En *Configuración → Finanzas*:
 
 - **URL de la API:** por defecto `https://api.finanzas.lidutech.net/api`. `finanzas.lidutech.net` solo sirve la página web; la API vive en `api.`.
 - **Clave de servicio:** la variable `SERVICE_API_KEY` del servicio del Gestor en Dokploy. Se guarda cifrada.
+- **Correo de tu usuario en el Gestor:** los ingresos quedan en ese usuario (puede ser distinto al correo de Partners). Va en el header `x-user-email` y requiere el parche [`gestor-usuario-por-correo.patch`](./gestor-usuario-por-correo.patch) en el Gestor; sin el parche, el Gestor lo ignora y usa su variable `BILLING_INCOME_USER_EMAIL`. Si el correo no existe en el Gestor, el estado muestra *Sin conectar* con el motivo.
 - **Estado:** al abrir la pantalla se comprueba la conexión y se muestra *● Conectado* u *○ Sin conectar* con el motivo.
 - **Probar conexión:** borra una referencia que no existe (`deersystems-prueba-conexion`). Es inofensivo y confirma la URL y la clave.
 

@@ -888,21 +888,23 @@ function OnlinePayments() {
 
 /** Conexión con el Gestor financiero: los pagos marcados como pagados se registran allí como ingresos. */
 function FinanceTab() {
-  const { data, error, loading, reload, setData } = useApi<{ url: string; defaultUrl: string; hasKey: boolean; keyHint: string | null }>(
+  const { data, error, loading, reload, setData } = useApi<{ url: string; defaultUrl: string; hasKey: boolean; keyHint: string | null; userEmail: string }>(
     'settings/finanzas',
   );
   const [key, setKey] = useState('');
   const [url, setUrl] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const status = useApi<{ connected: boolean; error?: string }>('settings/finanzas/status');
   const { busy, run } = useAction();
   const toast = useToast();
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
-  const save = (body: { url?: string; apiKey?: string }, msg: string) =>
+  const save = (body: { url?: string; apiKey?: string; userEmail?: string }, msg: string) =>
     run(async () => {
       setData(await api('PUT', 'settings/finanzas', body));
       setKey('');
       setUrl(null);
+      setUserEmail(null);
       toast(msg);
       await status.reload();
     });
@@ -940,6 +942,29 @@ function FinanceTab() {
             Guardar URL
           </button>
         )}
+        <div className="key-row">
+          <label className="field">
+            <span className="field__label">Correo de tu usuario en el Gestor</span>
+            <span className="input">
+              <input
+                type="email"
+                value={userEmail ?? data!.userEmail}
+                onChange={(e) => setUserEmail(e.target.value)}
+                placeholder="El correo con el que entras a finanzas.lidutech.net"
+                autoComplete="off"
+              />
+            </span>
+          </label>
+          {userEmail !== null && userEmail !== data!.userEmail && (
+            <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => save({ userEmail }, userEmail ? 'Correo del Gestor guardado.' : 'Correo del Gestor quitado.')}>
+              Guardar correo
+            </button>
+          )}
+        </div>
+        <p className="hint">
+          Los ingresos quedan en ese usuario del Gestor. Puede ser distinto al correo de Partners. Si lo dejas vacío, el Gestor usa su variable
+          BILLING_INCOME_USER_EMAIL.
+        </p>
         <div className="key-row">
           <label className="field">
             <span className="field__label">Clave de servicio (SERVICE_API_KEY) · {data!.hasKey ? `guardada ${data!.keyHint}` : 'sin clave'}</span>
