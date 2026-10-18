@@ -15,7 +15,7 @@ import {
 } from '../lib';
 import { Empty, ErrorBox, Link, Loading, Markdown, PageHead, useAction, useToast } from '../ui';
 import { ClientsTabs } from './Home';
-import { ScheduleMeeting } from './project/Schedule';
+import { EditMeeting, ScheduleMeeting } from './project/Schedule';
 
 interface SyncState {
   lastRun: string | null;
@@ -252,6 +252,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
   const [extra, setExtra] = useState('');
   const [paste, setPaste] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
+  const [editingMeeting, setEditingMeeting] = useState(false);
   const [result, setResult] = useState<{ tasks: number; mail: { sent: string[]; failed: string[]; error: string | null } } | null>(null);
 
   // Al llegar (o regenerarse) el borrador, se copia al formulario editable.
@@ -384,7 +385,26 @@ export function MeetingReviewPage({ id }: { id: number }) {
         </div>
       )}
 
-      {m.status === 'programada' && <Empty>La reunión aún no ocurre. Cuando termine, se buscará la transcripción de Meet automáticamente.</Empty>}
+      {m.status === 'programada' &&
+        (editingMeeting ? (
+          <EditMeeting
+            meeting={m}
+            onCancel={() => setEditingMeeting(false)}
+            onDone={(updated) => {
+              setEditingMeeting(false);
+              setData({ ...updated, transcript: m.transcript });
+            }}
+          />
+        ) : (
+          <>
+            <Empty>La reunión aún no ocurre. Cuando termine, se buscará la transcripción de Meet automáticamente.</Empty>
+            <div className="actions actions--tight">
+              <button className="btn btn--outline btn--sm" onClick={() => setEditingMeeting(true)}>
+                Editar fecha, hora o invitados
+              </button>
+            </div>
+          </>
+        ))}
 
       {m.status === 'aprobada' && (
         <section className="section section--flush">

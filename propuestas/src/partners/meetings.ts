@@ -616,6 +616,68 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       return true;
     }
 
+    // Cambiar fecha, hora, duración, título o invitados. Con `notify`, Google avisa a los invitados del cambio.
+    case 'POST meetings/:id/update': {
+      requireOwner(v);
+      const m = visible(id, v);
+      if (m.status !== 'programada') throw new HttpError(409, 'Solo se pueden editar reuniones que aún no ocurren.');
+      const body = await readJson(req);
+      const date = optDate(body.date) ?? null;
+      const time = typeof body.time === 'string' && /^\d{2}:\d{2}$/.test(body.time) ? body.time : null;
+      if (!date || !time) throw new HttpError(400, 'Elige la fecha y la hora.');
+      const minutes = Math.min(480, Math.max(15, Number(body.durationMinutes) || 45));
+      // Colombia no cambia de horario: -05:00 todo el año.
+      const start = new Date(`${date}T${time}:00-05:00`);
+      if (start.getTime() < Date.now() - 5 * 60_000) throw new HttpError(400, 'La fecha ya pasó.');
+      const end = new Date(start.getTime() + minutes * 60_000);
+      const title = str(body.title, 200) || m.title;
+      const emails = new Set(
+        (Array.isArray(body.attendees) ? body.attendees : [])
+          .map((e) => str(e, 200).trim().toLowerCase())
+          .filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)),
+      );
+      emails.delete(SUPERADMIN_EMAIL); // tú eres el organizador
+      if (!emails.size) throw new HttpError(400, 'Deja al menos a una persona invitada.');
+      const notifyGuests = body.notify !== false;
+
+      let event: google.CalendarEvent | null = null;
+      if (m.event_id) {
+        if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para editar reuniones.');
+        try {
+          event = await google.updateCalendarEvent(
+            m.event_id,
+            { summary: title, startIso: start.toISOString(), endIso: end.toISOString(), attendees: [...emails] },
+            notifyGuests,
+          );
+        } catch (err) {
+          throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+        }
+      }
+      const staff = staffEmails();
+      const clients = clientByEmail();
+      const before = new Map(parse<Attendee[]>(m.attendees, []).map((a) => [a.email, a]));
+      update(m.id, {
+        title,
+        start_at: start.toISOString(),
+        end_at: end.toISOString(),
+        ...(event?.htmlLink ? { calendar_url: event.htmlLink } : {}),
+        attendees: JSON.stringify(
+          [...emails].map((email) => ({
+            email,
+            name: before.get(email)?.name ?? '',
+            side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro',
+          })),
+        ),
+      });
+      if (m.project_id) {
+        const a = actor(v);
+        const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+        db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: 'meeting_updated', data: { title, when } });
+      }
+      json(res, 200, view(get(m.id)!, v));
+      return true;
+    }
+
     case 'POST meetings/:id/cancel': {
       requireOwner(v);
       const m = visible(id, v);

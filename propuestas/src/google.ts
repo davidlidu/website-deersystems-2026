@@ -369,6 +369,44 @@ export async function createCalendarEvent(e: {
   return data;
 }
 
+/**
+ * Cambia título, horario o invitados del evento. Con `notify`, Google avisa del cambio a los invitados
+ * (y envía la invitación a los nuevos); sin él, el evento cambia en silencio.
+ */
+export async function updateCalendarEvent(
+  eventId: string,
+  e: { summary: string; startIso: string; endIso: string; attendees: string[] },
+  notify: boolean,
+): Promise<CalendarEvent> {
+  const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
+  const headers = { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' };
+  // La lista de invitados se reemplaza entera: se conservan los que siguen (con su respuesta) y el organizador.
+  const current = (await (await fetch(url, { headers })).json().catch(() => ({}))) as CalendarEvent;
+  const keep = new Map((current.attendees ?? []).filter((a) => a.email).map((a) => [a.email!.toLowerCase(), a]));
+  const wanted = new Set(e.attendees.map((x) => x.toLowerCase()));
+  const attendees = [
+    ...[...keep.values()].filter((a) => a.organizer || a.self),
+    ...[...wanted].filter((email) => !keep.get(email)?.organizer && !keep.get(email)?.self).map((email) => keep.get(email) ?? { email }),
+  ];
+  const params = new URLSearchParams({ sendUpdates: notify ? 'all' : 'none' });
+  const r = await fetch(`${url}?${params}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({
+      summary: e.summary,
+      start: { dateTime: e.startIso, timeZone: 'America/Bogota' },
+      end: { dateTime: e.endIso, timeZone: 'America/Bogota' },
+      attendees,
+    }),
+  });
+  const data = (await r.json().catch(() => ({}))) as CalendarEvent & { error?: { message?: string } };
+  if (!r.ok) {
+    const hint = r.status === 403 ? ' Vuelve a conectar Google en Configuración para dar el permiso de editar eventos.' : '';
+    throw new GoogleError(`Calendar ${r.status}: ${data.error?.message ?? 'no se pudo actualizar la reunión'}.${hint}`);
+  }
+  return data;
+}
+
 /** Cancela el evento y avisa a los invitados. */
 export async function cancelCalendarEvent(eventId: string): Promise<void> {
   const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`, {

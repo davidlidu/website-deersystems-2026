@@ -164,3 +164,132 @@ export function ScheduleMeeting({ projectId, projectName, onDone }: { projectId?
     </div>
   );
 }
+
+/** Fecha (YYYY-MM-DD) y hora (HH:MM) de Colombia a partir de un ISO. */
+function bogota(iso: string) {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  const time = d.toLocaleTimeString('en-GB', { timeZone: 'America/Bogota', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return { date, time };
+}
+
+const SIDE_TAG = { cliente: 'Cliente', deersystems: 'Equipo', otro: 'Invitado' } as const;
+
+/** Editar una reunión agendada: fecha, hora, duración, título e invitados, avisando o no a los invitados. */
+export function EditMeeting({ meeting, onDone, onCancel }: { meeting: Meeting; onDone: (m: Meeting) => void; onCancel: () => void }) {
+  const contacts = useApi<Contacts>(meeting.projectId ? `projects/${meeting.projectId}/contacts` : null);
+  const { date, time } = bogota(meeting.startAt);
+  const duration = Math.max(15, Math.round((new Date(meeting.endAt).getTime() - new Date(meeting.startAt).getTime()) / 60_000) || 45);
+  const [invited, setInvited] = useState<Set<string>>(new Set(meeting.attendees.map((a) => a.email.toLowerCase())));
+  const [extra, setExtra] = useState('');
+  const { busy, run } = useAction();
+  const toast = useToast();
+
+  // Todos los que se pueden marcar: los invitados actuales, el cliente y el equipo.
+  const people = new Map<string, { email: string; label: string; tag: string }>();
+  for (const a of meeting.attendees) people.set(a.email.toLowerCase(), { email: a.email.toLowerCase(), label: a.name || a.email, tag: SIDE_TAG[a.side] });
+  const c = contacts.data;
+  if (c?.client.email && !people.has(c.client.email.toLowerCase())) {
+    people.set(c.client.email.toLowerCase(), { email: c.client.email.toLowerCase(), label: c.client.name, tag: 'Cliente' });
+  }
+  for (const m of c?.team ?? []) {
+    if (!people.has(m.email.toLowerCase())) people.set(m.email.toLowerCase(), { email: m.email.toLowerCase(), label: m.name, tag: 'Equipo' });
+  }
+  const options = [15, 30, 45, 60, 90, 120].includes(duration) ? [15, 30, 45, 60, 90, 120] : [15, 30, 45, 60, 90, 120, duration].sort((a, b) => a - b);
+
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const added = extra.split(/[,;\s]+/).filter((x) => x.includes('@'));
+    const notify = fd.get('notify') === 'on';
+    run(async () => {
+      const m = await api<Meeting>('POST', `meetings/${meeting.id}/update`, {
+        title: fd.get('title'),
+        date: fd.get('date'),
+        time: fd.get('time'),
+        durationMinutes: Number(fd.get('duration')),
+        attendees: [...invited, ...added],
+        notify,
+      });
+      toast(notify ? 'Reunión actualizada. Google avisó a los invitados.' : 'Reunión actualizada sin avisar a los invitados.');
+      onDone(m);
+    });
+  };
+
+  return (
+    <form className="card form-section stack" onSubmit={submit}>
+      <h2>Editar reunión</h2>
+      <div className="form-grid">
+        <label className="field field--wide">
+          <span className="field__label">Título</span>
+          <span className="input">
+            <input name="title" required maxLength={200} defaultValue={meeting.title} />
+          </span>
+        </label>
+        <label className="field">
+          <span className="field__label">Fecha</span>
+          <span className="input">
+            <input name="date" type="date" required min={today()} defaultValue={date} />
+          </span>
+        </label>
+        <div className="form-grid form-grid--tight">
+          <label className="field">
+            <span className="field__label">Hora (Colombia)</span>
+            <span className="input">
+              <input name="time" type="time" required step={900} defaultValue={time} />
+            </span>
+          </label>
+          <label className="field">
+            <span className="field__label">Duración</span>
+            <span className="input">
+              <select name="duration" defaultValue={String(duration)}>
+                {options.map((m) => (
+                  <option key={m} value={m}>
+                    {m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`}
+                  </option>
+                ))}
+              </select>
+            </span>
+          </label>
+        </div>
+      </div>
+      <fieldset className="invitees">
+        <legend className="field__label">Invitados</legend>
+        {[...people.values()].map((p) => (
+          <label key={p.email} className="check">
+            <input
+              type="checkbox"
+              checked={invited.has(p.email)}
+              onChange={(e) => {
+                const next = new Set(invited);
+                if (e.target.checked) next.add(p.email);
+                else next.delete(p.email);
+                setInvited(next);
+              }}
+            />{' '}
+            {p.label !== p.email ? `${p.label} · ${p.email}` : p.email} <span className="tag">{p.tag}</span>
+          </label>
+        ))}
+        <label className="field">
+          <span className="field__label">Invitar a más personas (correos separados por coma)</span>
+          <span className="input">
+            <input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="socio@empresa.com, contador@empresa.com" />
+          </span>
+        </label>
+      </fieldset>
+      <label className="check">
+        <input type="checkbox" name="notify" defaultChecked /> Avisar del cambio a los invitados (Google envía el correo y la invitación a los
+        nuevos)
+      </label>
+      <p className="hint">Si no avisas, el cambio queda en Calendar sin enviar correos: los invitados nuevos no recibirán la invitación con el enlace.</p>
+      <div className="actions actions--tight">
+        <button className="btn btn--primary" disabled={busy}>
+          {busy ? 'Guardando…' : 'Guardar cambios'}
+        </button>
+        <button type="button" className="btn btn--outline" disabled={busy} onClick={onCancel}>
+          Cancelar
+        </button>
+      </div>
+    </form>
+  );
+}
