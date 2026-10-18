@@ -118,6 +118,8 @@ export const InvoiceDocument = forwardRef<HTMLDivElement, { invoice: InvoiceDeta
         </section>
       )}
 
+      {profile.legalNote && <p className="cc-doc__legal">{profile.legalNote}</p>}
+
       <section className="cc-doc__sign">
         {profile.signature ? <img src={profile.signature} alt="Firma" className="cc-doc__signature" /> : <div className="cc-doc__line" />}
         <p className="cc-doc__strong">{profile.signatureName || profile.name}</p>

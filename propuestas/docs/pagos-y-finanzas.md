@@ -55,6 +55,7 @@ En *Configuración → Finanzas*:
 
 - **URL de la API:** por defecto `https://api.finanzas.lidutech.net/api`. `finanzas.lidutech.net` solo sirve la página web; la API vive en `api.`.
 - **Clave de servicio:** la variable `SERVICE_API_KEY` del servicio del Gestor en Dokploy. Se guarda cifrada.
+- **Estado:** al abrir la pantalla se comprueba la conexión y se muestra *● Conectado* u *○ Sin conectar* con el motivo.
 - **Probar conexión:** borra una referencia que no existe (`deersystems-prueba-conexion`). Es inofensivo y confirma la URL y la clave.
 
 ## Límites del Gestor a tener en cuenta

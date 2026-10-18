@@ -117,6 +117,23 @@ export async function handleFinance(route: string, _id: number, req: IncomingMes
       return true;
     }
 
+    case 'GET settings/finanzas/status': {
+      // Estado para la pantalla: prueba la conexión con una operación inofensiva.
+      requireOwner(v);
+      if (!financeConfigured()) {
+        json(res, 200, { connected: false, error: 'Falta la clave de servicio.' });
+        return true;
+      }
+      try {
+        await deleteIncome('deersystems-prueba-conexion');
+        json(res, 200, { connected: true });
+      } catch (err) {
+        if (!(err instanceof FinanceError)) throw err;
+        json(res, 200, { connected: false, error: err.message });
+      }
+      return true;
+    }
+
     case 'POST settings/finanzas/test': {
       // Borrar una referencia que no existe es inofensivo e idempotente: sirve para probar URL y clave.
       requireOwner(v);

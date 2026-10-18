@@ -553,6 +553,8 @@ export interface BillingProfile {
   phone: string;
   email: string;
   bankInfo: string;
+  /** Texto legal en letra pequeña (p. ej. art. 616-2 del ET, no responsable de IVA). */
+  legalNote: string;
   signatureName: string;
   signatureDoc: string;
   defaultNotes: string;
@@ -572,6 +574,7 @@ const EMPTY_PROFILE: BillingProfile = {
   phone: '',
   email: '',
   bankInfo: '',
+  legalNote: '',
   signatureName: '',
   signatureDoc: '',
   defaultNotes: '',
@@ -580,6 +583,15 @@ const EMPTY_PROFILE: BillingProfile = {
   signature: null,
   qr: null,
 };
+
+// Antes el texto legal iba dentro de la forma de pago: se separa por la primera línea en blanco (una sola vez).
+{
+  const saved = db.getSetting<Partial<BillingProfile>>('billing_profile');
+  if (saved && saved.legalNote === undefined && saved.bankInfo) {
+    const [pay, ...rest] = saved.bankInfo.split(/\n\s*\n/);
+    db.setSetting('billing_profile', { ...saved, bankInfo: pay.trim(), legalNote: rest.join('\n\n').trim() });
+  }
+}
 
 export const billingProfile = (): BillingProfile => ({ ...EMPTY_PROFILE, ...(db.getSetting<Partial<BillingProfile>>('billing_profile') ?? {}) });
 
@@ -605,6 +617,7 @@ export function saveBillingProfile(body: Record<string, unknown>): BillingProfil
     phone: text('phone', 60),
     email: text('email'),
     bankInfo: text('bankInfo', 2000),
+    legalNote: text('legalNote', 3000),
     signatureName: text('signatureName'),
     signatureDoc: text('signatureDoc', 60),
     defaultNotes: text('defaultNotes', 5000),

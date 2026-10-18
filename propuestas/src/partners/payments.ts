@@ -151,7 +151,8 @@ async function syncPaid(r: Row): Promise<Row> {
     {
       clientId: project.client_id,
       projectId: r.project_id,
-      invoiceId: r.invoice_id ?? current?.invoice_id ?? null,
+      // La cuota manda: si la asocias a otra cuenta de cobro (o a ninguna), su abono la sigue.
+      invoiceId: r.invoice_id ?? null,
       paymentId: r.id,
       amountCop: r.amount_cop ?? r.amount,
       currency: r.currency,
@@ -266,9 +267,20 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
         dueDate: body.dueDate === undefined ? r.due_date : body.dueDate,
       });
       if (!next) throw new HttpError(400, 'El pago necesita un concepto y un monto mayor a cero.');
+      // Asociar la cuota a una cuenta de cobro ya hecha (p. ej. una por el total, pagada en cuotas), o quitarla.
+      let invoiceId = r.invoice_id;
+      if (body.invoiceId !== undefined) {
+        invoiceId = Number(body.invoiceId) || null;
+        if (invoiceId) {
+          const inv = billing.getInvoice(invoiceId);
+          const clientId = db.getProject(r.project_id)?.client_id;
+          if (!inv || inv.client_id !== clientId) throw new HttpError(400, 'La cuenta de cobro no es de este cliente.');
+          if (inv.status === 'anulada') throw new HttpError(400, 'Esa cuenta de cobro está anulada.');
+        }
+      }
       sqlite
-        .prepare('UPDATE payments SET label = ?, percent = ?, amount = ?, currency = ?, due_date = ?, updated_at = ? WHERE id = ?')
-        .run(next.label, next.percent, next.amount, next.currency, next.dueDate, now(), r.id);
+        .prepare('UPDATE payments SET label = ?, percent = ?, amount = ?, currency = ?, due_date = ?, invoice_id = ?, updated_at = ? WHERE id = ?')
+        .run(next.label, next.percent, next.amount, next.currency, next.dueDate, invoiceId, now(), r.id);
       let updated = get(r.id)!;
       // Si ya estaba pagado en COP, el ingreso del Gestor sigue el nuevo monto. En USD manda el valor recibido en pesos.
       if (updated.paid) {

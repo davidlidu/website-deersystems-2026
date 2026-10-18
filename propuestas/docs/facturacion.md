@@ -16,6 +16,7 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
 - **Desde una cuota del plan de pagos** (pestaña *Pagos* del proyecto → *Generar cuenta de cobro*):
   - Llega armada con el proyecto, el tipo de abono, el %, el monto, la moneda y la fecha.
   - La cuota queda ligada a su cuenta de cobro. Al marcarla pagada, el abono se aplica a esa cuenta de cobro.
+- **Asociar una cuenta de cobro que ya existe:** en cada cuota, el selector *Cuenta de cobro* lista las del cliente. Sirve, por ejemplo, para una cuenta de cobro por el total pagada en cuotas (anticipo 50 % + saldo). Si la cuota ya estaba pagada, su abono pasa a esa cuenta de cobro y se actualiza en el Gestor.
 - **El documento** sigue el formato de SmartBilling:
   - Logo y número.
   - Datos del cliente y del emisor.
@@ -85,6 +86,7 @@ En *Configuración → Finanzas → Datos de la cuenta de cobro*:
 
 - Nombre, documento, régimen, dirección, ciudad, celular y correo.
 - **Forma de pago** (texto) y **QR de pago**: Bre-B, Bancolombia, Nequi…
+- **Texto legal**: por ejemplo, el del art. 616-2 del ET. Sale en letra pequeña debajo de la forma de pago, solo en la cuenta de cobro (no en el portal ni en el correo).
 - Logo, firma y nombre/documento de quien firma.
 - Notas por defecto y días para pagar.
 

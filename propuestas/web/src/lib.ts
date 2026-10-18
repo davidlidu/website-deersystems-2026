@@ -440,6 +440,8 @@ export interface BillingProfile {
   phone: string;
   email: string;
   bankInfo: string;
+  /** Texto legal en letra pequeña (art. 616-2 del ET, etc.). */
+  legalNote: string;
   signatureName: string;
   signatureDoc: string;
   defaultNotes: string;

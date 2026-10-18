@@ -745,6 +745,10 @@ function IssuerProfile() {
         area: true,
         hint: 'Cuenta de ahorros Bancolombia 000-000000-00 a nombre de…',
       })}
+      {text('legalNote', 'Texto legal (sale en letra pequeña en la cuenta de cobro, no en el portal)', {
+        area: true,
+        hint: 'En virtud de lo contemplado en el artículo 616-2 del ET…',
+      })}
       {text('defaultNotes', 'Notas por defecto de cada cuenta de cobro', { area: true })}
       <label className="field">
         <span className="field__label">Días para pagar (fecha límite por defecto; 0 = sin fecha límite)</span>
@@ -889,6 +893,7 @@ function FinanceTab() {
   );
   const [key, setKey] = useState('');
   const [url, setUrl] = useState<string | null>(null);
+  const status = useApi<{ connected: boolean; error?: string }>('settings/finanzas/status');
   const { busy, run } = useAction();
   const toast = useToast();
   if (loading && !data) return <Loading />;
@@ -899,13 +904,26 @@ function FinanceTab() {
       setKey('');
       setUrl(null);
       toast(msg);
+      await status.reload();
     });
   return (
     <>
       <IssuerProfile />
       <OnlinePayments />
       <section className="card form-section narrow-col" style={{ marginTop: 16 }}>
-        <h2>Gestor financiero</h2>
+        <div className="form-section__head">
+          <h2>Gestor financiero</h2>
+          {status.loading && !status.data ? (
+            <span className="sync sync--off">Comprobando…</span>
+          ) : status.data?.connected ? (
+            <span className="sync sync--ok">● Conectado</span>
+          ) : (
+            <span className="sync sync--error" title={status.data?.error}>
+              ○ Sin conectar
+            </span>
+          )}
+        </div>
+        {status.data && !status.data.connected && status.data.error && <p className="alert">{status.data.error}</p>}
         <p className="hint">
           Al marcar un pago como <strong>Pagado</strong> en la pestaña Pagos de un proyecto, se registra como ingreso en tu Gestor: la categoría es la
           empresa del cliente y la descripción lleva el proyecto, el tipo de abono y el porcentaje. Si lo desmarcas o lo borras, el ingreso se quita.
@@ -956,8 +974,12 @@ function FinanceTab() {
             disabled={busy || !data!.hasKey}
             onClick={() =>
               run(async () => {
-                await api('POST', 'settings/finanzas/test');
-                toast('Conexión correcta con el Gestor financiero.');
+                try {
+                  await api('POST', 'settings/finanzas/test');
+                  toast('Conexión correcta con el Gestor financiero.');
+                } finally {
+                  await status.reload();
+                }
               })
             }
           >

@@ -7,6 +7,7 @@ import {
   formatDate,
   formatMoney,
   money,
+  navigate,
   today,
   useApi,
   type Currency,
@@ -148,12 +149,15 @@ function PaymentRow({
   p,
   finance,
   newInvoiceUrl,
+  invoices,
   onChange,
   onRemove,
 }: {
   p: Payment;
   finance: boolean;
   newInvoiceUrl: string;
+  /** Cuentas de cobro del cliente (no anuladas) para asociar a la cuota. */
+  invoices: InvoiceSummary[];
   onChange: (p: Payment) => void;
   onRemove: (p: Payment) => void;
 }) {
@@ -176,6 +180,16 @@ function PaymentRow({
         setD({ label: p.label, percent: p.percent?.toString() ?? '', amount: String(p.amount), currency: p.currency, dueDate: p.dueDate ?? '' });
         throw err;
       }
+    });
+  };
+
+  /** Asociar la cuota a una cuenta de cobro ya hecha (o quitarla). Si está pagada, su abono pasa a esa cuenta. */
+  const link = (value: string) => {
+    if (value === 'nueva') return navigate(newInvoiceUrl);
+    run(async () => {
+      const u = await api<Payment>('PATCH', `payments/${p.id}`, { invoiceId: Number(value) || null });
+      onChange(u);
+      toast(u.invoiceId ? `Asociada a la cuenta de cobro ${u.invoiceNumber}.` : 'Cuota sin cuenta de cobro.');
     });
   };
 
@@ -215,15 +229,24 @@ function PaymentRow({
       </div>
       <div className="pay-row__status">
         <StatusPill p={p} />
-        {p.invoiceId ? (
-          <Link to={`/cuentas-de-cobro/${p.invoiceId}`} className="hint">
-            Cuenta de cobro {p.invoiceNumber}
-          </Link>
-        ) : (
-          <Link to={newInvoiceUrl} className="linklike">
-            Generar cuenta de cobro
-          </Link>
-        )}
+        <span className="pay-row__invoice">
+          <span className="input input--chip">
+            <select value={p.invoiceId ?? ''} disabled={busy} onChange={(e) => link(e.target.value)} aria-label="Cuenta de cobro de esta cuota">
+              <option value="">Sin cuenta de cobro</option>
+              {invoices.map((i) => (
+                <option key={i.id} value={i.id}>
+                  CC {i.number} · {formatMoney(i.totalCop)} · {docDate(i.date)}
+                </option>
+              ))}
+              <option value="nueva">+ Generar cuenta de cobro nueva…</option>
+            </select>
+          </span>
+          {p.invoiceId && (
+            <Link to={`/cuentas-de-cobro/${p.invoiceId}`} className="hint">
+              Ver
+            </Link>
+          )}
+        </span>
         {p.paid && p.currency === 'USD' && p.amountCop ? (
           <span className="hint">
             Recibido {money(p.amountCop, 'COP')}
@@ -330,6 +353,7 @@ export function DraftRow({ d, onChange, onRemove }: { d: Draft; onChange: (patch
 /** Pestaña Pagos: seguimiento de los pagos pactados. Tú los editas y marcas; el cliente los ve. */
 export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: number; clientId: number }) {
   const { data, error, loading, reload, setData } = useApi<PaymentsResponse>(`projects/${projectId}/payments`);
+  const clientInvoices = useApi<InvoiceSummary[]>(me.role === 'owner' ? `invoices?clientId=${clientId}` : null);
   const [suggested, setSuggested] = useState<Draft[] | null>(null);
   const [adding, setAdding] = useState<Draft | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -433,6 +457,7 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
                   p={p}
                   finance={finance}
                   newInvoiceUrl={`/facturacion/nueva?cliente=${clientId}&proyecto=${projectId}&cuota=${p.id}`}
+                  invoices={(clientInvoices.data ?? []).filter((i) => i.status !== 'anulada')}
                   onChange={(u) => setPayments(payments.map((x) => (x.id === u.id ? u : x)))}
                   onRemove={remove}
                 />
