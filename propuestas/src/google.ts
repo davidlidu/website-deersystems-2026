@@ -133,8 +133,8 @@ export interface Mail {
   html: string;
   text: string;
   replyTo?: string;
-  /** Adjuntos (p. ej. el PDF de la cuenta de cobro). */
-  attachments?: { name: string; mime: string; data: Buffer }[];
+  /** Adjuntos (p. ej. el PDF de la cuenta de cobro). Con `cid`, va en línea dentro del HTML (src="cid:…"). */
+  attachments?: { name: string; mime: string; data: Buffer; cid?: string }[];
 }
 
 /** Envía desde la cuenta conectada (normalmente ceo@deersystems.net). */
@@ -162,24 +162,46 @@ export async function sendMail(mail: Mail): Promise<void> {
     'MIME-Version: 1.0',
   ];
   let raw: string;
-  if (mail.attachments?.length) {
-    // multipart/mixed: el cuerpo (texto + HTML) y luego cada adjunto en base64 con líneas de 76 caracteres.
+  const b64lines = (d: Buffer) => d.toString('base64').replace(/.{76}/g, '$&\r\n');
+  const inline = (mail.attachments ?? []).filter((a) => a.cid);
+  const files = (mail.attachments ?? []).filter((a) => !a.cid);
+  if (inline.length || files.length) {
+    // multipart/mixed → [multipart/related → (multipart/alternative: texto + HTML) + imágenes en línea] + adjuntos.
     const mixed = `${boundary}-m`;
+    const related = `${boundary}-r`;
+    const content = inline.length
+      ? [
+          `Content-Type: multipart/related; boundary="${related}"`,
+          '',
+          `--${related}`,
+          `Content-Type: multipart/alternative; boundary="${boundary}"`,
+          '',
+          ...body,
+          ...inline.flatMap((a) => [
+            `--${related}`,
+            `Content-Type: ${a.mime}; name="${header(a.name)}"`,
+            `Content-ID: <${a.cid}>`,
+            `Content-Disposition: inline; filename="${header(a.name)}"`,
+            'Content-Transfer-Encoding: base64',
+            '',
+            b64lines(a.data),
+          ]),
+          `--${related}--`,
+        ]
+      : [`Content-Type: multipart/alternative; boundary="${boundary}"`, '', ...body];
     raw = [
       ...head,
       `Content-Type: multipart/mixed; boundary="${mixed}"`,
       '',
       `--${mixed}`,
-      `Content-Type: multipart/alternative; boundary="${boundary}"`,
-      '',
-      ...body,
-      ...mail.attachments.flatMap((a) => [
+      ...content,
+      ...files.flatMap((a) => [
         `--${mixed}`,
         `Content-Type: ${a.mime}; name="${header(a.name)}"`,
         `Content-Disposition: attachment; filename="${header(a.name)}"`,
         'Content-Transfer-Encoding: base64',
         '',
-        a.data.toString('base64').replace(/.{76}/g, '$&\r\n'),
+        b64lines(a.data),
       ]),
       `--${mixed}--`,
     ].join('\r\n');

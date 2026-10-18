@@ -11,7 +11,7 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
   - Cliente y, opcionalmente, proyecto.
   - Fecha y fecha límite de pago (opcional; por defecto, la fecha + los *días para pagar* configurados).
   - Moneda: **COP**, o **USD con la TRM del día**. La TRM es la oficial y se puede corregir. El total en COP queda guardado: así cuadran los reportes y los saldos.
-  - **Ítems:** descripción con formato (negrita, cursiva, subrayado, listas), cantidad, unidad y valor unitario.
+  - **Ítems:** descripción WYSIWYG (negrita, cursiva, subrayado, listas con viñetas o numeradas e **imágenes**: botón, pegar o arrastrar; se reducen a 900 px), cantidad, unidad y valor unitario. Las imágenes van incrustadas en la cuenta de cobro; nunca se cargan de internet.
   - **Notas**, impresas debajo del total.
 - **Desde una cuota del plan de pagos** (pestaña *Pagos* del proyecto → *Generar cuenta de cobro*):
   - Llega armada con el proyecto, el tipo de abono, el %, el monto, la moneda y la fecha.
@@ -23,10 +23,10 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
   - Ítems y total (más TRM y equivalente en COP si es en USD).
   - Notas y **forma de pago**: datos bancarios y, debajo, el texto legal en letra pequeña, con el QR grande a la derecha para que se lea desde el celular.
   - Firma y pie con los datos del emisor.
-  - Siempre en blanco. En celular se reduce para caber; el PDF siempre sale en A4 completo.
+  - Siempre en blanco. En celular se reduce para caber. El PDF sale **en una sola página A4**: si el contenido es más largo, se reduce proporcionalmente.
 - **Acciones:**
   - **Descargar PDF**: se genera en el navegador, como en SmartBilling.
-  - **Enviar al cliente**: correo con la marca y el PDF adjunto, enviado desde Gmail.
+  - **Enviar al cliente**: a uno o varios correos (y copia para ti si quieres), con la marca, el PDF adjunto, tus datos de pago, el **QR de pago** (como imagen en línea, que Gmail sí muestra) y el botón *Pagar en línea* si activaste Wompi para esa cuenta de cobro. El saludo usa el nombre del contacto, o la razón social si no hay contacto.
   - **Registrar abono**, **Editar**.
   - **Anular**: deja de contar en el saldo y el número queda usado.
   - **Borrar**: solo si no tiene abonos aplicados.

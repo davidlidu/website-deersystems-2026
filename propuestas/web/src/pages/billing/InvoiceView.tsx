@@ -6,6 +6,55 @@ import { InvoiceDocument } from './InvoiceDocument';
 import { downloadPdf, pdfBase64, pdfName } from './pdf';
 import { ReceiptForm } from './ReceiptForm';
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** A quién se envía: uno o varios correos (coma, punto y coma o espacio), y una copia para ti si quieres. */
+function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; me: string; busy: boolean; onSend: (to: string) => void; onClose: () => void }) {
+  const [text, setText] = useState(initial);
+  const [copy, setCopy] = useState(false);
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => ref.current?.showModal(), []);
+  const list = [...new Set([...text.toLowerCase().split(/[\s,;]+/).filter(Boolean), ...(copy ? [me.toLowerCase()] : [])])];
+  const bad = list.filter((e) => !EMAIL.test(e));
+  return (
+    <dialog ref={ref} className="modal" aria-labelledby="send-title" onClose={onClose} onClick={(e) => e.target === e.currentTarget && ref.current?.close()}>
+      <div className="modal__in">
+        <header className="modal__head">
+          <h2 id="send-title">Enviar la cuenta de cobro</h2>
+          <button className="icon-btn" onClick={() => ref.current?.close()} aria-label="Cerrar">
+            ✕
+          </button>
+        </header>
+        <label className="field">
+          <span className="field__label">Para (uno o varios correos, separados por coma)</span>
+          <textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="cliente@empresa.com, contabilidad@empresa.com" autoFocus />
+        </label>
+        <div className="send-to__list" aria-live="polite">
+          {list.map((e) => (
+            <span key={e} className={`send-to__chip${EMAIL.test(e) ? '' : ' is-bad'}`}>
+              {e}
+            </span>
+          ))}
+        </div>
+        <label className="check">
+          <input type="checkbox" checked={copy} onChange={(e) => setCopy(e.target.checked)} />
+          Enviarme una copia ({me})
+        </label>
+        <p className="hint">Va con el PDF adjunto, tus datos de pago y el QR{' '}(y el botón de pago en línea si lo activaste).</p>
+        <div className="actions actions--tight">
+          <button className="btn btn--primary btn--sm" disabled={busy || !list.length || bad.length > 0 || list.length > 10} onClick={() => onSend(list.join(', '))}>
+            {busy ? 'Enviando…' : `Enviar a ${list.length} ${list.length === 1 ? 'destinatario' : 'destinatarios'}`}
+          </button>
+          <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => ref.current?.close()}>
+            Cancelar
+          </button>
+        </div>
+        {bad.length > 0 && <p className="alert">Revisa: {bad.join(', ')}</p>}
+      </div>
+    </dialog>
+  );
+}
+
 /** Una cuenta de cobro: el documento y, para ti, enviar, abonar, editar, anular. El cliente la ve y la descarga. */
 export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
   const { data, error, loading, reload } = useApi<InvoiceDetail>(`invoices/${id}`);
@@ -41,6 +90,7 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
     }
   };
   const [paying, setPaying] = useState(false);
+  const [sending, setSending] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const { busy, run } = useAction();
   const toast = useToast();
@@ -63,16 +113,14 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
     }
   };
 
-  const send = () => {
-    const to = prompt('¿A qué correo la envío? Va con el PDF adjunto.', inv.client.email ?? '');
-    if (!to) return;
+  const send = (to: string) =>
     run(async () => {
       const pdf = await fullSize(() => pdfBase64(doc.current!));
       const r = await api<InvoiceDetail & { sentTo: string }>('POST', `invoices/${inv.id}/send`, { to, pdf });
+      setSending(false);
       toast(`Enviada a ${r.sentTo}.`);
       await reload();
     });
-  };
 
   const toggleOnline = (enabled: boolean) => {
     if (enabled && !confirm('¿Activar el pago en línea para esta cuenta de cobro? Wompi cobra comisión por cada pago (≈2,65 % + $700 + IVA). Se crea un link de un solo uso por el saldo.')) return;
@@ -137,7 +185,7 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
           </button>
           {owner && !voided && (
             <>
-              <button className="btn btn--outline btn--sm" disabled={busy} onClick={send}>
+              <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => setSending(true)}>
                 {busy ? 'Enviando…' : 'Enviar al cliente'}
               </button>
               <button className="btn btn--outline btn--sm" onClick={() => setPaying(!paying)}>
@@ -184,6 +232,16 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
             </>
           )}
         </div>
+      )}
+
+      {sending && (
+        <SendDialog
+          initial={[inv.client.email].filter(Boolean).join(', ')}
+          me={me.email}
+          busy={busy}
+          onSend={send}
+          onClose={() => setSending(false)}
+        />
       )}
 
       {paying && (

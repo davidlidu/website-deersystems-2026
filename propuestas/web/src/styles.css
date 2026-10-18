@@ -4268,7 +4268,7 @@ textarea:focus {
   width: 794px;
   min-height: 1000px;
   margin: 0 auto;
-  padding: 48px 52px;
+  padding: 40px 48px;
   background: #fff;
   color: #374151;
   font: 13px/1.5 Verdana, Geneva, sans-serif;
@@ -4484,8 +4484,8 @@ textarea:focus {
 }
 
 .cc-doc__sign {
-  padding-top: 40px;
-  margin-top: 40px;
+  padding-top: 24px;
+  margin-top: 24px;
   border-top: 2px dotted #9ca3af;
   color: #4b5563;
 }
@@ -4504,8 +4504,8 @@ textarea:focus {
 }
 
 .cc-doc__foot {
-  padding-top: 28px;
-  margin-top: 28px;
+  padding-top: 16px;
+  margin-top: 20px;
   border-top: 1px solid #d1d5db;
   font-size: 11px;
   text-align: center;
@@ -4860,4 +4860,46 @@ textarea:focus {
 .cc-row__state small {
   display: inline;
   color: var(--mute);
+}
+
+/* Imágenes en la descripción de los ítems (editor y documento) */
+.rich__area img,
+.cc-doc__desc img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 6px 0;
+  border-radius: 4px;
+}
+
+.rich__area ol,
+.cc-doc__desc ol {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.rich__btn--img {
+  display: inline-grid;
+  place-items: center;
+}
+
+/* Enviar cuenta de cobro: destinatarios */
+.send-to__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.send-to__chip {
+  padding: 3px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.send-to__chip.is-bad {
+  border-color: var(--coral);
+  color: var(--coral);
 }

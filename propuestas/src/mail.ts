@@ -33,6 +33,8 @@ interface Block {
   /** Bloques con título y viñetas (resumen de reunión: acuerdos, tareas de cada parte). */
   sections?: { heading: string; bullets: string[] }[];
   cta?: { label: string; url: string };
+  /** Imagen en línea (adjunta con Content-ID): p. ej. el QR de pago. Gmail no muestra imágenes data:. */
+  image?: { cid: string; alt: string; caption: string };
   footnote?: string;
 }
 
@@ -92,7 +94,13 @@ function layout(b: Block): { html: string; text: string } {
         <div style="font:500 11px/1.4 ${MONO};letter-spacing:.18em;text-transform:uppercase;color:${C.cian};margin-bottom:10px">${esc(b.eyebrow)}</div>
         <h1 style="margin:0 0 16px;font:700 24px/1.2 ${DISPLAY};letter-spacing:-.03em;color:${C.ink}">${esc(b.title)}</h1>
         ${b.paragraphs.map((p) => `<p style="margin:0 0 16px;font:400 15px/1.65 ${FONT};color:${C.body}">${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}
-        ${facts}${items}${sections}${cta}
+        ${facts}${items}${sections}${
+          b.image
+            ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:4px 0 20px"><tr><td align="center" style="padding:14px;border-radius:12px;background:#ffffff">
+                <img src="cid:${esc(b.image.cid)}" width="190" height="190" alt="${esc(b.image.alt)}" style="display:block;width:190px;height:190px;border:0">
+              </td></tr><tr><td align="center" style="padding-top:8px;font:400 13px/1.5 ${FONT};color:${C.mute}">${esc(b.image.caption)}</td></tr></table>`
+            : ''
+        }${cta}
         ${b.footnote ? `<p style="margin:20px 0 0;font:400 13px/1.6 ${FONT};color:${C.mute}">${esc(b.footnote)}</p>` : ''}
       </td></tr>
       <tr><td style="padding:20px 4px 0;font:400 12px/1.6 ${FONT};color:${C.mute}">
@@ -226,8 +234,11 @@ export function invoiceForClient(p: {
   portal: boolean;
   /** Link de pago en línea (opcional, solo si lo activaste para esta cuenta de cobro). */
   payUrl?: string | null;
+  /** Hay QR de pago: va como imagen en línea con Content-ID "qr-pago". */
+  qr?: boolean;
 }): Mail {
-  const first = p.name.split(' ')[0] || p.name;
+  // p.name ya llega listo para el saludo: el nombre del contacto, o la razón social completa si no hay contacto.
+  const first = p.name;
   return {
     to: p.to,
     subject: `Cuenta de cobro ${p.number}${p.projectName ? ` · ${p.projectName}` : ''}`,
@@ -245,7 +256,8 @@ export function invoiceForClient(p: {
         ...(p.totalCop ? ([['Equivalente COP', p.totalCop]] as [string, string][]) : []),
         ...(p.dueDate ? ([['Fecha límite de pago', p.dueDate]] as [string, string][]) : []),
       ],
-      ...(p.payUrl ? { cta: { label: 'Pagar en línea', url: p.payUrl } } : p.portal ? { cta: { label: 'Ver en mi espacio', url: loginUrl } } : {}),
+      ...(p.qr ? { image: { cid: 'qr-pago', alt: 'Código QR para pagar', caption: 'Escanéalo desde la app de tu banco o Nequi para pagar.' } } : {}),
+      ...(p.payUrl ? { cta: { label: 'Pagar en línea (PSE, Nequi, tarjeta)', url: p.payUrl } } : p.portal ? { cta: { label: 'Ver en mi espacio', url: loginUrl } } : {}),
       footnote: p.payUrl
         ? 'También puedes pagar por transferencia y respondernos este correo con el comprobante. ¡Gracias!'
         : 'Cuando hagas el pago, responde este correo con el comprobante. ¡Gracias!',

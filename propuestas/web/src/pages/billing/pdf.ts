@@ -10,13 +10,12 @@ async function render(el: HTMLElement) {
   const pageHeight = 297;
   const height = (canvas.height * width) / canvas.width;
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true });
-  // Varias páginas si no cabe en una: la misma imagen corrida hacia arriba.
-  let offset = 0;
-  pdf.addImage(img, 'JPEG', 0, offset, width, height);
-  for (let left = height - pageHeight; left > 0; left -= pageHeight) {
-    offset -= pageHeight;
-    pdf.addPage();
-    pdf.addImage(img, 'JPEG', 0, offset, width, height);
+  // Siempre una sola página: si el contenido es más alto que A4, se reduce proporcionalmente y se centra.
+  if (height <= pageHeight) {
+    pdf.addImage(img, 'JPEG', 0, 0, width, height);
+  } else {
+    const w = (width * pageHeight) / height;
+    pdf.addImage(img, 'JPEG', (width - w) / 2, 0, w, pageHeight);
   }
   return pdf;
 }

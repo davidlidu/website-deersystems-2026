@@ -170,7 +170,7 @@ export function InvoiceFormPage({ id }: { id?: number }) {
 
   const save = () => {
     if (!clientId) return toast('Elige el cliente.', true);
-    if (items.some((it) => !hasText(it.description))) return toast('Cada ítem necesita una descripción.', true);
+    if (items.some((it) => !hasText(it.description) && !it.description.includes('<img'))) return toast('Cada ítem necesita una descripción.', true);
     run(async () => {
       const body = {
         clientId,

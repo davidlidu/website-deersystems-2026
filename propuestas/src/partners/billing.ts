@@ -146,7 +146,9 @@ const itemsOf = (invoiceId: number) =>
 
 // ───────── HTML de los ítems ─────────
 
-const ALLOWED = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'div', 'ul', 'ol', 'li', 'span']);
+const ALLOWED = new Set(['b', 'strong', 'i', 'em', 'u', 'br', 'p', 'div', 'ul', 'ol', 'li', 'span', 'h3', 'h4', 'img']);
+/** Solo imágenes incrustadas (data:) de tipos de imagen: nada que cargue de internet ni ejecute código. */
+const IMG_SRC = /\bsrc\s*=\s*["'](data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+)["']/i;
 
 /**
  * Las descripciones de los ítems vienen con formato (negrita, listas) del editor de SmartBilling.
@@ -159,10 +161,13 @@ export function sanitizeHtml(html: string): string {
     .replace(/<\/?([a-z0-9]+)\b[^>]*>/gi, (tag, name: string) => {
       const n = name.toLowerCase();
       if (!ALLOWED.has(n)) return '';
+      if (n === 'img') {
+        const src = tag.match(IMG_SRC)?.[1];
+        return src && !tag.startsWith('</') ? `<img src="${src.replace(/\s+/g, '')}" alt="">` : '';
+      }
       return tag.startsWith('</') ? `</${n}>` : n === 'br' ? '<br>' : `<${n}>`;
     })
     .replace(/<(?![a-z/])/gi, '&lt;')
-    .slice(0, 20_000)
     .trim();
 }
 
@@ -219,9 +224,10 @@ function readItems(raw: unknown): ItemInput[] {
       unit: str(it?.unit, 40),
       unitPrice: round2(Number(it?.unitPrice)),
     }))
-    .filter((it) => htmlText(it.description) || it.unitPrice);
+    .filter((it) => htmlText(it.description) || it.description.includes('<img') || it.unitPrice);
   if (!items.length) throw new HttpError(400, 'La cuenta de cobro necesita al menos un ítem.');
-  if (items.some((it) => !htmlText(it.description))) throw new HttpError(400, 'Cada ítem necesita una descripción.');
+  if (items.some((it) => !htmlText(it.description) && !it.description.includes('<img'))) throw new HttpError(400, 'Cada ítem necesita una descripción.');
+  if (items.some((it) => it.description.length > 3_000_000)) throw new HttpError(400, 'Un ítem tiene imágenes muy pesadas (máx. ~2 MB por ítem).');
   if (items.some((it) => !Number.isFinite(it.quantity) || it.quantity <= 0)) throw new HttpError(400, 'La cantidad de cada ítem debe ser mayor a cero.');
   if (items.some((it) => !Number.isFinite(it.unitPrice) || it.unitPrice < 0)) throw new HttpError(400, 'El valor unitario no es válido.');
   return items;
@@ -685,7 +691,8 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
 
     case 'POST invoices': {
       requireOwner(v);
-      const body = await readJson(req);
+      // Los ítems pueden traer imágenes incrustadas.
+      const body = await readJson(req, 12 * 1024 * 1024);
       const invoice = saveInvoice(readInvoice(body));
       // Desde una cuota del plan de pagos: la cuota queda ligada a su cuenta de cobro.
       const paymentId = Number(body.paymentId) || null;
@@ -715,7 +722,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       requireOwner(v);
       const current = visibleInvoice(id, v);
       if (current.status === 'anulada') throw new HttpError(409, 'La cuenta de cobro está anulada.');
-      const updated = saveInvoice(readInvoice(await readJson(req), current), { id: current.id });
+      const updated = saveInvoice(readInvoice(await readJson(req, 12 * 1024 * 1024), current), { id: current.id });
       json(res, 200, invoiceDetail(updated));
       return true;
     }
@@ -741,29 +748,45 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       const body = await readJson(req, 20 * 1024 * 1024);
       const client = db.getClient(current.client_id)!;
       const account = db.getClientAccount(client.id);
-      const to = str(body.to, 200).toLowerCase() || account?.email || client.email || '';
-      if (!EMAIL_RE.test(to)) throw new HttpError(400, 'El cliente no tiene correo: escríbelo para enviarle la cuenta de cobro.');
+      // Uno o varios correos (separados por coma, punto y coma o espacio).
+      const list = [...new Set(String(body.to ?? '').toLowerCase().split(/[\s,;]+/).filter(Boolean))];
+      if (!list.length) list.push(...[account?.email || client.email || ''].filter(Boolean));
+      if (!list.length) throw new HttpError(400, 'El cliente no tiene correo: escríbelo para enviarle la cuenta de cobro.');
+      const bad = list.find((e) => !EMAIL_RE.test(e));
+      if (bad) throw new HttpError(400, `«${bad}» no es un correo válido.`);
+      if (list.length > 10) throw new HttpError(400, 'Máximo 10 destinatarios.');
+      const to = list.join(', ');
       const pdf = typeof body.pdf === 'string' ? Buffer.from(body.pdf.replace(/^data:application\/pdf;base64,/, ''), 'base64') : null;
       if (!pdf || pdf.subarray(0, 4).toString() !== '%PDF') throw new HttpError(400, 'Falta el PDF de la cuenta de cobro.');
       if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
       const longDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
       const cop = (n: number) => `$ ${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
+      const profile = billingProfile();
+      const qr = profile.qr?.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
       const mail = invoiceForClient({
         to,
-        name: client.contact_name || client.name,
+        // Saludo: el nombre del contacto, o la razón social completa (no «Hola, INVERSIONES»).
+        name: client.contact_name ? client.contact_name.split(' ')[0] : client.name,
         number: current.number,
         date: longDate(current.date),
         total: current.currency === 'USD' ? money(current.total, 'USD') : cop(current.total_cop),
         totalCop: current.currency === 'USD' ? cop(current.total_cop) : null,
         dueDate: current.due_date ? longDate(current.due_date) : null,
         projectName: current.project_id ? (db.getProject(current.project_id)?.name ?? null) : null,
-        bankInfo: billingProfile().bankInfo,
+        bankInfo: profile.bankInfo,
         portal: !!account?.active,
         payUrl: payUrl(current),
+        qr: !!qr,
       });
       const safe = (t: string) => t.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80);
       try {
-        await google.sendMail({ ...mail, attachments: [{ name: `Cuenta de Cobro-${safe(current.number)} ${safe(client.name)}.pdf`, mime: 'application/pdf', data: pdf }] });
+        await google.sendMail({
+          ...mail,
+          attachments: [
+            { name: `Cuenta de Cobro-${safe(current.number)} ${safe(client.name)}.pdf`, mime: 'application/pdf', data: pdf },
+            ...(qr ? [{ name: `qr-pago.${qr[1].split('/')[1]}`, mime: qr[1], data: Buffer.from(qr[2], 'base64'), cid: 'qr-pago' }] : []),
+          ],
+        });
       } catch (err) {
         if (err instanceof google.GoogleError) throw new HttpError(502, err.message);
         throw err;
