@@ -171,6 +171,14 @@ function AiTab() {
     if (data) setForm(structuredClone(data));
   }, [data]);
 
+  const dirty = !!form && !!data && JSON.stringify(form) !== JSON.stringify(data);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
   if (loading || !form) return error ? <ErrorBox message={error} onRetry={reload} /> : <Loading />;
 
   const save = (extra: Partial<{ keys: Partial<Record<Provider, string>> }> = {}) =>
@@ -341,9 +349,10 @@ function AiTab() {
         <button className="btn btn--primary" disabled={busy} onClick={() => save()}>
           Guardar configuración
         </button>
-        <button className="btn btn--outline" disabled={busy} onClick={() => setForm(structuredClone(data!))}>
+        <button className="btn btn--outline" disabled={busy || !dirty} onClick={() => setForm(structuredClone(data!))}>
           Descartar cambios
         </button>
+        {dirty && <span className="hint">Hay cambios sin guardar: la IA sigue usando la configuración anterior.</span>}
       </div>
 
       <section className="card form-section">

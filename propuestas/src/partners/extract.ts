@@ -296,7 +296,13 @@ export async function proposalText(proposal: Pick<Proposal, 'id' | 'version'>): 
   return text;
 }
 
-const aiInfo = (c: Completion) => ({ provider: c.provider, model: c.model, costUsd: c.costUsd, latencyMs: c.latencyMs });
+const aiInfo = (c: Completion) => ({
+  provider: c.provider,
+  model: c.model,
+  costUsd: c.costUsd,
+  latencyMs: c.latencyMs,
+  fallbackReason: c.fallbackReason ?? null,
+});
 
 export interface ProposalOption {
   name: string;

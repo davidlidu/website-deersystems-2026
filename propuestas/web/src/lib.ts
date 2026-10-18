@@ -251,7 +251,7 @@ export interface Meeting {
   transcriptSource?: 'meet' | 'manual' | null;
   transcriptUrl?: string | null;
   transcript?: string | null;
-  ai?: { provider: string; model: string; costUsd: number; latencyMs: number } | null;
+  ai?: { provider: string; model: string; costUsd: number; latencyMs: number; fallbackReason?: string | null } | null;
   error?: string | null;
   sentTo?: string[];
 }

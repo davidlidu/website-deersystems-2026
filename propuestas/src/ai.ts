@@ -136,6 +136,8 @@ export interface Completion {
   outputTokens: number;
   costUsd: number;
   latencyMs: number;
+  /** Si respondió el respaldo: por qué falló el principal. */
+  fallbackReason?: string;
 }
 
 interface Request {
@@ -273,7 +275,8 @@ export async function complete(req: Request): Promise<Completion> {
     if (!route.fallback) throw err;
     console.warn(`IA principal falló (${(err as Error).message}); probando el respaldo.`);
     try {
-      return await callTarget(route.fallback, req, s, route.privateOnly);
+      const result = await callTarget(route.fallback, req, s, route.privateOnly);
+      return { ...result, fallbackReason: `${route.primary.model}: ${(err as Error).message}`.slice(0, 300) };
     } catch (fallbackErr) {
       throw new AiError(
         `Principal (${route.primary.model}): ${(err as Error).message} · Respaldo (${route.fallback.model}): ${(fallbackErr as Error).message}`,

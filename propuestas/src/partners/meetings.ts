@@ -281,7 +281,7 @@ ${m.transcript.slice(0, 400_000)}
     summary: str(data.summary, 20_000),
     agreements: JSON.stringify((Array.isArray(data.agreements) ? data.agreements : []).map((a) => str(a, 500)).filter(Boolean).slice(0, 30)),
     proposed_tasks: JSON.stringify(tasks),
-    ai: JSON.stringify({ provider: completion.provider, model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs }),
+    ai: JSON.stringify({ provider: completion.provider, model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs, fallbackReason: completion.fallbackReason ?? null }),
     status: 'borrador',
     error: null,
   });

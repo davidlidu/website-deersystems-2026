@@ -42,7 +42,7 @@ interface ProposalOption {
 }
 interface DraftResponse {
   draft: Draft;
-  ai: { provider: string; model: string; costUsd: number; latencyMs: number };
+  ai: { provider: string; model: string; costUsd: number; latencyMs: number; fallbackReason?: string | null };
   existingClientId: number | null;
 }
 interface ClientRow {
@@ -601,6 +601,12 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           {aiInfo && (
             <p className="hint mono">
               Plan sugerido por {aiInfo.model} · {(aiInfo.latencyMs / 1000).toFixed(1)} s · {aiInfo.costUsd ? usd(aiInfo.costUsd) : 'sin costo'}
+              {aiInfo.fallbackReason && (
+                <>
+                  <br />
+                  Se usó el modelo de respaldo porque falló el principal ({aiInfo.fallbackReason})
+                </>
+              )}
             </p>
           )}
 

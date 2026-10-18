@@ -444,6 +444,12 @@ export function MeetingReviewPage({ id }: { id: number }) {
             <p className="hint mono">
               Borrador de {m.ai.model} · {(m.ai.latencyMs / 1000).toFixed(1)} s · {m.ai.costUsd ? usd(m.ai.costUsd) : 'sin costo'} · revisa todo: esto lo leerá el
               cliente
+              {m.ai.fallbackReason && (
+                <>
+                  <br />
+                  Se usó el modelo de respaldo porque falló el principal ({m.ai.fallbackReason})
+                </>
+              )}
             </p>
           )}
           {m.status === 'error' && m.error && <p className="alert">{m.error}</p>}
