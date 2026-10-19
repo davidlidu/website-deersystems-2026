@@ -78,6 +78,7 @@ export function noteView(n: db.Note, v: Viewer) {
     authorKind: n.author_kind,
     authorName: n.author_name,
     body: n.body,
+    ai: !!n.ai,
     createdAt: n.created_at,
     updatedAt: n.updated_at,
     canEdit: mine,

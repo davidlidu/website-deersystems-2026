@@ -40,6 +40,7 @@ import { handleOnlinePayments, handleWompiWebhook } from './online-payments.ts';
 import { createPayments, handlePayments } from './payments.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
+import { autoUpdatesOn, handleUpdates } from './updates.ts';
 import { actor, EMAIL_RE, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { adjustPlan, detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
@@ -81,6 +82,7 @@ function projectDetail(p: db.Project, v: Viewer) {
     scope: p.scope,
     approvalNotes: p.approval_notes,
     ...(v.kind !== 'team' ? { pricing: p.pricing } : {}),
+    ...(isStaff(v) ? { autoUpdates: autoUpdatesOn(p.id) } : {}),
     phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })),
     tasks: db.listTasks(p.id).map((t) => taskView(t, v, team, comments, files)),
   };
@@ -929,6 +931,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     }
   }
   if (await handleWork(route, id, req, res, v)) return;
+  if (await handleUpdates(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
   if (await handlePayments(route, id, req, res, v)) return;

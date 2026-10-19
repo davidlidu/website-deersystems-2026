@@ -152,10 +152,18 @@ function inline(text: string): ReactNode[] {
     else if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>);
     else if (t.startsWith('[')) {
       const [, label, href] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(t)!;
+      // Los enlaces a otra parte del portal (una tarea, las reuniones) se abren aquí mismo.
+      const local = href.startsWith(`${location.origin}/`) ? href.slice(location.origin.length) : null;
       out.push(
-        <a key={key} href={href} target="_blank" rel="noopener noreferrer">
-          {label}
-        </a>,
+        local ? (
+          <Link key={key} to={local}>
+            {label}
+          </Link>
+        ) : (
+          <a key={key} href={href} target="_blank" rel="noopener noreferrer">
+            {label}
+          </a>
+        ),
       );
     } else out.push(<em key={key}>{t.slice(1, -1)}</em>);
     last = m.index + t.length;

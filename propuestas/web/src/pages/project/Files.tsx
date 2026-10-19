@@ -122,11 +122,14 @@ export function FilesPanel({
   projectId,
   taskId,
   onChange,
+  filter = 'all',
 }: {
   me: Me;
   projectId: number;
   taskId?: number;
   onChange?: (delta: number) => void;
+  /** Documentación: solo los compartidos con el cliente o solo los internos. */
+  filter?: 'all' | 'shared' | 'internal';
 }) {
   const { data, error, loading, reload, setData } = useApi<Attachment[]>(
     `projects/${projectId}/attachments${taskId ? `?taskId=${taskId}` : ''}`,
@@ -262,14 +265,14 @@ export function FilesPanel({
         <Loading />
       ) : error ? (
         <ErrorBox message={error} onRetry={reload} />
-      ) : data!.length ? (
+      ) : data!.some((a) => filter === 'all' || a.visibility === filter) ? (
         <ul className="file-list">
-          {data!.map((a) => (
+          {data!.filter((a) => filter === 'all' || a.visibility === filter).map((a) => (
             <FileRow key={a.id} a={a} onChange={(u) => setData(data!.map((x) => (x.id === u.id ? u : x)))} onRemove={remove} />
           ))}
         </ul>
       ) : (
-        <Empty>{taskId ? 'Esta tarea no tiene archivos.' : 'Todavía no hay archivos en el proyecto.'}</Empty>
+        <Empty>{taskId ? 'Esta tarea no tiene archivos.' : filter === 'all' ? 'Todavía no hay archivos en el proyecto.' : filter === 'shared' ? 'No hay archivos compartidos con el cliente.' : 'No hay archivos internos.'}</Empty>
       )}
     </div>
   );

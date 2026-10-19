@@ -13,19 +13,17 @@
 
 ## Pestañas
 
+Cinco, para orientarse de un vistazo:
+
 | Pestaña | Quién la ve | Contenido |
 |---|---|---|
-| Tareas | Todos | Las cuatro vistas, filtros y detalle |
-| Reuniones | Todos | Próximas con enlace de Meet y resúmenes aprobados ([Reuniones](./reuniones.md)) |
-| Avances | Todos | Publicaciones del equipo para el cliente |
-| Notas | Todos | Compartidas; las internas solo las ve el equipo |
-| Archivos | Todos | Drive ([Archivos](./archivos.md)) |
-| Pagos | Tú y el cliente | Plan de pagos ([Pagos](./pagos-y-finanzas.md)) |
-| Bitácora | Todos | Cada cambio; el cliente no ve las entradas internas |
-| Alcance aprobado | Todos | El alcance sin valores |
-| Propuesta y valores | Tú y el cliente | Enlace a la propuesta y valores pactados |
+| **Avances** (la principal) | Todos | Generador de avances con IA, editor y historial; desde aquí se abre la bitácora técnica |
+| **Plan de trabajo** | Todos | Interruptor *Tareas* (Lista, Tablero, Calendario) · *Calendario de reuniones* ([Reuniones](./reuniones.md)) · *Cronograma* (Gantt) |
+| **Documentación** | Todos | *Archivos* ([Archivos](./archivos.md)) y *Notas* con formato. El equipo filtra: Todo · Compartido con el cliente · Interno |
+| **Alcance y propuesta** | Todos (valores: tú y el cliente) | Alcance aprobado con la opción y los ajustes; debajo, propuesta y valores pactados. El equipo la ve como *Alcance* |
+| **Pagos** | Tú y el cliente | Plan de pagos ([Pagos](./pagos-y-finanzas.md)) |
 
-Los avisos llevan directo a una pestaña (`?tab=avances`) o a una tarea (`?tarea=12`).
+Los avisos llevan directo a una pestaña (`?tab=avances`), a un avance (`?tab=avances&avance=5`) o a una tarea (`?tarea=12`). Los enlaces de antes siguen funcionando: `?tab=tareas`, `reuniones`, `cronograma`, `notas`, `archivos`, `bitacora`, `alcance` y `comercial` abren su nuevo lugar.
 
 ## Estados de tarea
 
@@ -71,10 +69,17 @@ Es un panel lateral con tres pestañas: **Comentarios**, **Archivos** e **Histor
 
 **El cliente** cambia el estado de sus tareas, comenta y adjunta.
 
-## Notas y avances
+## Avances
 
-- **Nota:** compartida con el cliente o **interna**. Se edita y se borra.
-- **Avance:** publicación del equipo para el cliente, que le llega como aviso.
+- **Generar avance del día con IA:** recopila lo de hoy (tareas completadas, tareas enviadas a revisión, reuniones, archivos compartidos y la próxima reunión) y la IA redacta el avance con el enlace de cada cosa. Usa el perfil *Reuniones* (solo proveedores privados). Si la IA no responde, se arma con los mismos datos; si no hubo movimientos, deja una base para escribir. Nada se publica sin que lo revises.
+- **Automatizar envíos diarios** (por proyecto): todos los días a las **5:00 p. m.** (hora de Colombia) se publica solo el avance del día, si el proyecto está activo, hubo movimientos y nadie publicó uno ese día.
+- **Editor WYSIWYG:** negrita, cursiva, **Insertar URL** (Google Docs, Drive, Meet, Figma…; con texto seleccionado lo vuelve enlace), listas, **Variables** (cliente, proyecto, % de avance, tareas completadas, fecha, entrega estimada, próxima reunión) e **Insertar tarea/reunión**, con buscador. Guarda Markdown, el mismo que leen el portal y los correos.
+- **Visibilidad:** *Compartido con el cliente* (le llega el aviso) o *Solo equipo*. **Vista previa** muestra cómo lo verá el cliente.
+- **Historial:** cada avance dice si lo **generó la IA** o quién lo redactó, y tiene *Editar* (también la visibilidad), *Copiar enlace*, *Ver bitácora técnica* y *Borrar*. Los enlaces a tareas y reuniones abren dentro del portal.
+
+## Notas
+
+- **Nota:** compartida con el cliente o **interna**, con el mismo editor (sin variables). Se edita y se borra.
 - **El cliente** deja notas compartidas.
 
 ## Bitácora

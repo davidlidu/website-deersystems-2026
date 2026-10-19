@@ -63,3 +63,11 @@
 
 - Documentación completa en `docs/` y README reorganizado.
 - Análisis de la [integración con SmartBilling](./integracion-smartbilling.md).
+
+## 19 oct 2026: proyecto en cinco pestañas
+
+- De nueve pestañas a cinco: **Avances** (principal), **Plan de trabajo** (Tareas · Calendario de reuniones · Cronograma), **Documentación** (Archivos y Notas, con filtro compartido/interno), **Alcance y propuesta** y **Pagos**. La bitácora técnica se abre desde Avances. Los enlaces viejos (`?tab=notas`, etc.) siguen funcionando.
+- **Generador de avances con IA:** el avance del día con enlaces a tareas y reuniones; **envío automático diario** a las 5:00 p. m. por proyecto.
+- **Editor WYSIWYG** para avances y notas: negrita, cursiva, URL, listas, variables e *Insertar tarea/reunión*. Guarda Markdown.
+- Avances *Solo equipo*, marca **Generado por IA**, vista previa y *Copiar enlace* a cada avance.
+

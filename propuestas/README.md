@@ -15,7 +15,7 @@ Un servidor Node atiende dos subdominios desde un solo contenedor y los distingu
 |---|---|---|
 | Propuestas | `.html` o `.zip` → `propuestas.deersystems.net/{slug}`. Reemplazar guarda versión; se puede restaurar. Visitas sin bots ni vistas previas | [propuestas](./docs/propuestas.md) |
 | Aprobación | Opción A/B y ajustes → la IA propone cliente, alcance sin valores, fases, tareas, reuniones y pagos → **ajustar con IA** → vista previa del correo → crear y enviar la bienvenida | [aprobacion](./docs/aprobacion.md) |
-| Proyectos | % por tareas completadas; vistas Lista, Tablero, **Cronograma (Gantt)** y Calendario; notas, avances, bitácora; **franja naranja** en las reuniones con el cliente | [proyectos-y-tareas](./docs/proyectos-y-tareas.md) |
+| Proyectos | Cinco pestañas: **Avances** (generados con IA, envío diario automático, editor con enlaces a tareas y reuniones), Plan de trabajo (Lista, Tablero, Calendario, reuniones y **Cronograma (Gantt)**), Documentación, Alcance y propuesta, Pagos; **franja naranja** en las reuniones con el cliente | [proyectos-y-tareas](./docs/proyectos-y-tareas.md) |
 | Reuniones | Agendar con Meet desde la plataforma → transcripción → resumen, acuerdos y tareas con IA → apruebas y se envía con la marca | [reuniones](./docs/reuniones.md) |
 | Archivos | Google Drive por cliente y proyecto; selector de tu Drive; compartido o interno; ver y descargar | [archivos](./docs/archivos.md) |
 | Pagos | Plan de pagos desde la propuesta (USD/COP); «Pagado» → abono e ingreso en el Gestor financiero, con USD convertido a la TRM oficial | [pagos-y-finanzas](./docs/pagos-y-finanzas.md) |

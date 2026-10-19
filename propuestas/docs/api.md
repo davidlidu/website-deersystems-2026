@@ -71,7 +71,9 @@ Todas las rutas del portal viven en `partners.deersystems.net`:
 | `PATCH /api/tasks/:id` | todos | Equipo: todo. Cliente: solo `status` de sus tareas, sin completar |
 | `DELETE /api/tasks/:id` | A E | Borra |
 | `POST /api/projects/:id/phases` · `PATCH /api/phases/:id` · `DELETE` | A E | Fases |
-| `GET /api/projects/:id/notes` · `POST` | todos | Notas, comentarios (`taskId`) y avances (`kind: avance`, solo A E) |
+| `GET /api/projects/:id/notes` · `POST` | todos | Notas, comentarios (`taskId`) y avances (`kind: avance`, `ai`, `visibility`; solo A E) |
+| `POST /api/projects/:id/updates/draft` | A E | Borrador del avance del día (IA, o plantilla si no responde) |
+| `PUT /api/projects/:id/updates/auto` | A E | `{ enabled }`: avance automático diario a las 5:00 p. m. |
 | `PATCH /api/notes/:id` · `DELETE` | autor | Editar y borrar |
 | `GET /api/projects/:id/activity` | todos | Bitácora (sin entradas internas para el cliente) |
 

@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { api, formatDateTime, timeAgo, useApi, type Me, type Note } from '../../lib';
 import { Empty, ErrorBox, Loading, Markdown, useAction } from '../../ui';
+import { MdEditor } from './MdEditor';
 
 const ROLE_LABEL = { owner: 'DeerSystems', team: 'Equipo', client: 'Cliente' } as const;
 
-function NoteItem({ note, onChange, onDelete }: { note: Note; onChange: (n: Note) => void; onDelete: (id: number) => void }) {
+function NoteItem({ note, rich, onChange, onDelete }: { note: Note; rich?: boolean; onChange: (n: Note) => void; onDelete: (id: number) => void }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(note.body);
   const { busy, run } = useAction();
@@ -35,7 +36,7 @@ function NoteItem({ note, onChange, onDelete }: { note: Note; onChange: (n: Note
       </div>
       {editing ? (
         <div className="stack">
-          <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
+          {rich ? <MdEditor value={text} onChange={setText} label="Editar nota" rows={4} onSubmit={save} /> : <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />}
           <div className="actions actions--tight">
             <button className="btn btn--primary btn--sm" disabled={busy || !text.trim()} onClick={save}>
               Guardar
@@ -72,23 +73,30 @@ export function NotesPanel({
   kind = 'nota',
   taskId,
   onPosted,
+  filter = 'all',
+  rich,
 }: {
   me: Me;
   projectId: number;
   kind?: 'nota' | 'avance';
   taskId?: number;
   onPosted?: () => void;
+  /** Editor con formato (negrita, enlaces, listas) en lugar del cuadro de texto. */
+  rich?: boolean;
+  /** Documentación: solo las compartidas con el cliente o solo las internas. */
+  filter?: 'all' | 'shared' | 'internal';
 }) {
   const query = new URLSearchParams({ kind, ...(taskId ? { taskId: String(taskId) } : {}) });
   const { data, error, loading, reload, setData } = useApi<Note[]>(`projects/${projectId}/notes?${query}`);
   const [text, setText] = useState('');
-  const [internal, setInternal] = useState(false);
+  const [internal, setInternal] = useState(filter === 'internal');
   const { busy, run } = useAction();
+  const shown = (data ?? []).filter((n) => filter === 'all' || n.visibility === filter);
   const staff = me.role !== 'client';
   const canPost = kind === 'nota' || staff;
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
+  const submit = (e?: FormEvent) => {
+    e?.preventDefault();
     if (!text.trim()) return;
     run(async () => {
       const note = await api<Note>('POST', `projects/${projectId}/notes`, {
@@ -116,6 +124,9 @@ export function NotesPanel({
     <div className="notes">
       {canPost && (
         <form className="composer card" onSubmit={submit}>
+          {rich ? (
+            <MdEditor value={text} onChange={setText} label="Nota" placeholder={placeholder} rows={3} onSubmit={() => submit()} />
+          ) : (
           <textarea
             rows={kind === 'avance' ? 5 : 3}
             value={text}
@@ -125,6 +136,7 @@ export function NotesPanel({
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(e);
             }}
           />
+          )}
           <div className="composer__foot">
             {staff && kind === 'nota' ? (
               <div className="segmented segmented--sm">
@@ -148,12 +160,13 @@ export function NotesPanel({
         <Loading />
       ) : error ? (
         <ErrorBox message={error} onRetry={reload} />
-      ) : data!.length ? (
+      ) : shown.length ? (
         <ul className="note-list">
-          {data!.map((n) => (
+          {shown.map((n) => (
             <NoteItem
               key={n.id}
               note={n}
+              rich={rich}
               onChange={(updated) => setData(data!.map((x) => (x.id === updated.id ? updated : x)))}
               onDelete={(id) => setData(data!.filter((x) => x.id !== id))}
             />
@@ -167,7 +180,9 @@ export function NotesPanel({
               : 'Aquí verás los avances que publique DeerSystems.'
             : taskId
               ? 'Sin comentarios.'
-              : 'Sin notas todavía.'}
+              : filter === 'internal'
+                ? 'Sin notas internas.'
+                : 'Sin notas todavía.'}
         </Empty>
       )}
     </div>

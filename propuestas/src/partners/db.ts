@@ -512,6 +512,9 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS activity_project ON activity(project_id, id);
 `);
+// Avances: los que redactó la IA llevan la marca; cada proyecto puede publicar uno automático al día.
+addColumn('notes', 'ai', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('projects', 'auto_updates', 'INTEGER NOT NULL DEFAULT 0');
 
 export type TaskFields = Partial<
   Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position' | 'kind'>
@@ -557,6 +560,8 @@ export interface Note {
   author_id: number | null;
   author_name: string;
   body: string;
+  /** 1 = lo redactó la IA (generador de avances). */
+  ai: number;
   created_at: string;
   updated_at: string;
 }
@@ -589,19 +594,20 @@ export function commentCounts(projectId: number, internal: boolean): Map<number,
   return new Map(rows.map((r) => [r.task_id, r.n]));
 }
 
-export function createNote(n: Omit<Note, 'id' | 'created_at' | 'updated_at'>): Note {
+export function createNote(n: Omit<Note, 'id' | 'created_at' | 'updated_at' | 'ai'> & { ai?: boolean }): Note {
   const t = now();
   const { lastInsertRowid } = db
     .prepare(
-      `INSERT INTO notes (project_id, task_id, kind, visibility, author_kind, author_id, author_name, body, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notes (project_id, task_id, kind, visibility, author_kind, author_id, author_name, body, ai, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(n.project_id, n.task_id, n.kind, n.visibility, n.author_kind, n.author_id, n.author_name, n.body, t, t);
+    .run(n.project_id, n.task_id, n.kind, n.visibility, n.author_kind, n.author_id, n.author_name, n.body, n.ai ? 1 : 0, t, t);
   return getNote(Number(lastInsertRowid))!;
 }
 
-export function updateNote(id: number, body: string): void {
+export function updateNote(id: number, body: string, visibility?: Note['visibility']): void {
   db.prepare('UPDATE notes SET body = ?, updated_at = ? WHERE id = ?').run(body, now(), id);
+  if (visibility) db.prepare('UPDATE notes SET visibility = ? WHERE id = ?').run(visibility, id);
 }
 
 export function deleteNote(id: number): void {

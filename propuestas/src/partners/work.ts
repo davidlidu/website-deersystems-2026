@@ -224,8 +224,8 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
       if (!text) throw new HttpError(400, 'Escribe algo.');
       const kind = body.kind === 'avance' ? 'avance' : 'nota';
       if (kind === 'avance') requireStaff(v);
-      // El cliente solo escribe notas compartidas; los avances siempre son para el cliente.
-      const visibility = staff && kind === 'nota' && body.visibility === 'internal' ? 'internal' : 'shared';
+      // El cliente solo escribe notas compartidas; el equipo puede dejar notas y avances solo para el equipo.
+      const visibility = staff && body.visibility === 'internal' ? 'internal' : 'shared';
       let taskId: number | null = null;
       let taskTitle: string | null = null;
       if (body.taskId) {
@@ -244,6 +244,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         author_id: a.id,
         author_name: a.name,
         body: text,
+        ai: kind === 'avance' && body.ai === true,
       });
       log(
         v,
@@ -263,7 +264,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           path,
         });
       } else if (kind === 'avance') {
-        notify('staff_update', { actor: v, projectId: project.id, title: `Nuevo avance en ${project.name}`, body: text, path });
+        if (visibility === 'shared') notify('staff_update', { actor: v, projectId: project.id, title: `Nuevo avance en ${project.name}`, body: text, path });
       } else if (visibility === 'shared') {
         notify('staff_comment', {
           actor: v,
@@ -287,9 +288,11 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
       const view = noteView(note, v);
       if (req.method === 'PATCH') {
         if (!view.canEdit) throw new HttpError(403, 'Solo quien la escribió puede editarla.');
-        const text = str((await readJson(req)).body, 10_000);
+        const patch = await readJson(req);
+        const text = str(patch.body, 10_000);
         if (!text) throw new HttpError(400, 'Escribe algo.');
-        db.updateNote(note.id, text);
+        const visibility = staff && (patch.visibility === 'internal' || patch.visibility === 'shared') ? patch.visibility : undefined;
+        db.updateNote(note.id, text, visibility);
         json(res, 200, noteView(db.getNote(note.id)!, v));
       } else {
         if (!view.canDelete) throw new HttpError(403, 'Solo quien la escribió puede borrarla.');

@@ -164,6 +164,8 @@ export interface Note {
   authorKind: Role;
   authorName: string;
   body: string;
+  /** Lo redactó el generador de avances con IA. */
+  ai: boolean;
   createdAt: string;
   updatedAt: string;
   canEdit: boolean;
@@ -275,6 +277,8 @@ export interface ProjectDetail extends ProjectSummary {
   scope: string;
   approvalNotes: string;
   pricing?: string;
+  /** Solo equipo: el proyecto publica solo el avance del día a las 5:00 p. m. */
+  autoUpdates?: boolean;
   phases: { id: number; name: string }[];
   tasks: Task[];
 }

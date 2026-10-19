@@ -21,10 +21,10 @@ No hay migraciones que correr a mano. La de `clients` (correo opcional) reconstr
 | `clients` | id, name, contact_name, email (opcional), phone, doc_type, doc_number, city, address, sb_id, created_at, drive_folder_id | Una empresa o persona cliente. Sin `email` = solo facturación (sin acceso) |
 | `accounts` | id, email, name, role (`team`/`client`), client_id, password_hash, active, session_version, last_login_at, created_at, notify_prefs, tour_done | Cuentas con contraseña. El administrador no tiene cuenta: entra con Google |
 | `password_resets` | token_hash, account_id, expires_at, used | Enlaces de recuperación (hash, 1 h) |
-| `projects` | id, client_id, proposal_id, name, scope, pricing, status, start_date, end_date, approved_at, approved_by, approved_option, approval_notes, drive_folder_id, created_at, updated_at | `pricing` nunca sale hacia el equipo |
+| `projects` | id, client_id, proposal_id, name, scope, pricing, status, start_date, end_date, approved_at, approved_by, approved_option, approval_notes, drive_folder_id, auto_updates, created_at, updated_at | `pricing` nunca sale hacia el equipo |
 | `phases` | id, project_id, name, position | |
 | `tasks` | id, project_id, phase_id, title, description, status, side, assignee_id, start_date, due_date, position, source (`propuesta`/`manual`/`reunion`), kind (`tarea`/`reunion`), completed_at, created_at, updated_at | `kind = reunion` pinta la franja naranja |
-| `notes` | id, project_id, task_id, kind (`nota`/`avance`), visibility (`shared`/`internal`), author_kind, author_id, author_name, body, created_at, updated_at | Con `task_id`, es un comentario |
+| `notes` | id, project_id, task_id, kind (`nota`/`avance`), visibility (`shared`/`internal`), author_kind, author_id, author_name, body, ai, created_at, updated_at | Con `task_id`, es un comentario. `ai` = avance redactado por la IA |
 | `activity` | id, project_id, task_id, actor_kind, actor_name, type, data (JSON), internal, created_at | Bitácora |
 | `notifications` | id, recipient_kind, recipient_id, project_id, task_id, type, title, body, link, read_at, created_at | Campana |
 | `attachments` | id, project_id, task_id, drive_file_id, drive_url, name, mime, size, visibility, link_shared, linked, author_kind, author_id, author_name, created_at | `linked = 1`: enlazado desde tu Drive |

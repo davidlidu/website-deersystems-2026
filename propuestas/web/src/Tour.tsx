@@ -6,6 +6,8 @@ interface Step {
   target?: string;
   /** Página donde vive el paso: el tour lleva al usuario allí. Sin página, sirve en cualquiera (el encabezado). */
   page?: 'home' | 'project';
+  /** Pestaña del proyecto que se abre para este paso (avances, tareas, documentacion…). */
+  tab?: string;
   /** Si el elemento no aparece (por ejemplo, no hay tareas pendientes), el paso se salta. */
   optional?: boolean;
   title: string;
@@ -37,23 +39,37 @@ function projectSteps(me: Me): Step[] {
       : []),
     {
       page: 'project',
+      tab: 'avances',
       target: 'project-tabs',
-      title: 'Todo el proyecto en pestañas',
+      title: 'Todo el proyecto en cinco pestañas',
       body: client
-        ? 'Tareas · Reuniones (las próximas con su enlace de Meet y los resúmenes) · Avances que publicamos · Notas · Archivos · Pagos (fechas y montos pactados) · Bitácora con todo lo que ha pasado · Alcance aprobado · Propuesta y valores.'
-        : 'Tareas · Reuniones (agendar, Meet y resúmenes) · Avances para el cliente · Notas (internas o compartidas) · Archivos de Drive · ' + (me.role === 'owner' ? 'Pagos (al marcarlos pagados van a tu Gestor financiero) · ' : '') + 'Bitácora · Alcance aprobado' +
-          (me.role === 'owner' ? ' · Propuesta y valores (tu equipo no la ve).' : '.'),
+        ? 'Avances: lo que vamos logrando, con enlaces directos a cada tarea y reunión · Plan de trabajo: tareas, calendario de reuniones y cronograma · Documentación: archivos y notas · Alcance y propuesta · Pagos.'
+        : 'Avances (la principal) · Plan de trabajo: tareas, calendario de reuniones y cronograma · Documentación: archivos y notas, compartidos o internos · ' +
+          (me.role === 'owner' ? 'Alcance y propuesta (tu equipo no ve los valores) · Pagos (al marcarlos pagados van a tu Gestor financiero).' : 'Alcance aprobado.'),
     },
+    ...(client
+      ? []
+      : [
+          {
+            page: 'project',
+            tab: 'avances',
+            target: 'updates-ai',
+            title: 'Avances con IA',
+            body: '«Generar avance del día con IA» recopila las tareas completadas y las reuniones de hoy y redacta el avance con sus enlaces; lo revisas y lo publicas. Con «Automatizar envíos diarios» se publica solo a las 5:00 p. m. si hubo movimientos. En el editor insertas URL, variables y enlaces a tareas o reuniones.',
+          } as Step,
+        ]),
     {
       page: 'project',
+      tab: 'tareas',
       target: 'project-views',
       title: 'Cuatro formas de ver las tareas',
       body: client
-        ? 'Lista por fases, Tablero por estado, Cronograma con las barras de cada tarea en el tiempo y Calendario por fecha de entrega. La plataforma recuerda la que elijas.'
-        : 'Lista por fases, Tablero por estado (arrastra entre columnas), Cronograma tipo Gantt (arrastra o estira las barras para cambiar fechas) y Calendario. Se recuerda la última que uses.',
+        ? 'En Plan de trabajo → Tareas: Lista por fases, Tablero por estado y Calendario por fecha de entrega. El Cronograma, al lado, muestra las barras de cada tarea en el tiempo. La plataforma recuerda la vista que elijas.'
+        : 'En Plan de trabajo → Tareas: Lista por fases, Tablero por estado (arrastra entre columnas) y Calendario. El Cronograma tipo Gantt está al lado (arrastra o estira las barras para cambiar fechas). Se recuerda la última vista.',
     },
     {
       page: 'project',
+      tab: 'tareas',
       target: 'project-filters',
       title: 'Filtra y busca',
       body: client
@@ -62,6 +78,7 @@ function projectSteps(me: Me): Step[] {
     },
     {
       page: 'project',
+      tab: 'tareas',
       target: 'project-tasks',
       title: client ? 'Tus tareas' : 'Las tareas',
       body: client
@@ -257,6 +274,8 @@ export function Tour({ me, onClose }: { me: Me; onClose: (done: boolean) => void
     // Un paso opcional espera poco: si su página ya cargó y el elemento no está, es que no aplica.
     const maxTries = step.optional ? 10 : 40;
     const timer = window.setInterval(() => {
+      // La página del proyecto puede tardar en montar: se le pide la pestaña en cada intento.
+      if (step.tab) window.dispatchEvent(new CustomEvent('ds:project-tab', { detail: step.tab }));
       const el = find();
       if (el || !step.target || ++tries > maxTries) {
         window.clearInterval(timer);
