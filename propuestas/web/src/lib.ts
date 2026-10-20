@@ -491,6 +491,8 @@ export interface Receipt {
   sendToFinance?: boolean;
   /** Descripción con la que queda el ingreso en el Gestor. */
   financeDescription?: string | null;
+  /** La descripción del Gestor se escribió a mano (o vino de SmartBilling). */
+  customDescription?: boolean;
   imported?: boolean;
   createdAt?: string;
 }

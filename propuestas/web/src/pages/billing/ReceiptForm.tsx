@@ -40,6 +40,7 @@ export function ReceiptForm({
     invoiceId: String(receipt?.invoiceId ?? invoiceId ?? ''),
     notes: receipt?.notes ?? '',
     sendToFinance: receipt?.sendToFinance ?? true,
+    financeDescription: receipt?.financeDescription ?? '',
   });
   const [copTouched, setCopTouched] = useState(!!receipt);
   const { busy, run } = useAction();
@@ -72,11 +73,13 @@ export function ReceiptForm({
         invoiceId: Number(f.invoiceId) || null,
         notes: f.notes,
         sendToFinance: f.sendToFinance,
+        // Solo si la cambiaste: vacía vuelve a la descripción automática.
+        ...(receipt && f.financeDescription !== (receipt.financeDescription ?? '') ? { financeDescription: f.financeDescription } : {}),
       };
       const r = await api<Receipt>(receipt ? 'PATCH' : 'POST', receipt ? `receipts/${receipt.id}` : 'receipts', body);
       if (r.sync === 'error') toast(`Abono guardado, pero falló el Gestor: ${r.syncError}`, true);
       else if (!f.sendToFinance) toast(receipt ? 'Abono actualizado (no se envía al Gestor).' : 'Abono registrado, sin enviarlo al Gestor.');
-      else toast(receipt ? 'Abono actualizado.' : 'Abono registrado en tu Gestor financiero.');
+      else toast(receipt ? 'Abono actualizado, también en tu Gestor financiero.' : 'Abono registrado en tu Gestor financiero.');
       onDone(r);
     });
 
@@ -160,6 +163,19 @@ export function ReceiptForm({
         <span className="field__label">Notas · detalle del pago</span>
         <textarea rows={3} maxLength={1000} value={f.notes} onChange={(e) => set({ notes: e.target.value })} placeholder="Anticipo, comprobante 123, banco de origen…" />
       </label>
+      {receipt && f.sendToFinance && (
+        <label className="field">
+          <span className="field__label">Descripción en el Gestor</span>
+          <span className="input">
+            <input
+              value={f.financeDescription}
+              maxLength={300}
+              onChange={(e) => set({ financeDescription: e.target.value })}
+              placeholder="Vacía: se arma sola con el proyecto, la cuenta de cobro y las notas"
+            />
+          </span>
+        </label>
+      )}
       <label className="auto-switch auto-switch--left">
         <span className="switch">
           <input type="checkbox" role="switch" checked={f.sendToFinance} onChange={(e) => set({ sendToFinance: e.target.checked })} />
@@ -184,7 +200,12 @@ export function ReceiptForm({
           Cancelar
         </button>
       </div>
-      {f.sendToFinance && <p className="hint">Se registra como ingreso en tu Gestor financiero{usd ? ', en pesos (el Gestor lleva todo en COP)' : ''}.</p>}
+      {f.sendToFinance && (
+        <p className="hint">
+          {receipt ? 'Al guardar se actualiza el mismo ingreso en tu Gestor financiero (fecha, monto, medio y descripción)' : 'Se registra como ingreso en tu Gestor financiero'}
+          {usd ? ', en pesos (el Gestor lleva todo en COP)' : ''}.
+        </p>
+      )}
     </div>
   );
 }

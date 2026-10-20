@@ -1,67 +1,93 @@
-import { formatDateTime, formatMoney, type Receipt } from '../../lib';
+import type { ReactNode } from 'react';
+import { docDate, formatDateTime, formatMoney, type Receipt } from '../../lib';
 import { Link } from '../../ui';
 
-/** Detalle de un abono (al abrirlo en una lista): notas del pago, conversión, a qué se aplicó y su estado en el Gestor. */
-export function ReceiptDetail({ r }: { r: Receipt }) {
-  const gestor =
-    r.sendToFinance === false && r.sync !== 'error' ? (
-      <span className="sync sync--off">No se envía al Gestor</span>
-    ) : r.sync === 'ok' ? (
+/**
+ * Detalle de un abono (al abrirlo en una lista): notas del pago arriba, los datos en columnas y, abajo,
+ * cómo quedó en el Gestor financiero, con el botón para editarlo (lo que se cambie se actualiza allá).
+ */
+export function ReceiptDetail({ r, onEdit }: { r: Receipt; onEdit?: () => void }) {
+  const off = r.sendToFinance === false && r.sync !== 'error';
+  const status = off ? (
+    <span className="sync sync--off">No se envía al Gestor</span>
+  ) : r.sync === 'ok' ? (
+    <span className="sync sync--ok">✓ Registrado{r.syncedAt ? ` · ${formatDateTime(r.syncedAt)}` : ''}</span>
+  ) : r.sync === 'error' ? (
+    <span className="sync sync--error">⚠ {r.syncError ?? 'No se pudo registrar'}</span>
+  ) : (
+    <span className="hint">Aún sin registrar</span>
+  );
+
+  const facts: [string, ReactNode][] = [
+    ['Fecha', docDate(r.date)],
+    ['Medio', r.method || '—'],
+    [
+      'Monto',
+      r.currency === 'USD' ? (
+        <>
+          {formatMoney(r.amountCop)}
+          <small>
+            {formatMoney(r.amount, 'USD')} × TRM {r.trm?.toLocaleString('es-CO') ?? '—'}
+          </small>
+        </>
+      ) : (
+        formatMoney(r.amountCop)
+      ),
+    ],
+    [
+      'Aplicado a',
       <>
-        <span className="sync sync--ok">✓ Registrado{r.syncedAt ? ` el ${formatDateTime(r.syncedAt)}` : ''}</span>
-        {r.financeDescription && <small>{r.financeDescription}</small>}
-      </>
-    ) : r.sync === 'error' ? (
-      <span className="sync sync--error">⚠ {r.syncError ?? 'No se pudo registrar'}</span>
-    ) : (
-      <span className="hint">Aún sin registrar</span>
-    );
+        {r.invoiceNumber ? <Link to={`/cuentas-de-cobro/${r.invoiceId}`}>Cuenta de cobro {r.invoiceNumber}</Link> : 'La cuenta del cliente'}
+        {r.paymentId && <small>Cuota del plan de pagos</small>}
+      </>,
+    ],
+    ['Origen', r.imported ? 'Importado de SmartBilling' : r.createdAt ? `Registrado ${formatDateTime(r.createdAt)}` : 'Partners'],
+    ...(r.proofUrl
+      ? ([
+          [
+            'Comprobante',
+            <a href={r.proofUrl} target="_blank" rel="noopener noreferrer">
+              Ver comprobante
+            </a>,
+          ],
+        ] as [string, ReactNode][])
+      : []),
+  ];
 
   return (
     <div className="rc-detail">
       <div className="rc-detail__notes">
-        <small>Notas · detalle del pago</small>
+        <span className="rc-detail__label">Notas · detalle del pago</span>
         {r.notes ? <p className="pre">{r.notes}</p> : <p className="hint">Sin notas.</p>}
       </div>
+
       <dl className="rc-detail__facts">
-        <div>
-          <dt>Medio</dt>
-          <dd>{r.method || '—'}</dd>
-        </div>
-        <div>
-          <dt>Monto</dt>
-          <dd className="mono">
-            {r.currency === 'USD' ? `${formatMoney(r.amount, 'USD')} × TRM ${r.trm?.toLocaleString('es-CO') ?? '—'} = ${formatMoney(r.amountCop)}` : formatMoney(r.amountCop)}
-          </dd>
-        </div>
-        <div>
-          <dt>Aplicado a</dt>
-          <dd>
-            {r.invoiceNumber ? <Link to={`/cuentas-de-cobro/${r.invoiceId}`}>Cuenta de cobro {r.invoiceNumber}</Link> : 'La cuenta del cliente'}
-            {r.paymentId && <small>Cuota del plan de pagos</small>}
-          </dd>
-        </div>
-        {r.proofUrl && (
-          <div>
-            <dt>Comprobante</dt>
-            <dd>
-              <a href={r.proofUrl} target="_blank" rel="noopener noreferrer">
-                Ver comprobante
-              </a>
-            </dd>
+        {facts.map(([k, v]) => (
+          <div key={k}>
+            <dt className="rc-detail__label">{k}</dt>
+            <dd>{v}</dd>
           </div>
-        )}
-        <div>
-          <dt>Gestor financiero</dt>
-          <dd>{gestor}</dd>
-        </div>
-        {(r.imported || r.createdAt) && (
-          <div>
-            <dt>Origen</dt>
-            <dd>{r.imported ? 'Importado de SmartBilling' : `Registrado el ${formatDateTime(r.createdAt!)}`}</dd>
-          </div>
-        )}
+        ))}
       </dl>
+
+      <div className="rc-detail__gestor">
+        <div>
+          <span className="rc-detail__label">Gestor financiero</span>
+          {status}
+          {!off && r.financeDescription && (
+            <p className="rc-detail__desc">
+              <span>Descripción:</span> {r.financeDescription}
+            </p>
+          )}
+        </div>
+        {onEdit ? (
+          <button className="btn btn--outline btn--sm" onClick={onEdit}>
+            ✎ Editar abono
+          </button>
+        ) : (
+          r.paymentId && <span className="hint">Se edita desde la pestaña Pagos del proyecto.</span>
+        )}
+      </div>
     </div>
   );
 }

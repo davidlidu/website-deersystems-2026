@@ -226,7 +226,7 @@ function ReceiptsTab() {
                 </button>
               </span>
             </div>
-            {openId === r.id && <ReceiptDetail r={r} />}
+            {openId === r.id && <ReceiptDetail r={r} onEdit={r.paymentId ? undefined : () => { setEditing(r); setTimeout(() => document.querySelector('.receipt-form')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); }} />}
             </Fragment>
           ))}
         </div>

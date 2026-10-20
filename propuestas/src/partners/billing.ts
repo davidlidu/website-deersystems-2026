@@ -402,7 +402,8 @@ function receiptView(r: ReceiptRow) {
     syncError: r.sync_error,
     syncedAt: r.synced_at,
     sendToFinance: !r.skip_finance,
-    financeDescription: r.skip_finance ? null : incomeDescription(r),
+    financeDescription: incomeDescription(r),
+    customDescription: !!r.finance_description,
     imported: !!r.sb_id,
     createdAt: r.created_at,
   };
@@ -867,6 +868,10 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       const body = await readJson(req);
       saveReceipt(readReceipt(await withTrm(body, current), current), { id: current.id });
       setSendToFinance(current.id, body.sendToFinance);
+      // Descripción del ingreso en el Gestor: vacía = la arma Partners con el proyecto, la cuenta de cobro y las notas.
+      if (typeof body.financeDescription === 'string') {
+        sqlite.prepare('UPDATE receipts SET finance_description = ? WHERE id = ?').run(body.financeDescription.trim().slice(0, 300) || null, current.id);
+      }
       json(res, 200, receiptView(await syncReceipt(getReceipt(current.id)!)));
       return true;
     }

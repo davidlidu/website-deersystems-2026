@@ -40,7 +40,8 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
 Un abono es lo que entró. Va **ligado al cliente** (como en SmartBilling) y, si quieres, a un proyecto y a una cuenta de cobro.
 
 - **Campos:** fecha, monto, moneda, medio (transferencia, QR, Nequi, PSE, efectivo…) y notas con el detalle del pago.
-- **Ver el detalle:** clic en un abono (en *Facturación → Abonos* o en la ficha del cliente) para abrir sus notas, el medio, la conversión si es en USD, a qué se aplicó, el comprobante y su estado en el Gestor con la descripción del ingreso.
+- **Ver el detalle:** clic en un abono (en *Facturación → Abonos* o en la ficha del cliente) para abrir sus notas, la fecha, el medio, la conversión si es en USD, a qué se aplicó, el origen, el comprobante y su estado en el Gestor con la descripción del ingreso.
+- **Editar** (desde el detalle o con ✎), también los importados de SmartBilling: fecha, monto, medio, cuenta de cobro, notas y la **descripción en el Gestor**. Al guardar se actualiza el mismo ingreso en el Gestor (misma referencia, no se duplica). Si dejas la descripción vacía, Partners la arma con el proyecto, la cuenta de cobro y las notas. Los abonos de cuotas del plan se editan desde la pestaña *Pagos* del proyecto.
 - **Enviar al Gestor financiero** (interruptor, encendido por defecto): apágalo si ese abono no debe quedar como ingreso. Sigue contando para el saldo del cliente. Si ya estaba en el Gestor, se quita; si el Gestor no responde, queda con *⚠ Reintentar*. En la lista se ve como *No se envía*.
 - **En USD:** la TRM del día y los pesos recibidos, que se pueden corregir.
 - **Gestor financiero:** cada abono es un ingreso (`PUT /integrations/billing-payment/{referencia}`), con la categoría = cliente y la descripción = proyecto, tipo de abono o cuenta de cobro.

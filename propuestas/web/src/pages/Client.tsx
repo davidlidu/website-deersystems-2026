@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { api, docDate, formatDateTime, formatMoney, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
+import { api, docDate, formatDateTime, formatMoney, useApi, type Me, type ProjectSummary, type Receipt, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
 import { InvoiceStatus } from './billing/InvoiceStatus';
 import { ReceiptDetail } from './billing/ReceiptDetail';
@@ -101,6 +101,7 @@ function ClientStatement({ clientId }: { clientId: number }) {
   const { data, error, loading, reload } = useApi<Statement>(`clients/${clientId}/statement`);
   const [paying, setPaying] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<Receipt | null>(null);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const s = data!;
@@ -131,6 +132,17 @@ function ClientStatement({ clientId }: { clientId: number }) {
           <strong>{formatMoney(Math.abs(s.totals.balance))}</strong>
         </div>
       </div>
+      {editing && (
+        <ReceiptForm
+          key={editing.id}
+          receipt={editing}
+          onCancel={() => setEditing(null)}
+          onDone={() => {
+            setEditing(null);
+            reload();
+          }}
+        />
+      )}
       {paying && (
         <ReceiptForm
           clientId={clientId}
@@ -184,7 +196,20 @@ function ClientStatement({ clientId }: { clientId: number }) {
                       {r.sendToFinance === false && <small className="sync sync--off">No se envía</small>}
                     </span>
                   </button>
-                  {openId === r.id && <ReceiptDetail r={r} />}
+                  {openId === r.id && (
+                    <ReceiptDetail
+                      r={r}
+                      onEdit={
+                        r.paymentId
+                          ? undefined
+                          : () => {
+                              setPaying(false);
+                              setEditing(r);
+                              setTimeout(() => document.querySelector('.receipt-form')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50);
+                            }
+                      }
+                    />
+                  )}
                 </Fragment>
               ))}
             </div>
