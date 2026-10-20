@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { api, docDate, emptyRange, formatMoney, inRange, navigate, useApi, useLocation, type DateRange, type InvoiceSummary, type Receipt } from '../../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../../ui';
 import { InvoiceStatus } from './InvoiceStatus';
 import { DateFilter } from './DateFilter';
 import { ImportTab } from './Import';
+import { ReceiptDetail } from './ReceiptDetail';
 import { ReceiptForm } from './ReceiptForm';
 import { ReportsTab } from './Reports';
 
@@ -91,6 +92,7 @@ function InvoicesTab() {
 function ReceiptsTab() {
   const { data, error, loading, reload, setData } = useApi<Receipt[]>('receipts');
   const [editing, setEditing] = useState<Receipt | 'new' | null>(null);
+  const [openId, setOpenId] = useState<number | null>(null);
   const [q, setQ] = useState('');
   const [range, setRange] = useState<DateRange>(emptyRange);
   const { busy, run } = useAction();
@@ -153,11 +155,19 @@ function ReceiptsTab() {
             <span />
           </div>
           {shown.map((r) => (
-            <div key={r.id} className="table__row rc-row">
+            <Fragment key={r.id}>
+            <div
+              className={`table__row rc-row is-clickable${openId === r.id ? ' is-open' : ''}`}
+              onClick={(e) => {
+                // Los botones y enlaces de la fila hacen lo suyo; el resto abre el detalle.
+                if ((e.target as HTMLElement).closest('a, button')) return;
+                setOpenId(openId === r.id ? null : r.id);
+              }}
+            >
               <span className="mono">{docDate(r.date)}</span>
               <span>
                 <Link to={`/clientes/${r.clientId}`}>{r.clientName}</Link>
-                {r.notes && <small>{r.notes}</small>}
+                {r.notes && <small className="rc-row__notes">{r.notes}</small>}
               </span>
               <span className="mono">
                 {formatMoney(r.amountCop)}
@@ -173,7 +183,9 @@ function ReceiptsTab() {
                 {r.paymentId && <small>Cuota del plan de pagos</small>}
               </span>
               <span>
-                {r.sync === 'ok' ? (
+                {r.sendToFinance === false && r.sync !== 'error' ? (
+                  <span className="sync sync--off" title="Este abono no se envía al Gestor financiero">No se envía</span>
+                ) : r.sync === 'ok' ? (
                   <span className="sync sync--ok">✓</span>
                 ) : (
                   <button
@@ -203,8 +215,19 @@ function ReceiptsTab() {
                     </button>
                   </>
                 )}
+                <button
+                  className="icon-btn rc-row__toggle"
+                  aria-expanded={openId === r.id}
+                  aria-label={openId === r.id ? 'Cerrar detalle' : 'Ver detalle del pago'}
+                  title={openId === r.id ? 'Cerrar detalle' : 'Ver detalle del pago'}
+                  onClick={() => setOpenId(openId === r.id ? null : r.id)}
+                >
+                  ▾
+                </button>
               </span>
             </div>
+            {openId === r.id && <ReceiptDetail r={r} />}
+            </Fragment>
           ))}
         </div>
       ) : (

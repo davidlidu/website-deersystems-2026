@@ -72,6 +72,8 @@ export interface ReceiptRow {
   sync_error: string | null;
   synced_at: string | null;
   sb_id: string | null;
+  /** 1 = no se envía al Gestor financiero (p. ej. un abono que no es ingreso tuyo). */
+  skip_finance: number;
   created_at: string;
   updated_at: string;
 }
@@ -133,6 +135,9 @@ sqlite.exec(`
   );
   CREATE INDEX IF NOT EXISTS receipts_client ON receipts(client_id, date);
 `);
+if (!(sqlite.prepare('PRAGMA table_info(receipts)').all() as { name: string }[]).some((c) => c.name === 'skip_finance')) {
+  sqlite.exec('ALTER TABLE receipts ADD COLUMN skip_finance INTEGER NOT NULL DEFAULT 0');
+}
 
 const now = () => new Date().toISOString();
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -396,7 +401,10 @@ function receiptView(r: ReceiptRow) {
     sync: r.sync_status,
     syncError: r.sync_error,
     syncedAt: r.synced_at,
+    sendToFinance: !r.skip_finance,
+    financeDescription: r.skip_finance ? null : incomeDescription(r),
     imported: !!r.sb_id,
+    createdAt: r.created_at,
   };
 }
 
@@ -424,6 +432,17 @@ function incomeDescription(r: ReceiptRow): string {
 
 /** Lleva el abono al Gestor (crea o actualiza el ingreso). Nunca lanza: deja el estado en el abono. */
 export async function syncReceipt(r: ReceiptRow): Promise<ReceiptRow> {
+  if (r.skip_finance) {
+    // No va al Gestor: si ya estaba allá, se quita el ingreso.
+    try {
+      if (r.sync_status) await deleteIncome(r.finance_ref);
+      sqlite.prepare('UPDATE receipts SET sync_status = NULL, sync_error = NULL, synced_at = NULL WHERE id = ?').run(r.id);
+    } catch (err) {
+      if (!(err instanceof FinanceError)) throw err;
+      sqlite.prepare("UPDATE receipts SET sync_status = 'error', sync_error = ? WHERE id = ?").run(`No se pudo quitar del Gestor: ${err.message}`, r.id);
+    }
+    return getReceipt(r.id)!;
+  }
   try {
     await upsertIncome(r.finance_ref, {
       amount: r.amount_cop,
@@ -511,6 +530,11 @@ export function saveReceipt(
       ts,
     );
   return getReceipt(Number(r.lastInsertRowid))!;
+}
+
+/** El interruptor «Enviar al Gestor financiero» del abono (sin el dato, se deja como estaba). */
+function setSendToFinance(id: number, value: unknown): void {
+  if (typeof value === 'boolean') sqlite.prepare('UPDATE receipts SET skip_finance = ? WHERE id = ?').run(value ? 0 : 1, id);
 }
 
 /** En USD sin TRM ni pesos: se usa la TRM oficial de la fecha del abono. */
@@ -828,8 +852,10 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
 
     case 'POST receipts': {
       requireOwner(v);
-      const r = saveReceipt(readReceipt(await withTrm(await readJson(req))));
-      json(res, 201, receiptView(await syncReceipt(r)));
+      const body = await readJson(req);
+      const r = saveReceipt(readReceipt(await withTrm(body)));
+      setSendToFinance(r.id, body.sendToFinance);
+      json(res, 201, receiptView(await syncReceipt(getReceipt(r.id)!)));
       return true;
     }
 
@@ -838,8 +864,10 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       const current = getReceipt(id);
       if (!current) throw new HttpError(404, 'El abono no existe.');
       if (current.payment_id) throw new HttpError(409, 'Este abono viene de una cuota del plan de pagos: edítalo desde la pestaña Pagos del proyecto.');
-      const r = saveReceipt(readReceipt(await withTrm(await readJson(req), current), current), { id: current.id });
-      json(res, 200, receiptView(await syncReceipt(r)));
+      const body = await readJson(req);
+      saveReceipt(readReceipt(await withTrm(body, current), current), { id: current.id });
+      setSendToFinance(current.id, body.sendToFinance);
+      json(res, 200, receiptView(await syncReceipt(getReceipt(current.id)!)));
       return true;
     }
 

@@ -32,7 +32,7 @@ No hay migraciones que correr a mano. La de `clients` (correo opcional) reconstr
 | `payments` | id, project_id, label, percent, amount, currency (`USD`/`COP`), due_date, position, paid, paid_at, amount_cop, trm, invoice_id, created_at, updated_at (+ columnas de sincronización históricas) | Plan de pagos del proyecto. Pagada → su abono en `receipts` |
 | `invoices` | id, client_id, project_id, number (único), kind, date, due_date, currency, exchange_rate, total, total_cop, notes, status (`emitida`/`anulada`), sent_at, sb_id, online_link_id, online_link_url, created_at, updated_at | Cuentas de cobro. `total_cop` siempre en pesos |
 | `invoice_items` | id, invoice_id, description (HTML saneado), quantity, unit, unit_price, position | |
-| `receipts` | id, client_id, project_id, invoice_id, payment_id, amount_cop, currency, amount, trm, date, method, notes, proof_url, finance_ref (único), finance_category, finance_description, sync_status, sync_error, synced_at, sb_id, created_at, updated_at | Abonos: cada uno es un ingreso en el Gestor con `finance_ref` |
+| `receipts` | id, client_id, project_id, invoice_id, payment_id, amount_cop, currency, amount, trm, date, method, notes, proof_url, finance_ref (único), finance_category, finance_description, sync_status, sync_error, synced_at, sb_id, skip_finance, created_at, updated_at | Abonos: cada uno es un ingreso en el Gestor con `finance_ref` |
 | `ai_usage` | id, at, provider, model, purpose, input_tokens, output_tokens, cost_usd, latency_ms, ok, error | Consumo de IA |
 | `settings` | key, value (JSON) | Ver abajo |
 

@@ -486,7 +486,13 @@ export interface Receipt {
   proofUrl?: string | null;
   sync?: 'ok' | 'error' | null;
   syncError?: string | null;
+  syncedAt?: string | null;
+  /** false = este abono no se envía al Gestor financiero. */
+  sendToFinance?: boolean;
+  /** Descripción con la que queda el ingreso en el Gestor. */
+  financeDescription?: string | null;
   imported?: boolean;
+  createdAt?: string;
 }
 
 export interface InvoiceDetail extends InvoiceSummary {

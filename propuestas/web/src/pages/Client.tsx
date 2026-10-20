@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { api, docDate, formatDateTime, formatMoney, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
 import { InvoiceStatus } from './billing/InvoiceStatus';
+import { ReceiptDetail } from './billing/ReceiptDetail';
 import { ReceiptForm } from './billing/ReceiptForm';
 import { ProjectCard } from './Home';
 
@@ -48,13 +49,17 @@ function BillingData({ c, onSaved }: { c: ClientDetail; onSaved: () => void }) {
         </label>
         <label className="field">
           <span className="field__label">Documento</span>
-          <span className="input">
-            <select value={f.docType} onChange={(e) => set({ docType: e.target.value })} aria-label="Tipo de documento" className="input__prefix">
-              {['NIT', 'CC', 'CE', 'Pasaporte'].map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-            <input value={f.docNumber} onChange={(e) => set({ docNumber: e.target.value })} aria-label="Número de documento" />
+          <span className="doc-field">
+            <span className="input">
+              <select value={f.docType} onChange={(e) => set({ docType: e.target.value })} aria-label="Tipo de documento">
+                {['NIT', 'CC', 'CE', 'Pasaporte'].map((t) => (
+                  <option key={t}>{t}</option>
+                ))}
+              </select>
+            </span>
+            <span className="input">
+              <input value={f.docNumber} onChange={(e) => set({ docNumber: e.target.value })} aria-label="Número de documento" placeholder="Número" />
+            </span>
           </span>
         </label>
         {(
@@ -95,6 +100,7 @@ function BillingData({ c, onSaved }: { c: ClientDetail; onSaved: () => void }) {
 function ClientStatement({ clientId }: { clientId: number }) {
   const { data, error, loading, reload } = useApi<Statement>(`clients/${clientId}/statement`);
   const [paying, setPaying] = useState(false);
+  const [openId, setOpenId] = useState<number | null>(null);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const s = data!;
@@ -162,12 +168,24 @@ function ClientStatement({ clientId }: { clientId: number }) {
           {s.receipts.length ? (
             <div className="table card">
               {s.receipts.map((r) => (
-                <div key={r.id} className="table__row pay-client">
-                  <span className="mono">{docDate(r.date)}</span>
-                  <span className="mono">{formatMoney(r.amountCop)}</span>
-                  <span>{r.method}</span>
-                  <span>{r.invoiceNumber ? <small>CC {r.invoiceNumber}</small> : null}</span>
-                </div>
+                <Fragment key={r.id}>
+                  <button
+                    type="button"
+                    className={`table__row pay-client is-clickable${openId === r.id ? ' is-open' : ''}`}
+                    aria-expanded={openId === r.id}
+                    title="Ver detalle del pago"
+                    onClick={() => setOpenId(openId === r.id ? null : r.id)}
+                  >
+                    <span className="mono">{docDate(r.date)}</span>
+                    <span className="mono">{formatMoney(r.amountCop)}</span>
+                    <span>{r.method}</span>
+                    <span>
+                      {r.invoiceNumber ? <small>CC {r.invoiceNumber}</small> : null}
+                      {r.sendToFinance === false && <small className="sync sync--off">No se envía</small>}
+                    </span>
+                  </button>
+                  {openId === r.id && <ReceiptDetail r={r} />}
+                </Fragment>
               ))}
             </div>
           ) : (

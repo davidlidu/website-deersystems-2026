@@ -59,20 +59,24 @@ function QuickClient({ onCreated, onCancel }: { onCreated: (c: ClientOption) => 
         ).map(([k, label]) => (
           <label key={k} className="field">
             <span className="field__label">{label}</span>
-            <span className="input">
-              {k === 'docNumber' ? (
-                <>
-                  <select value={f.docType} onChange={(e) => set({ docType: e.target.value })} aria-label="Tipo de documento" className="input__prefix">
+            {k === 'docNumber' ? (
+              <span className="doc-field">
+                <span className="input">
+                  <select value={f.docType} onChange={(e) => set({ docType: e.target.value })} aria-label="Tipo de documento">
                     {['NIT', 'CC', 'CE', 'Pasaporte'].map((t) => (
                       <option key={t}>{t}</option>
                     ))}
                   </select>
-                  <input value={f.docNumber} onChange={(e) => set({ docNumber: e.target.value })} />
-                </>
-              ) : (
+                </span>
+                <span className="input">
+                  <input value={f.docNumber} onChange={(e) => set({ docNumber: e.target.value })} aria-label="Número de documento" placeholder="Número" />
+                </span>
+              </span>
+            ) : (
+              <span className="input">
                 <input value={f[k]} onChange={(e) => set({ [k]: e.target.value })} type={k === 'email' ? 'email' : 'text'} />
-              )}
-            </span>
+              </span>
+            )}
           </label>
         ))}
       </div>
