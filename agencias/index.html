@@ -359,7 +359,7 @@ tbody tr:hover td { background: rgba(0,180,216,.04); }
       <a href="#por-que">Por qué nosotros</a>
       <a href="#wordpress">WordPress</a>
       <a href="#shopify">Shopify</a>
-      <a href="#email-marketing">Email marketing</a>
+      <a href="#email-marketing">Email y SMS</a>
       <a href="#proyectos">Proyectos</a>
       <a href="#mantenimiento">Mantenimiento</a>
       <a class="btn btn--primary header__cta" href="https://wa.me/573128765844?text=Hola%20David%2C%20tenemos%20una%20agencia%20y%20queremos%20conocer%20tu%20propuesta%20de%20desarrollo." target="_blank" rel="noopener">Agenda una llamada</a>
@@ -538,14 +538,14 @@ tbody tr:hover td { background: rgba(0,180,216,.04); }
 <section id="email-marketing" class="section">
   <div class="container">
     <div class="section__head" data-reveal>
-      <p class="eyebrow">Canal de difusión · Email marketing</p>
-      <h2 class="h2">Email marketing <span class="grad">listo para enviar</span></h2>
-      <p class="lead">Dejamos la base de datos limpia, el canal de envío configurado y las campañas saliendo a tiempo. La plataforma que recomendamos es <strong>Brevo</strong>: es con la que mejores resultados de entregabilidad hemos tenido.</p>
+      <p class="eyebrow">Canales de difusión · Email y SMS marketing</p>
+      <h2 class="h2">Email y SMS marketing <span class="grad">listos para enviar</span></h2>
+      <p class="lead">Dejamos la base de datos limpia, los canales de envío por correo y SMS configurados y las campañas saliendo a tiempo, con los mismos valores para ambos canales. La plataforma que recomendamos es <strong>Brevo</strong>: es con la que mejores resultados de entregabilidad hemos tenido.</p>
     </div>
 
     <div class="grid grid--4">
       <div class="card why" data-reveal><div class="why__icon"><svg><use href="#i-search"/></svg></div><h4>Base de datos normalizada</h4><p>Filtramos duplicados y correos inválidos, unificamos formatos y ordenamos los contactos en listas y segmentos.</p></div>
-      <div class="card why" data-reveal style="--d:60ms"><div class="why__icon"><svg><use href="#i-share"/></svg></div><h4>Recomendamos Brevo</h4><p>Si el cliente no tiene la plataforma, la creamos y configuramos dentro del setup.</p></div>
+      <div class="card why" data-reveal style="--d:60ms"><div class="why__icon"><svg><use href="#i-share"/></svg></div><h4>Recomendamos Brevo</h4><p>Una sola plataforma para email y SMS. Si el cliente no la tiene, la creamos y configuramos dentro del setup.</p></div>
       <div class="card why" data-reveal style="--d:120ms"><div class="why__icon"><svg><use href="#i-shield"/></svg></div><h4>Subdominio de envío</h4><p>Los envíos masivos salen de un subdominio (ej. <span class="mono">mail.marca.com</span>) con SPF, DKIM y DMARC, para proteger el dominio principal.</p></div>
       <div class="card why" data-reveal style="--d:180ms"><div class="why__icon"><svg><use href="#i-design"/></svg></div><h4>Tu agencia pone el diseño</h4><p>Las piezas de cada campaña las entrega la agencia. Nosotros las montamos, probamos y enviamos.</p></div>
     </div>
@@ -553,15 +553,16 @@ tbody tr:hover td { background: rgba(0,180,216,.04); }
     <div class="grid grid--2" style="margin-top:16px">
       <article class="card plan" data-reveal>
         <span class="plan__tag">Pago único</span>
-        <h3 class="h3">Setup de email marketing</h3>
+        <h3 class="h3">Setup de email y SMS marketing</h3>
         <p class="plan__desc">Base de datos lista y canal de envío configurado, para empezar a enviar campañas.</p>
         <div class="plan__price">$650.000<small>COP</small></div>
         <div class="plan__usd">USD ~$160 · 50% inicio / 50% entrega</div>
         <ul class="plan__list">
-          <li>Normalización de hasta 5.000 contactos: filtrado, deduplicado, validación y orden</li>
+          <li>Normalización de hasta 5.000 contactos: filtrado, deduplicado, validación de correos y celulares (formato +57) y orden</li>
           <li>Importación en listas y segmentos (ej. clientes, leads, inactivos)</li>
           <li>Creación y configuración de la cuenta Brevo, si el cliente no la tiene</li>
           <li>Subdominio de envío con SPF, DKIM y DMARC</li>
+          <li>Activación del canal SMS en Brevo y configuración del remitente</li>
           <li>Remitente verificado y formulario de suscripción</li>
           <li>Gestión de bajas y cumplimiento de habeas data</li>
           <li>Envío de prueba y revisión de entregabilidad</li>
@@ -575,12 +576,12 @@ tbody tr:hover td { background: rgba(0,180,216,.04); }
         <div class="plan__price">$480.000<small>COP / mes</small></div>
         <div class="plan__usd">USD ~$120 / mes · hasta 4 campañas</div>
         <ul class="plan__list">
-          <li>Hasta 4 campañas al mes</li>
-          <li>Montaje en Brevo del diseño entregado por la agencia</li>
+          <li>Hasta 4 campañas al mes, por email o SMS (cada envío cuenta como una campaña)</li>
+          <li>Montaje en Brevo del diseño o del texto SMS entregado por la agencia</li>
           <li>Segmentación del envío por lista</li>
           <li>Pruebas en escritorio y móvil antes de enviar</li>
           <li>Programación del envío</li>
-          <li>Informe por campaña: aperturas, clics, rebotes y bajas</li>
+          <li>Informe por campaña: entregas, aperturas, clics, rebotes y bajas</li>
           <li>Depuración mensual de rebotes y bajas</li>
         </ul>
         <div class="plan__delivery">Campaña adicional: <b>$120.000 COP</b></div>
@@ -595,10 +596,12 @@ tbody tr:hover td { background: rgba(0,180,216,.04); }
           <tr><td>Gratis</td><td>Hasta 300 correos al día</td><td>Hasta 100.000 almacenados</td><td>Sí, en cada correo</td></tr>
           <tr><td>Starter</td><td>Desde 5.000 correos al mes</td><td>Según el volumen contratado</td><td>Sí (se quita con un complemento pago)</td></tr>
           <tr><td>Standard / Business</td><td>Desde 5.000 correos al mes, más automatizaciones</td><td>Según el volumen contratado</td><td class="yes">Sin marca de agua</td></tr>
-          <tr><td>Licencia</td><td colspan="3">La paga directamente el cliente a Brevo. Precios y límites aproximados; se confirman en brevo.com al momento de contratar.</td></tr>
+          <tr><td>SMS</td><td>Se pagan aparte con créditos prepago que se compran dentro de Brevo</td><td>Precio por mensaje según el país de destino</td><td>No aplica</td></tr>
+          <tr><td>Licencia</td><td colspan="3">La licencia y los créditos SMS los paga directamente el cliente a Brevo. Precios y límites aproximados; se confirman en brevo.com al momento de contratar.</td></tr>
         </tbody>
       </table>
     </div>
+    <div class="mnt__no" data-reveal><strong>Importante sobre SMS:</strong> los créditos se compran dentro de Brevo y la línea o remitente desde el que salen los mensajes depende de Brevo y del operador de cada país. Si se requiere un número o remitente propio, lo provee el cliente. Ese costo y su aprobación no dependen de DeerSystems.</div>
   </div>
 </section>
 
@@ -716,9 +719,10 @@ tbody tr:hover td { background: rgba(0,180,216,.04); }
       <div class="card note" data-reveal><h4>Tiempos de entrega</h4><p>Los plazos aplican desde la recepción de <strong>todos los insumos completos</strong>. Si los materiales se retrasan, los tiempos se amplían en proporción.</p></div>
       <div class="card note" data-reveal style="--d:60ms"><h4>Pasarela de pagos</h4><p>La agencia o el cliente final crea la cuenta en la pasarela. Nosotros hacemos la <strong>integración técnica</strong> con las credenciales suministradas.</p></div>
       <div class="card note" data-reveal style="--d:120ms"><h4>Cuenta Shopify</h4><p>El cliente final debe tener una cuenta activa de Shopify. Te apoyamos con la <strong>configuración inicial</strong> si la necesitas.</p></div>
-      <div class="card note" data-reveal><h4>Email marketing</h4><p>El <strong>diseño de las campañas lo entrega la agencia</strong>. La licencia de Brevo la paga el cliente; las campañas no usadas en el mes no se acumulan.</p></div>
-      <div class="card note" data-reveal style="--d:60ms"><h4>Fuera del alcance</h4><p>Cualquier funcionalidad o cambio no contemplado se <strong>cotiza por separado</strong> y requiere tu aprobación antes de ejecutarse.</p></div>
-      <div class="card note" data-reveal style="--d:120ms"><h4>Impuestos</h4><p>Todos los precios están expresados <strong>antes de IVA (19%)</strong>. Aplica para facturación a empresas colombianas.</p></div>
+      <div class="card note" data-reveal><h4>Email y SMS marketing</h4><p>El <strong>diseño de las campañas y los textos SMS los entrega la agencia</strong>. La licencia de Brevo la paga el cliente; las campañas no usadas en el mes no se acumulan.</p></div>
+      <div class="card note" data-reveal style="--d:60ms"><h4>Línea y créditos SMS</h4><p>El costo de los mensajes y la línea o remitente <strong>no dependen de DeerSystems</strong>. Los créditos se compran dentro de Brevo; si el país u operador exige un número o remitente propio, <strong>lo provee el cliente</strong>. Sus tarifas, aprobaciones y tiempos los define Brevo o el operador.</p></div>
+      <div class="card note" data-reveal style="--d:120ms"><h4>Fuera del alcance</h4><p>Cualquier funcionalidad o cambio no contemplado se <strong>cotiza por separado</strong> y requiere tu aprobación antes de ejecutarse.</p></div>
+      <div class="card note" data-reveal><h4>Impuestos</h4><p>Todos los precios están expresados <strong>antes de IVA (19%)</strong>. Aplica para facturación a empresas colombianas.</p></div>
     </div>
   </div>
 </section>
@@ -750,7 +754,7 @@ tbody tr:hover td { background: rgba(0,180,216,.04); }
       <nav class="footer__nav" aria-label="Pie">
         <a href="#wordpress">WordPress</a>
         <a href="#shopify">Shopify</a>
-        <a href="#email-marketing">Email marketing</a>
+        <a href="#email-marketing">Email y SMS</a>
         <a href="#mantenimiento">Mantenimiento</a>
         <a href="#condiciones">Condiciones</a>
       </nav>
