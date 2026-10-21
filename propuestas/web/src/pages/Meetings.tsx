@@ -249,6 +249,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
   const [agreements, setAgreements] = useState<string[]>([]);
   const [tasks, setTasks] = useState<DraftTask[]>([]);
   const [recipients, setRecipients] = useState<Set<string>>(new Set());
+  const [added, setAdded] = useState<string[]>([]);
   const [extra, setExtra] = useState('');
   const [paste, setPaste] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
@@ -263,8 +264,11 @@ export function MeetingReviewPage({ id }: { id: number }) {
     setTasks(
       (data.proposedTasks ?? []).map((t) => ({ key: key(), include: true, title: t.title, description: t.description, side: t.side, assigneeId: null, dueDate: t.dueDate ?? '' })),
     );
-    setRecipients(new Set(data.attendees.filter((a) => a.side !== 'deersystems').map((a) => a.email)));
-  }, [data?.id, data?.status, data?.ai?.latencyMs]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Por defecto: la cuenta principal del cliente y los participantes que no son de DeerSystems.
+    setRecipients(
+      new Set([...(data.clientContacts ?? []).map((c) => c.email), ...data.attendees.filter((a) => a.side !== 'deersystems').map((a) => a.email.toLowerCase())]),
+    );
+  }, [data?.id, data?.status, data?.ai?.latencyMs, data?.projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
@@ -297,7 +301,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
   const approve = () => {
     if (!m.projectId) return toast('Elige el proyecto de la reunión.', true);
     if (!summary.trim()) return toast('El resumen está vacío.', true);
-    const to = [...recipients, ...extra.split(/[,;\s]+/).filter((e) => e.includes('@'))];
+    const to = [...recipients];
     const chosen = tasks.filter((t) => t.include && t.title.trim());
     if (!confirm(`Se crearán ${chosen.length} tareas en «${m.projectName}»${to.length ? ` y se enviará el resumen a ${to.join(', ')}` : ''}. ¿Continuar?`)) return;
     run(async () => {
@@ -320,7 +324,20 @@ export function MeetingReviewPage({ id }: { id: number }) {
 
   const setTask = (k: string, patch: Partial<DraftTask>) => setTasks((ts) => ts.map((t) => (t.key === k ? { ...t, ...patch } : t)));
   const activeTeam = (team.data ?? []).filter((t) => t.active);
-  const external = m.attendees.filter((a) => a.side !== 'deersystems');
+  // Todos los posibles destinatarios: cuenta principal y contacto del cliente, participantes de la reunión y los que agregues.
+  const candidates: { email: string; name: string; label: string; kind: string }[] = [];
+  const addCandidate = (email: string, name: string, label: string, kind: string) => {
+    const e = email.trim().toLowerCase();
+    const same = candidates.find((c) => c.email === e);
+    // La cuenta principal que además estuvo en la reunión: una sola fila que lo dice.
+    if (same && kind !== 'added' && same.kind === 'main' && !same.label.includes('participó')) same.label += ' · participó';
+    else if (e && !same) candidates.push({ email: e, name, label, kind });
+  };
+  (m.clientContacts ?? []).forEach((c) => addCandidate(c.email, c.name, c.label, 'main'));
+  m.attendees.forEach((a) =>
+    addCandidate(a.email, a.name, a.side === 'deersystems' ? 'DeerSystems' : a.side === 'cliente' ? 'Participante · cliente' : 'Participante', a.side === 'deersystems' ? 'team' : 'guest'),
+  );
+  added.forEach((e) => addCandidate(e, '', 'Agregado', 'added'));
 
   return (
     <>
@@ -557,33 +574,56 @@ export function MeetingReviewPage({ id }: { id: number }) {
               summary,
               agreements: agreements.filter((a) => a.trim()),
               tasks: tasks.filter((t) => t.include && t.title.trim()).map((t) => ({ title: t.title, side: t.side, dueDate: t.dueDate || null })),
-              to: [...recipients, ...extra.split(/[,;\s]+/).filter((e) => e.includes('@'))].join(', '),
+              to: [...recipients].join(', '),
             }}
           />
 
           <section className="card form-section confirm">
             <h2>Enviar el resumen a</h2>
-            {external.map((a) => (
-              <label key={a.email} className="check">
-                <input
-                  type="checkbox"
-                  checked={recipients.has(a.email)}
-                  onChange={(e) => {
-                    const next = new Set(recipients);
-                    if (e.target.checked) next.add(a.email);
-                    else next.delete(a.email);
-                    setRecipients(next);
-                  }}
-                />
-                {a.name ? `${a.name} · ${a.email}` : a.email}
-              </label>
-            ))}
-            <label className="field" style={{ width: '100%' }}>
-              <span className="field__label">Otros correos (separados por coma)</span>
+            <p className="hint">Marca quién recibe el correo. Puedes quitar a alguien o agregar más correos.</p>
+            <ul className="recipients">
+              {candidates.map((c) => (
+                <li key={c.email}>
+                  <label className={`recipient${recipients.has(c.email) ? ' is-on' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={recipients.has(c.email)}
+                      onChange={(e) => {
+                        const next = new Set(recipients);
+                        if (e.target.checked) next.add(c.email);
+                        else next.delete(c.email);
+                        setRecipients(next);
+                      }}
+                    />
+                    <span className="recipient__who">
+                      <strong>{c.name || c.email}</strong>
+                      {c.name && <small>{c.email}</small>}
+                    </span>
+                    <span className={`tag recipient__tag recipient__tag--${c.kind}`}>{c.label}</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <form
+              className="recipient-add"
+              onSubmit={(e) => {
+                e.preventDefault();
+                const emails = extra.split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+                const bad = emails.find((x) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(x));
+                if (bad) return toast(`«${bad}» no es un correo válido.`, true);
+                setAdded([...new Set([...added, ...emails])]);
+                setRecipients(new Set([...recipients, ...emails]));
+                setExtra('');
+              }}
+            >
               <span className="input">
-                <input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="gerencia@cliente.com" />
+                <input value={extra} onChange={(e) => setExtra(e.target.value)} placeholder="Agregar correo: gerencia@cliente.com" aria-label="Agregar correo" />
               </span>
-            </label>
+              <button className="btn btn--outline btn--sm" disabled={!extra.trim()}>
+                + Agregar
+              </button>
+            </form>
+            <p className="hint">{recipients.size ? `Se enviará a ${recipients.size} ${recipients.size === 1 ? 'persona' : 'personas'}.` : 'Nadie marcado: se aprueba sin enviar correo.'}</p>
             <div className="actions actions--tight">
               <button className="btn btn--primary" disabled={busy} onClick={approve}>
                 {busy ? 'Enviando…' : 'Aprobar y enviar'}

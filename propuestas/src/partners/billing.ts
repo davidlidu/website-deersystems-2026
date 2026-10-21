@@ -781,7 +781,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       requireOwner(v);
       const current = visibleInvoice(id, v);
       if (current.status === 'anulada') throw new HttpError(409, 'La cuenta de cobro está anulada.');
-      const body = await readJson(req, 20 * 1024 * 1024);
+      const body = await readJson(req, 40 * 1024 * 1024);
       const client = db.getClient(current.client_id)!;
       const account = db.getClientAccount(client.id);
       // Uno o varios correos (separados por coma, punto y coma o espacio).
@@ -797,6 +797,27 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
       const longDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
       const cop = (n: number) => `$ ${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
+      // Archivos adicionales: de Drive van como enlace (se comparten "con el enlace", solo lectura); del computador, adjuntos sin guardarse aquí.
+      const driveIds = (Array.isArray(body.driveFiles) ? body.driveFiles : []).filter((x): x is string => typeof x === 'string' && /^[\w-]{10,}$/.test(x)).slice(0, 10);
+      const links: { name: string; url: string }[] = [];
+      for (const fileId of driveIds) {
+        try {
+          const meta = await google.fileMeta(fileId);
+          await google.setLinkSharing(fileId, true);
+          links.push({ name: meta.name, url: meta.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view` });
+        } catch (err) {
+          if (err instanceof google.GoogleError) throw new HttpError(502, `Drive: ${err.message}`);
+          throw err;
+        }
+      }
+      const extra = (Array.isArray(body.files) ? body.files : []).slice(0, 5).map((f: Record<string, unknown>) => {
+        const m = /^data:([\w.+/-]+);base64,(.+)$/.exec(String(f?.data ?? ''));
+        if (!m) throw new HttpError(400, 'Un archivo adicional no llegó bien.');
+        return { name: str(f.name, 120) || 'archivo', mime: m[1], data: Buffer.from(m[2], 'base64') };
+      });
+      if (extra.reduce((n: number, f: { data: Buffer }) => n + f.data.length, 0) > 15 * 1024 * 1024) {
+        throw new HttpError(413, 'Los adjuntos suman más de 15 MB: compártelos mejor desde Drive.');
+      }
       const profile = billingProfile();
       const qr = profile.qr?.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,(.+)$/);
       const mail = invoiceForClient({
@@ -813,6 +834,8 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
         portal: !!account?.active,
         payUrl: payUrl(current),
         qr: !!qr,
+        links,
+        extraFiles: extra.map((f) => f.name),
       });
       const safe = (t: string) => t.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80);
       try {
@@ -821,6 +844,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
           attachments: [
             { name: `Cuenta de Cobro-${safe(current.number)} ${safe(client.name)}.pdf`, mime: 'application/pdf', data: pdf },
             ...(qr ? [{ name: `qr-pago.${qr[1].split('/')[1]}`, mime: qr[1], data: Buffer.from(qr[2], 'base64'), cid: 'qr-pago' }] : []),
+            ...extra,
           ],
         });
       } catch (err) {

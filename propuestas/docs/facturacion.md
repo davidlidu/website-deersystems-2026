@@ -27,7 +27,7 @@ Para persona natural no responsable de IVA, el documento de cobro es la **cuenta
   - **PDF en A4 sin reducir el contenido.** Si no cabe en una página, la forma de pago, la firma y el pie pasan juntos a la siguiente. Con muchos ítems se corta entre filas, o entre párrafos y filas de una tabla dentro de un ítem muy largo; nunca a la mitad de una línea.
 - **Acciones:**
   - **Descargar PDF**: se genera en el navegador, como en SmartBilling.
-  - **Enviar al cliente**: a uno o varios correos (y copia para ti si quieres), con la marca, el PDF adjunto, tus datos de pago, el **QR de pago** (como imagen en línea, que Gmail sí muestra) y el botón *Pagar en línea* si activaste Wompi para esa cuenta de cobro. El saludo usa el nombre del contacto, o la razón social si no hay contacto.
+  - **Enviar al cliente**: a uno o varios correos (y copia para ti si quieres). Puedes sumar **archivos adicionales**: desde **Drive** van como enlace en el correo (se comparten como «cualquiera con el enlace», solo lectura) y no se cargan a la app; desde el computador van adjuntos (máx. 5 y 15 MB) y no se guardan en Partners. El correo lleva la marca, el PDF adjunto, tus datos de pago, el **QR de pago** (como imagen en línea, que Gmail sí muestra) y el botón *Pagar en línea* si activaste Wompi para esa cuenta de cobro. El saludo usa el nombre del contacto, o la razón social si no hay contacto.
   - **Registrar abono**, **Editar**.
   - **Anular**: deja de contar en el saldo y el número queda usado.
   - **Borrar**: solo si no tiene abonos aplicados.

@@ -178,9 +178,24 @@ function view(m: Row, v: Viewer) {
           ai: parse<Record<string, unknown> | null>(m.ai, null),
           error: m.error,
           sentTo: parse<string[]>(m.sent_to, []),
+          clientContacts: clientContacts(project?.client_id ?? m.client_id),
         }
       : {}),
   };
+}
+
+/** Correos principales del cliente para el resumen: la cuenta del portal y el correo de contacto, si son distintos. */
+function clientContacts(clientId: number | null): { email: string; name: string; label: string }[] {
+  if (!clientId) return [];
+  const client = db.getClient(clientId);
+  const out: { email: string; name: string; label: string }[] = [];
+  const add = (email: string | null | undefined, name: string, label: string) => {
+    const e = email?.trim().toLowerCase();
+    if (e && !out.some((x) => x.email === e)) out.push({ email: e, name, label });
+  };
+  add(db.getClientAccount(clientId)?.email, client?.contact_name || client?.name || '', 'Cuenta principal');
+  add(client?.email, client?.contact_name || client?.name || '', 'Correo de contacto');
+  return out;
 }
 
 function visible(id: number, v: Viewer): Row {

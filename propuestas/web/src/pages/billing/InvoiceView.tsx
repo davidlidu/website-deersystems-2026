@@ -5,19 +5,80 @@ import { InvoiceStatus } from './InvoiceStatus';
 import { InvoiceDocument } from './InvoiceDocument';
 import { downloadPdf, pdfBase64, pdfName } from './pdf';
 import { ReceiptForm } from './ReceiptForm';
+import { pickFromDrive } from '../../picker';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** A quién se envía: uno o varios correos (coma, punto y coma o espacio), y una copia para ti si quieres. */
-function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; me: string; busy: boolean; onSend: (to: string) => void; onClose: () => void }) {
+export interface SendExtras {
+  driveFiles: { id: string; name: string }[];
+  files: { name: string; data: string; size: number }[];
+}
+
+const MAX_ATTACH = 15 * 1024 * 1024;
+const readAsDataUrl = (f: File) =>
+  new Promise<string>((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = () => reject(new Error(`No se pudo leer «${f.name}».`));
+    r.readAsDataURL(f);
+  });
+const sizeLabel = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+
+/**
+ * A quién se envía: uno o varios correos (coma, punto y coma o espacio), y una copia para ti si quieres.
+ * Archivos adicionales: de Drive van como enlace (no se cargan a la app); del computador, como adjunto que no se guarda aquí.
+ */
+function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; me: string; busy: boolean; onSend: (to: string, extras: SendExtras) => void; onClose: () => void }) {
   const [text, setText] = useState(initial);
   const [copy, setCopy] = useState(false);
+  const [driveFiles, setDriveFiles] = useState<SendExtras['driveFiles']>([]);
+  const [files, setFiles] = useState<SendExtras['files']>([]);
+  const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDialogElement>(null);
+  const picking = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
   useEffect(() => ref.current?.showModal(), []);
   const list = [...new Set([...text.toLowerCase().split(/[\s,;]+/).filter(Boolean), ...(copy ? [me.toLowerCase()] : [])])];
   const bad = list.filter((e) => !EMAIL.test(e));
+  const attached = files.reduce((n, f) => n + f.size, 0);
+
+  const fromDrive = async () => {
+    setError(null);
+    // El selector de Google queda debajo de un diálogo modal: se cierra un momento y vuelve a abrirse.
+    picking.current = true;
+    ref.current?.close();
+    try {
+      const picked = await pickFromDrive();
+      setDriveFiles((cur) => [...cur, ...picked.filter((p) => !cur.some((c) => c.id === p.id))].slice(0, 10));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      ref.current?.showModal();
+      picking.current = false;
+    }
+  };
+
+  const addLocal = async (list: FileList) => {
+    setError(null);
+    const next = [...files];
+    for (const f of [...list]) {
+      if (attached + next.slice(files.length).reduce((n, x) => n + x.size, 0) + f.size > MAX_ATTACH) {
+        setError(`«${f.name}» supera el límite de 15 MB en adjuntos: compártelo mejor desde Drive.`);
+        break;
+      }
+      next.push({ name: f.name, size: f.size, data: await readAsDataUrl(f) });
+    }
+    setFiles(next.slice(0, 5));
+  };
+
   return (
-    <dialog ref={ref} className="modal" aria-labelledby="send-title" onClose={onClose} onClick={(e) => e.target === e.currentTarget && ref.current?.close()}>
+    <dialog
+      ref={ref}
+      className="modal"
+      aria-labelledby="send-title"
+      onClose={() => !picking.current && onClose()}
+      onClick={(e) => e.target === e.currentTarget && ref.current?.close()}
+    >
       <div className="modal__in">
         <header className="modal__head">
           <h2 id="send-title">Enviar la cuenta de cobro</h2>
@@ -40,9 +101,67 @@ function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; m
           <input type="checkbox" checked={copy} onChange={(e) => setCopy(e.target.checked)} />
           Enviarme una copia ({me})
         </label>
+
+        <div className="send-extra">
+          <div className="send-extra__head">
+            <span className="field__label">Archivos adicionales (opcional)</span>
+            <span className="actions actions--tight">
+              <button type="button" className="btn btn--outline btn--xs" onClick={fromDrive} disabled={busy}>
+                + Desde Drive (enlace)
+              </button>
+              <button type="button" className="btn btn--outline btn--xs" onClick={() => input.current?.click()} disabled={busy}>
+                + Adjuntar del computador
+              </button>
+            </span>
+            <input
+              ref={input}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                if (e.target.files) void addLocal(e.target.files);
+                e.target.value = '';
+              }}
+            />
+          </div>
+          {driveFiles.length + files.length > 0 ? (
+            <ul className="send-extra__list">
+              {driveFiles.map((f) => (
+                <li key={f.id}>
+                  <span className="send-extra__kind send-extra__kind--drive">Drive</span>
+                  <span className="send-extra__name">{f.name}</span>
+                  <small>enlace</small>
+                  <button type="button" className="icon-btn" aria-label={`Quitar ${f.name}`} onClick={() => setDriveFiles(driveFiles.filter((x) => x.id !== f.id))}>
+                    ✕
+                  </button>
+                </li>
+              ))}
+              {files.map((f, i) => (
+                <li key={`${f.name}-${i}`}>
+                  <span className="send-extra__kind">Adjunto</span>
+                  <span className="send-extra__name">{f.name}</span>
+                  <small>{sizeLabel(f.size)}</small>
+                  <button type="button" className="icon-btn" aria-label={`Quitar ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}>
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="hint">
+              Lo de Drive va como enlace en el correo (se comparte para que el cliente lo abra con el enlace) y no se carga a la app. Lo del computador va adjunto,
+              hasta 15 MB, y tampoco se guarda aquí.
+            </p>
+          )}
+        </div>
+
         <p className="hint">Va con el PDF adjunto, tus datos de pago y el QR{' '}(y el botón de pago en línea si lo activaste).</p>
         <div className="actions actions--tight">
-          <button className="btn btn--primary btn--sm" disabled={busy || !list.length || bad.length > 0 || list.length > 10} onClick={() => onSend(list.join(', '))}>
+          <button
+            className="btn btn--primary btn--sm"
+            disabled={busy || !list.length || bad.length > 0 || list.length > 10}
+            onClick={() => onSend(list.join(', '), { driveFiles, files })}
+          >
             {busy ? 'Enviando…' : `Enviar a ${list.length} ${list.length === 1 ? 'destinatario' : 'destinatarios'}`}
           </button>
           <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => ref.current?.close()}>
@@ -50,6 +169,7 @@ function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; m
           </button>
         </div>
         {bad.length > 0 && <p className="alert">Revisa: {bad.join(', ')}</p>}
+        {error && <p className="alert">{error}</p>}
       </div>
     </dialog>
   );
@@ -113,12 +233,18 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
     }
   };
 
-  const send = (to: string) =>
+  const send = (to: string, extras: SendExtras) =>
     run(async () => {
       const pdf = await fullSize(() => pdfBase64(doc.current!));
-      const r = await api<InvoiceDetail & { sentTo: string }>('POST', `invoices/${inv.id}/send`, { to, pdf });
+      const r = await api<InvoiceDetail & { sentTo: string }>('POST', `invoices/${inv.id}/send`, {
+        to,
+        pdf,
+        driveFiles: extras.driveFiles.map((f) => f.id),
+        files: extras.files.map((f) => ({ name: f.name, data: f.data })),
+      });
       setSending(false);
-      toast(`Enviada a ${r.sentTo}.`);
+      const n = extras.driveFiles.length + extras.files.length;
+      toast(`Enviada a ${r.sentTo}${n ? ` con ${n} ${n === 1 ? 'archivo adicional' : 'archivos adicionales'}` : ''}.`);
       await reload();
     });
 

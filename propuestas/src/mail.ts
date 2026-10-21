@@ -236,6 +236,10 @@ export function invoiceForClient(p: {
   payUrl?: string | null;
   /** Hay QR de pago: va como imagen en línea con Content-ID "qr-pago". */
   qr?: boolean;
+  /** Archivos de Drive que acompañan la cuenta de cobro: van como enlaces, no adjuntos. */
+  links?: { name: string; url: string }[];
+  /** Nombres de los archivos adicionales adjuntos. */
+  extraFiles?: string[];
 }): Mail {
   // p.name ya llega listo para el saludo: el nombre del contacto, o la razón social completa si no hay contacto.
   const first = p.name;
@@ -246,7 +250,7 @@ export function invoiceForClient(p: {
       eyebrow: 'Cuenta de cobro',
       title: `Hola${first ? `, ${first}` : ''}: te enviamos la cuenta de cobro ${p.number}`,
       paragraphs: [
-        `Adjuntamos la cuenta de cobro${p.projectName ? ` del proyecto "${p.projectName}"` : ''} en PDF.`,
+        `Adjuntamos la cuenta de cobro${p.projectName ? ` del proyecto "${p.projectName}"` : ''} en PDF${p.extraFiles?.length ? `, junto con: ${p.extraFiles.join(', ')}` : ''}.`,
         ...(p.bankInfo ? ['Puedes pagar por transferencia a:', p.bankInfo] : []),
       ],
       facts: [
@@ -257,6 +261,7 @@ export function invoiceForClient(p: {
         ...(p.dueDate ? ([['Fecha límite de pago', p.dueDate]] as [string, string][]) : []),
       ],
       ...(p.qr ? { image: { cid: 'qr-pago', alt: 'Código QR para pagar', caption: 'Escanéalo desde la app de tu banco o Nequi para pagar.' } } : {}),
+      ...(p.links?.length ? { items: p.links.map((l) => ({ title: l.name, body: 'Documento adicional · abrir en Google Drive', url: l.url })) } : {}),
       ...(p.payUrl ? { cta: { label: 'Pagar en línea (PSE, Nequi, tarjeta)', url: p.payUrl } } : p.portal ? { cta: { label: 'Ver en mi espacio', url: loginUrl } } : {}),
       footnote: p.payUrl
         ? 'También puedes pagar por transferencia y respondernos este correo con el comprobante. ¡Gracias!'

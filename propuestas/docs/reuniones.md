@@ -45,7 +45,7 @@ El perfil *Reuniones* propone tres cosas: el **resumen**, los **acuerdos** y las
 ## 5. Revisar, ver el correo y aprobar
 
 - Editas el resumen, los acuerdos y las tareas (cuáles incluir, responsable y fecha).
-- Eliges los destinatarios entre los asistentes externos y agregas otros.
+- **Destinatarios con selector:** aparecen la **cuenta principal** del cliente, su correo de contacto (si es distinto) y todos los participantes de la reunión, cada uno con su etiqueta. Vienen marcados la cuenta principal, el contacto y los participantes externos; tu equipo aparece sin marcar. Desmarca a quien no deba recibirlo o agrega más correos con *+ Agregar*. Sin nadie marcado, se aprueba sin enviar correo.
 - **Vista previa del correo:** un acordeón cerrado antes de enviar, que muestra el correo tal como lo recibirá el cliente con lo que hay en pantalla.
 - **Aprobar y enviar** hace cuatro cosas:
   1. Crea las tareas en el proyecto (origen «reunión»).

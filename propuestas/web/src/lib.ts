@@ -256,6 +256,8 @@ export interface Meeting {
   ai?: { provider: string; model: string; costUsd: number; latencyMs: number; fallbackReason?: string | null } | null;
   error?: string | null;
   sentTo?: string[];
+  /** Solo tú: la cuenta principal del cliente y su correo de contacto. */
+  clientContacts?: { email: string; name: string; label: string }[];
 }
 
 export function formatMeetingTime(iso: string): string {
