@@ -48,7 +48,8 @@ Un abono es lo que entró. Va **ligado al cliente** (como en SmartBilling) y, si
   - Editar el abono actualiza el ingreso; borrarlo lo quita. Si el Gestor no responde, el abono queda con *⚠ Reintentar*.
 - **Filtros:** búsqueda y fecha (un día, un mes o un rango), con el total de lo filtrado.
 - **Unir varios pagos en una sola entrada del Gestor** (por ejemplo, dos cuotas que el cliente pagó en una sola transferencia):
-  - En *Facturación → Abonos*, marca la casilla de cada abono; en la pestaña *Pagos* del proyecto, usa *Unir pagos en el Gestor*.
+  - En *Facturación → Abonos*, marca la casilla de cada abono; en la pestaña *Pagos* del proyecto, usa **Pago conjunto**.
+  - **Cuotas pendientes (pago conjunto):** en *Pagos → Pago conjunto* eliges las cuotas que se pagaron juntas y escribes la fecha, la TRM (si hay cuotas en USD; viene la oficial del día) y el **total recibido en COP**. El total se reparte entre las cuotas en proporción a lo que vale cada una (USD × TRM o COP); el último lleva el ajuste del redondeo y la lista muestra cuánto le queda a cada una antes de registrar. Las cuotas quedan pagadas y al Gestor va **un solo ingreso** por el total. No se mezclan pendientes y pagadas en la misma selección.
   - La barra muestra cuántos van y la suma. Eliges la fecha de la entrada (por defecto, la del pago más reciente) y, si quieres, la descripción; si la dejas vacía, se arma con lo de cada pago, separado por « + ».
   - Solo se unen pagos del **mismo cliente** que se envían al Gestor. Si uno ya estaba en otra entrada unida, esa se suma a la nueva.
   - En el Gestor se borran los ingresos sueltos y queda **un solo ingreso** por la suma (referencia `deersystems-grupo-{uuid}`). En Partners cada abono sigue igual: su cuota, su cuenta de cobro y el saldo.

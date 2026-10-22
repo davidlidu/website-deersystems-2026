@@ -368,6 +368,183 @@ export function DraftRow({ d, onChange, onRemove }: { d: Draft; onChange: (patch
 }
 
 /** Pestaña Pagos: seguimiento de los pagos pactados. Tú los editas y marcas; el cliente los ve. */
+/** Lo que vale una cuota en pesos (para repartir un pago conjunto en proporción). */
+const copValue = (p: Payment, trm: number) => (p.currency === 'USD' ? p.amount * trm : p.amount);
+
+/**
+ * Pago conjunto: varias cuotas que el cliente pagó en una sola transferencia.
+ * - Pendientes: escribes el total recibido, se reparte entre ellas (en proporción a lo que vale cada una) y quedan pagadas.
+ * - Ya pagadas: se unen como antes.
+ * En los dos casos, al Gestor financiero va un solo ingreso por el total.
+ */
+function JointPayment({
+  projectId,
+  clientId,
+  payments,
+  selected,
+  onSelect,
+  onDone,
+}: {
+  projectId: number;
+  clientId: number;
+  payments: Payment[];
+  selected: Set<number>;
+  onSelect: (s: Set<number>) => void;
+  onDone: (list?: Payment[]) => void;
+}) {
+  const [date, setDate] = useState(today());
+  const [trm, setTrm] = useState('');
+  const [total, setTotal] = useState('');
+  const [description, setDescription] = useState('');
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const chosen = payments.filter((p) => selected.has(p.id));
+  const pending = chosen.filter((p) => !p.paid);
+  const paid = chosen.filter((p) => p.paid);
+  const mixed = pending.length > 0 && paid.length > 0;
+  const usd = pending.some((p) => p.currency === 'USD');
+
+  // TRM oficial del día del pago (se puede corregir).
+  useEffect(() => {
+    if (!usd) return;
+    api<{ trm: number | null }>('GET', `trm?date=${date}`)
+      .then((r) => r.trm && setTrm(String(r.trm)))
+      .catch(() => {});
+  }, [usd, date]);
+
+  const rate = Number(trm) || 0;
+  const expected = pending.reduce((n, p) => n + copValue(p, rate), 0);
+  const received = Number(total) > 0 ? Number(total) : Math.round(expected);
+  // El mismo reparto que hace el servidor: en proporción, y el último se lleva el ajuste del redondeo.
+  let left = received;
+  const shares = pending.map((p, i) => {
+    if (i === pending.length - 1) return left;
+    const share = expected ? Math.round((received * copValue(p, rate)) / expected) : 0;
+    left -= share;
+    return share;
+  });
+
+  const toggle = (id: number, on: boolean) => {
+    const next = new Set(selected);
+    if (on) next.add(id);
+    else next.delete(id);
+    onSelect(next);
+  };
+
+  const register = () =>
+    run(async () => {
+      const r = await api<{ payments: Payment[]; total: number }>('POST', `projects/${projectId}/payments/together`, {
+        ids: pending.map((p) => p.id),
+        paidAt: date,
+        trm: usd ? rate || null : null,
+        totalCop: received,
+        description,
+      });
+      const failed = r.payments.find((p) => selected.has(p.id) && p.sync === 'error');
+      if (failed) toast(`Pago registrado, pero el Gestor respondió: ${failed.syncError}`, true);
+      else toast(`${pending.length} cuotas pagadas con ${formatMoney(r.total)}: un solo ingreso en tu Gestor financiero.`);
+      onDone(r.payments);
+    });
+
+  return (
+    <section className="card form-section merge-pays">
+      <h2>Pago conjunto</h2>
+      <p className="hint">
+        Para cuotas que el cliente pagó en una sola transferencia. Elige las <strong>pendientes</strong> y escribe el total recibido: se reparte entre ellas y
+        quedan pagadas. O elige cuotas <strong>ya pagadas</strong> para unirlas. Al Gestor financiero va un solo ingreso por el total.
+      </p>
+      <ul className="merge-pays__list">
+        {payments.map((p) => (
+          <li key={p.id} className={selected.has(p.id) ? 'is-on' : ''}>
+            <label className="check">
+              <input type="checkbox" checked={selected.has(p.id)} disabled={p.paid && !p.receiptId} onChange={(e) => toggle(p.id, e.target.checked)} />
+              <span>
+                <strong>{p.label}</strong> · {p.paid ? `pagada el ${formatDate(p.paidAt)}` : `pendiente${p.dueDate ? ` · ${formatDate(p.dueDate)}` : ''}`}
+                {p.financeGroup && (
+                  <small className="tag tag--group" title="Ya está en una entrada unida: esa entrada se suma a la nueva, con todos sus pagos">
+                    Ya unida
+                  </small>
+                )}
+              </span>
+            </label>
+            <span className="mono">
+              {p.paid ? formatMoney(p.amountCopReceived ?? p.amountCop ?? p.amount) : money(p.amount, p.currency)}
+              {!p.paid && selected.has(p.id) && pending.length > 1 && !mixed && (
+                <small className="merge-pays__share">→ {formatMoney(shares[pending.indexOf(p)] ?? 0)}</small>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {mixed && <p className="alert">Elige solo cuotas pendientes (para registrar el pago) o solo cuotas pagadas (para unirlas).</p>}
+
+      {!mixed && pending.length > 0 && (
+        <div className="group-bar card">
+          <div className="group-bar__sum">
+            <strong>
+              {pending.length} {pending.length === 1 ? 'cuota' : 'cuotas'} · valen {formatMoney(Math.round(expected))}
+            </strong>
+            <span className="mono">{formatMoney(received)}</span>
+          </div>
+          <div className="joint-fields">
+            <label className="field">
+              <span className="field__label">Fecha del pago</span>
+              <span className="input">
+                <input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+              </span>
+            </label>
+            {usd && (
+              <label className="field">
+                <span className="field__label">TRM</span>
+                <span className="input">
+                  <input inputMode="decimal" value={trm} onChange={(e) => setTrm(e.target.value)} />
+                </span>
+              </label>
+            )}
+            <label className="field">
+              <span className="field__label">Total recibido (COP)</span>
+              <span className="input">
+                <input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} placeholder={String(Math.round(expected) || '')} />
+              </span>
+            </label>
+            <label className="field joint-fields__desc">
+              <span className="field__label">Descripción en el Gestor (opcional)</span>
+              <span className="input">
+                <input value={description} maxLength={300} onChange={(e) => setDescription(e.target.value)} placeholder="Vacía: se arma con las cuotas" />
+              </span>
+            </label>
+          </div>
+          {pending.length < 2 ? (
+            <p className="hint">Elige al menos dos cuotas. Para una sola, márcala «Pagado» en su fila.</p>
+          ) : (
+            <p className="hint">
+              El total se reparte en proporción a lo que vale cada cuota (→ en la lista). Si recibiste menos o más por la TRM o comisiones, escribe lo que de
+              verdad llegó.
+            </p>
+          )}
+          <div className="actions actions--tight">
+            <button className="btn btn--primary btn--sm" disabled={busy || pending.length < 2 || !(received > 0) || (usd && !rate)} onClick={register}>
+              {busy ? 'Registrando…' : `Registrar pago de ${formatMoney(received)}`}
+            </button>
+            <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => onSelect(new Set())}>
+              Limpiar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!mixed && paid.length > 0 && (
+        <GroupBar
+          items={paid.map((p) => ({ receiptId: p.receiptId!, clientId, date: p.paidAt ?? '', amountCop: p.amountCopReceived ?? p.amountCop ?? p.amount, sendToFinance: true }))}
+          onClear={() => onSelect(new Set())}
+          onDone={() => onDone()}
+        />
+      )}
+    </section>
+  );
+}
+
 export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: number; clientId: number }) {
   const { data, error, loading, reload, setData } = useApi<PaymentsResponse>(`projects/${projectId}/payments`);
   const clientInvoices = useApi<InvoiceSummary[]>(me.role === 'owner' ? `invoices?clientId=${clientId}` : null);
@@ -417,7 +594,7 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
               {suggesting ? 'Leyendo la propuesta…' : 'Sugerir desde la propuesta (IA)'}
             </button>
           </div>
-          {finance && payments.filter((p) => p.paid && p.receiptId).length >= 2 && (
+          {payments.length >= 2 && (
             <button
               className={`btn btn--outline btn--sm${merging ? ' is-active' : ''}`}
               onClick={() => {
@@ -425,7 +602,7 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
                 setSelected(new Set());
               }}
             >
-              {merging ? 'Cerrar' : 'Unir pagos en el Gestor'}
+              {merging ? 'Cerrar' : 'Pago conjunto'}
             </button>
           )}
           <span className={`sync ${finance ? 'sync--ok' : 'sync--off'}`}>
@@ -435,55 +612,19 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
       )}
 
       {merging && (
-        <section className="card form-section merge-pays">
-          <h2>Unir pagos en una sola entrada del Gestor</h2>
-          <p className="hint">
-            Por ejemplo, dos cuotas que el cliente pagó en una sola transferencia. Aquí cada cuota sigue pagada por separado; en tu Gestor financiero quedan como un
-            solo ingreso por la suma.
-          </p>
-          <ul className="merge-pays__list">
-            {payments
-              .filter((p) => p.paid && p.receiptId)
-              .map((p) => (
-                <li key={p.id}>
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(p.id)}
-                      onChange={(e) => {
-                        const next = new Set(selected);
-                        if (e.target.checked) next.add(p.id);
-                        else next.delete(p.id);
-                        setSelected(next);
-                      }}
-                    />
-                    <span>
-                      <strong>{p.label}</strong> · pagado el {formatDate(p.paidAt)}
-                      {p.financeGroup && (
-                        <small className="tag tag--group" title="Ya está en una entrada unida: esa entrada se suma a la nueva, con todos sus pagos">
-                          Ya unida
-                        </small>
-                      )}
-                    </span>
-                  </label>
-                  <span className="mono">{formatMoney(p.amountCopReceived ?? p.amountCop ?? p.amount)}</span>
-                </li>
-              ))}
-          </ul>
-          {selected.size > 0 && (
-            <GroupBar
-              items={payments
-                .filter((p) => selected.has(p.id))
-                .map((p) => ({ receiptId: p.receiptId!, clientId, date: p.paidAt ?? '', amountCop: p.amountCopReceived ?? p.amountCop ?? p.amount, sendToFinance: true }))}
-              onClear={() => setSelected(new Set())}
-              onDone={() => {
-                setMerging(false);
-                setSelected(new Set());
-                reload();
-              }}
-            />
-          )}
-        </section>
+        <JointPayment
+          projectId={projectId}
+          clientId={clientId}
+          payments={payments}
+          selected={selected}
+          onSelect={setSelected}
+          onDone={(list) => {
+            if (list) setPayments(list);
+            else reload();
+            setMerging(false);
+            setSelected(new Set());
+          }}
+        />
       )}
 
       {suggested && (

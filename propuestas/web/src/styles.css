@@ -5990,3 +5990,30 @@ button.table__row {
 .proposal-send .recipient-add {
   width: 100%;
 }
+
+/* Pago conjunto */
+.merge-pays__list li.is-on {
+  border-color: rgba(126, 217, 87, 0.45);
+  background: rgba(126, 217, 87, 0.05);
+}
+
+.merge-pays__list .mono {
+  display: grid;
+  justify-items: end;
+  white-space: nowrap;
+}
+
+.merge-pays__share {
+  font-size: 0.76rem;
+  color: var(--verde);
+}
+
+.joint-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 14px;
+}
+
+.joint-fields__desc {
+  grid-column: 1 / -1;
+}

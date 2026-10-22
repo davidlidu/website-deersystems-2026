@@ -150,7 +150,7 @@ function visiblePayment(id: number, v: Viewer): Row {
  * La cuota pagada es un abono del cliente (billing.ts): ahí vive el ingreso del Gestor.
  * Pagada → crea o actualiza su abono y lo sincroniza. Desmarcar o borrar la cuota quita el abono (ver rutas).
  */
-async function syncPaid(r: Row): Promise<Row> {
+async function syncPaid(r: Row, opts: { sync?: boolean } = {}): Promise<Row> {
   if (!r.paid) return r;
   const project = db.getProject(r.project_id)!;
   const current = billing.receiptForPayment(r.id);
@@ -171,7 +171,7 @@ async function syncPaid(r: Row): Promise<Row> {
     },
     current ? { id: current.id } : { financeRef: `deersystems-pago-${r.id}` },
   );
-  await billing.syncReceipt(saved);
+  if (opts.sync !== false) await billing.syncReceipt(saved);
   return get(r.id)!;
 }
 
@@ -323,6 +323,44 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
           .run(paidAt, amountCop, trm, now(), r.id);
       }
       json(res, 200, view(await syncPaid(get(r.id)!), v));
+      return true;
+    }
+
+    // Pago conjunto: varias cuotas pagadas con una sola transferencia. El valor recibido se reparte entre ellas
+    // (en proporción a lo que vale cada una) y al Gestor va un solo ingreso por el total.
+    case 'POST projects/:id/payments/together': {
+      requireOwner(v);
+      const project = visibleProject(id, v);
+      const body = await readJson(req);
+      const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(Number))];
+      const rows = ids.map((pid) => get(pid)).filter((r): r is Row => !!r && r.project_id === project.id);
+      if (rows.length < 2) throw new HttpError(400, 'Elige al menos dos cuotas.');
+      if (rows.some((r) => r.paid)) throw new HttpError(400, 'Elige solo cuotas pendientes (las pagadas se unen con «Unir en el Gestor»).');
+      const paidAt = optDate(body.paidAt) ?? todayBogota();
+      const usd = rows.some((r) => r.currency === 'USD');
+      const trm = usd ? (Number(body.trm) > 0 ? Number(body.trm) : await trmFor(paidAt)) : null;
+      if (usd && !trm) throw new HttpError(400, 'No se pudo obtener la TRM: escríbela.');
+      // Lo que vale cada cuota en pesos, para repartir el total en proporción.
+      const weights = rows.map((r) => (r.currency === 'USD' ? r.amount * trm! : r.amount));
+      const expected = weights.reduce((n, w) => n + w, 0);
+      const total = Number(body.totalCop) > 0 ? Math.round(Number(body.totalCop) * 100) / 100 : Math.round(expected);
+      let left = total;
+      const shares = rows.map((_, i) => {
+        if (i === rows.length - 1) return Math.round(left * 100) / 100; // el último se lleva el ajuste del redondeo
+        const share = Math.round((total * weights[i]) / expected);
+        left -= share;
+        return share;
+      });
+      const receipts: number[] = [];
+      for (const [i, r] of rows.entries()) {
+        sqlite
+          .prepare('UPDATE payments SET paid = 1, paid_at = ?, amount_cop = ?, trm = ?, updated_at = ? WHERE id = ?')
+          .run(paidAt, shares[i], r.currency === 'USD' ? trm : null, now(), r.id);
+        await syncPaid(get(r.id)!, { sync: false });
+        receipts.push(billing.receiptForPayment(r.id)!.id);
+      }
+      await billing.groupReceipts(receipts, { date: paidAt, description: str(body.description, 300) });
+      json(res, 200, { payments: listFor(project.id).map((r) => view(r, v)), total, shares: rows.map((r, i) => ({ id: r.id, amountCop: shares[i] })) });
       return true;
     }
 
