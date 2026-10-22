@@ -5820,3 +5820,173 @@ button.table__row {
 .meetings-filter {
   margin-top: 8px;
 }
+
+/* Unir varios pagos en una sola entrada del Gestor */
+.group-bar {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border-color: rgba(126, 217, 87, 0.45);
+  background: rgba(126, 217, 87, 0.05);
+}
+
+.group-bar__sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink);
+}
+
+.group-bar__sum .mono {
+  font-size: 1.05rem;
+  color: var(--verde);
+}
+
+.group-bar__fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 200px) minmax(0, 1fr);
+  gap: 10px 14px;
+}
+
+.group-bar .hint {
+  margin: 0;
+}
+
+.rc-row__date {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rc-row__select {
+  margin: 0;
+  accent-color: var(--verde);
+}
+
+.tag--group {
+  margin-left: 6px;
+  border-color: rgba(0, 180, 216, 0.5);
+  color: var(--cian);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.rc-detail__group {
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 180, 216, 0.35);
+  border-radius: var(--r-sm);
+}
+
+.rc-detail__group ul {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.rc-detail__group li {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  gap: 10px;
+  color: var(--body);
+  font-size: 0.82rem;
+}
+
+.rc-detail__group li.is-self {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.merge-pays__list {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.merge-pays__list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+}
+
+@media (max-width: 720px) {
+  .group-bar__fields {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Llamadas comerciales: Discovery y Proposal Call */
+.call-kinds {
+  flex-wrap: wrap;
+  margin: 18px 0 12px;
+}
+
+.proposal-send {
+  display: grid;
+  gap: 14px;
+}
+
+.proposal-send h2 {
+  margin: 0;
+}
+
+.proposal-send__pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+}
+
+.proposal-send__pick .field {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
+.proposal-send__current {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+
+.proposal-send__version {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+}
+
+.proposal-send__upload {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.proposal-send__upload .input {
+  flex: 1 1 260px;
+}
+
+.proposal-send__upload .input input {
+  width: 100%;
+}
+
+.proposal-send textarea {
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+
+.proposal-send .recipients,
+.proposal-send .recipient-add {
+  width: 100%;
+}

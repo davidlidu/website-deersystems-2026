@@ -74,6 +74,8 @@ export interface ReceiptRow {
   sb_id: string | null;
   /** 1 = no se envía al Gestor financiero (p. ej. un abono que no es ingreso tuyo). */
   skip_finance: number;
+  /** Referencia de la entrada unida del Gestor (varios abonos = un solo ingreso). */
+  finance_group: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -138,6 +140,28 @@ sqlite.exec(`
 if (!(sqlite.prepare('PRAGMA table_info(receipts)').all() as { name: string }[]).some((c) => c.name === 'skip_finance')) {
   sqlite.exec('ALTER TABLE receipts ADD COLUMN skip_finance INTEGER NOT NULL DEFAULT 0');
 }
+if (!(sqlite.prepare('PRAGMA table_info(receipts)').all() as { name: string }[]).some((c) => c.name === 'finance_group')) {
+  sqlite.exec('ALTER TABLE receipts ADD COLUMN finance_group TEXT');
+}
+// Entradas unidas: varios abonos del mismo cliente que en el Gestor son un solo ingreso (p. ej. dos cuotas pagadas en una transferencia).
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS finance_groups (
+    ref TEXT PRIMARY KEY,
+    client_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+`);
+interface GroupRow {
+  ref: string;
+  client_id: number;
+  date: string;
+  description: string;
+  created_at: string;
+}
+const getGroup = (ref: string) => sqlite.prepare('SELECT * FROM finance_groups WHERE ref = ?').get(ref) as GroupRow | undefined;
+const groupMembers = (ref: string) => sqlite.prepare('SELECT * FROM receipts WHERE finance_group = ? ORDER BY date, id').all(ref) as unknown as ReceiptRow[];
 
 const now = () => new Date().toISOString();
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -402,7 +426,8 @@ function receiptView(r: ReceiptRow) {
     syncError: r.sync_error,
     syncedAt: r.synced_at,
     sendToFinance: !r.skip_finance,
-    financeDescription: incomeDescription(r),
+    financeDescription: r.finance_group ? (getGroup(r.finance_group)?.description ?? incomeDescription(r)) : incomeDescription(r),
+    group: r.finance_group ? groupInfo(r.finance_group, r.id) : null,
     customDescription: !!r.finance_description,
     imported: !!r.sb_id,
     createdAt: r.created_at,
@@ -431,8 +456,116 @@ function incomeDescription(r: ReceiptRow): string {
   return parts.join(' · ');
 }
 
+function groupInfo(ref: string, selfId: number) {
+  const g = getGroup(ref);
+  const members = groupMembers(ref);
+  return {
+    ref,
+    date: g?.date ?? null,
+    total: round2(members.reduce((n, m) => n + m.amount_cop, 0)),
+    members: members.map((m) => ({ id: m.id, date: m.date, amountCop: m.amount_cop, label: incomeDescription({ ...m, finance_description: null }), self: m.id === selfId })),
+  };
+}
+
+/** Descripción automática de la entrada unida: lo de cada abono, separado por « + ». */
+function groupDescription(members: ReceiptRow[]): string {
+  return members
+    .map((m) => incomeDescription({ ...m, finance_description: null }))
+    .join(' + ')
+    .slice(0, 300);
+}
+
+/** Lleva la entrada unida al Gestor (un solo ingreso por la suma). Si quedan menos de dos abonos, se deshace. */
+async function syncGroup(ref: string): Promise<void> {
+  const group = getGroup(ref);
+  const members = groupMembers(ref);
+  if (!group || members.length < 2) {
+    await dissolveGroup(ref);
+    return;
+  }
+  const first = members[0];
+  try {
+    await upsertIncome(ref, {
+      amount: round2(members.reduce((n, m) => n + m.amount_cop, 0)),
+      date: group.date,
+      clientName: first.finance_category || db.getClient(first.client_id)?.name || 'Cliente',
+      description: group.description || groupDescription(members),
+      paymentMethod: paymentMethodFor(first.method),
+    });
+    sqlite.prepare("UPDATE receipts SET sync_status = 'ok', sync_error = NULL, synced_at = ? WHERE finance_group = ?").run(now(), ref);
+  } catch (err) {
+    if (!(err instanceof FinanceError)) throw err;
+    sqlite.prepare("UPDATE receipts SET sync_status = 'error', sync_error = ? WHERE finance_group = ?").run(err.message, ref);
+  }
+}
+
+/** Separa una entrada unida: quita el ingreso único del Gestor y cada abono vuelve a ser su propio ingreso. */
+export async function dissolveGroup(ref: string): Promise<void> {
+  try {
+    await deleteIncome(ref);
+  } catch (err) {
+    if (!(err instanceof FinanceError)) throw err;
+    throw new HttpError(502, `No se pudo quitar la entrada unida del Gestor: ${err.message}`);
+  }
+  const members = groupMembers(ref);
+  sqlite.prepare('UPDATE receipts SET finance_group = NULL, sync_status = NULL WHERE finance_group = ?').run(ref);
+  sqlite.prepare('DELETE FROM finance_groups WHERE ref = ?').run(ref);
+  for (const m of members) await syncReceipt(getReceipt(m.id)!);
+}
+
+/**
+ * Une varios abonos del mismo cliente en una sola entrada del Gestor. Cada abono sigue igual en Partners
+ * (su cuota, su cuenta de cobro, el saldo); solo en el Gestor quedan como un ingreso por la suma.
+ */
+export async function groupReceipts(ids: number[], opts: { date?: string | null; description?: string }): Promise<string> {
+  const rows = [...new Set(ids)].map((id) => getReceipt(id)).filter((r): r is ReceiptRow => !!r);
+  if (rows.length < 2) throw new HttpError(400, 'Elige al menos dos abonos.');
+  if (new Set(rows.map((r) => r.client_id)).size > 1) throw new HttpError(400, 'Solo se unen abonos del mismo cliente.');
+  if (rows.some((r) => r.skip_finance)) throw new HttpError(400, 'Hay abonos que no se envían al Gestor: quítalos de la selección.');
+  // Si alguno ya estaba en otra entrada unida, esa se suma a la nueva.
+  const oldGroups = [...new Set(rows.map((r) => r.finance_group).filter((g): g is string => !!g))];
+  for (const g of oldGroups) for (const m of groupMembers(g)) if (!rows.some((r) => r.id === m.id)) rows.push(m);
+  // Primero se quitan los ingresos sueltos; si el Gestor falla, se restauran los que ya se quitaron.
+  const removed: ReceiptRow[] = [];
+  try {
+    for (const g of oldGroups) await deleteIncome(g);
+    for (const r of rows) {
+      if (r.sync_status && !r.finance_group) {
+        await deleteIncome(r.finance_ref);
+        removed.push(r);
+      }
+    }
+  } catch (err) {
+    for (const r of removed) await syncReceipt(r);
+    if (err instanceof FinanceError) throw new HttpError(502, `No se pudo unir en el Gestor: ${err.message}`);
+    throw err;
+  }
+  const ref = `deersystems-grupo-${randomUUID()}`;
+  const date = optDate(opts.date) ?? rows.map((r) => r.date).sort().at(-1)!;
+  sqlite.prepare('INSERT INTO finance_groups (ref, client_id, date, description, created_at) VALUES (?, ?, ?, ?, ?)').run(ref, rows[0].client_id, date, (opts.description ?? '').trim().slice(0, 300), now());
+  for (const g of oldGroups) sqlite.prepare('DELETE FROM finance_groups WHERE ref = ?').run(g);
+  const set = sqlite.prepare('UPDATE receipts SET finance_group = ? WHERE id = ?');
+  for (const r of rows) set.run(ref, r.id);
+  await syncGroup(ref);
+  return ref;
+}
+
 /** Lleva el abono al Gestor (crea o actualiza el ingreso). Nunca lanza: deja el estado en el abono. */
 export async function syncReceipt(r: ReceiptRow): Promise<ReceiptRow> {
+  if (r.finance_group) {
+    if (!r.skip_finance) {
+      await syncGroup(r.finance_group).catch((err) => {
+        if (!(err instanceof HttpError)) throw err;
+        sqlite.prepare("UPDATE receipts SET sync_status = 'error', sync_error = ? WHERE id = ?").run(err.message, r.id);
+      });
+      return getReceipt(r.id)!;
+    }
+    // Ya no va al Gestor: sale de la entrada unida, que se actualiza (o se deshace si queda uno).
+    const ref = r.finance_group;
+    sqlite.prepare('UPDATE receipts SET finance_group = NULL, sync_status = NULL WHERE id = ?').run(r.id);
+    await syncGroup(ref).catch(() => {});
+    return getReceipt(r.id)!;
+  }
   if (r.skip_finance) {
     // No va al Gestor: si ya estaba allá, se quita el ingreso.
     try {
@@ -462,6 +595,12 @@ export async function syncReceipt(r: ReceiptRow): Promise<ReceiptRow> {
 
 /** Borra el abono: primero el ingreso del Gestor; si falla, el abono se queda para no dejar un ingreso huérfano. */
 export async function deleteReceipt(r: ReceiptRow): Promise<void> {
+  if (r.finance_group) {
+    // Su ingreso es el de la entrada unida: se borra el abono y la entrada se recalcula sin él.
+    sqlite.prepare('DELETE FROM receipts WHERE id = ?').run(r.id);
+    await syncGroup(r.finance_group);
+    return;
+  }
   if (r.sync_status) {
     try {
       await deleteIncome(r.finance_ref);
@@ -897,6 +1036,25 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
         sqlite.prepare('UPDATE receipts SET finance_description = ? WHERE id = ?').run(body.financeDescription.trim().slice(0, 300) || null, current.id);
       }
       json(res, 200, receiptView(await syncReceipt(getReceipt(current.id)!)));
+      return true;
+    }
+
+    case 'POST receipts/group': {
+      requireOwner(v);
+      const body = await readJson(req);
+      const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter((n: number) => n > 0);
+      const ref = await groupReceipts(ids, { date: typeof body.date === 'string' ? body.date : null, description: typeof body.description === 'string' ? body.description : '' });
+      json(res, 200, { ref, receipts: groupMembers(ref).map(receiptView) });
+      return true;
+    }
+
+    case 'POST receipts/ungroup': {
+      requireOwner(v);
+      const ref = str((await readJson(req)).ref, 80);
+      if (!getGroup(ref)) throw new HttpError(404, 'La entrada unida no existe.');
+      const ids = groupMembers(ref).map((m) => m.id);
+      await dissolveGroup(ref);
+      json(res, 200, { receipts: ids.map((id) => receiptView(getReceipt(id)!)) });
       return true;
     }
 

@@ -237,6 +237,13 @@ export interface Meeting {
   projectName: string | null;
   /** Fase del proyecto; null = fuera de las fases. */
   phaseId?: number | null;
+  /** proyecto = seguimiento; discovery / proposal = llamadas comerciales. */
+  kind?: 'proyecto' | 'discovery' | 'proposal';
+  prospect?: { company: string; contact: string; email: string } | null;
+  /** Solo tú: la propuesta de la Proposal Call y si ya se envió. */
+  proposal?: { id: number; title: string; slug: string; url: string; version: number; active: boolean; views: number } | null;
+  proposalSentAt?: string | null;
+  proposalSentTo?: string[];
   clientId: number | null;
   clientName: string | null;
   title: string;
@@ -388,6 +395,11 @@ export interface Payment {
   sync?: 'ok' | 'error' | null;
   syncError?: string | null;
   syncedAt?: string | null;
+  /** Abono de la cuota (solo tú). */
+  receiptId?: number | null;
+  amountCopReceived?: number | null;
+  /** La cuota está unida con otras en una sola entrada del Gestor. */
+  financeGroup?: string | null;
 }
 
 /** "USD 1.500" / "COP 3.200.000": sin decimales si no hacen falta. */
@@ -471,6 +483,14 @@ export interface BillingClient {
   email: string | null;
 }
 
+/** Entrada unida del Gestor: varios abonos del mismo cliente en un solo ingreso. */
+export interface ReceiptGroup {
+  ref: string;
+  date: string | null;
+  total: number;
+  members: { id: number; date: string; amountCop: number; label: string; self: boolean }[];
+}
+
 /** Abono (lo que entró). Los datos del Gestor solo llegan al administrador. */
 export interface Receipt {
   id: number;
@@ -497,6 +517,8 @@ export interface Receipt {
   financeDescription?: string | null;
   /** La descripción del Gestor se escribió a mano (o vino de SmartBilling). */
   customDescription?: boolean;
+  /** Entrada unida del Gestor: varios abonos en un solo ingreso. */
+  group?: ReceiptGroup | null;
   imported?: boolean;
   createdAt?: string;
 }

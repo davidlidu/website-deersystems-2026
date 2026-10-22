@@ -63,3 +63,23 @@ El perfil *Reuniones* propone tres cosas: el **resumen**, los **acuerdos** y las
 - **Reunión ligada a una fase:** en *Plan de trabajo → Calendario de reuniones*, cada reunión (próxima o con resumen) tiene el selector *Fase*. Las reuniones se agrupan por fase, en el orden del proyecto; las que no tienen fase quedan aparte, en *Fuera de las fases*. Si ninguna tiene fase, se ve la lista normal. Al cambiar la reunión de proyecto, sale de su fase.
 - **Breadcrumb:** dentro de una reunión se ve *Reuniones / Cliente / Reunión*. El cliente lleva a **Reuniones** filtrado por ese cliente (`/reuniones?cliente=3`); también hay un selector *Todos los clientes* en esa página.
 
+## Llamadas comerciales: Discovery Call y Proposal Call
+
+Desde **Reuniones → + Agendar reunión**, eliges el tipo: *Seguimiento de proyecto*, **Discovery Call** o **Proposal Call**.
+
+- **Con quién:** un cliente que ya existe o un **prospecto nuevo** (empresa, contacto y correo; no necesita cuenta ni proyecto).
+- **Título automático:** «Discovery Call - Empresa (Contacto)» o «Proposal Call - Empresa (Contacto)». Se puede cambiar.
+- Se crea en tu Calendar con Meet, como cualquier reunión, e invita al contacto, a tu equipo y a otros correos.
+- **Proposal Call:** le asignas una propuesta ya subida en *Propuestas* (o la eliges después).
+- Al terminar, la transcripción se busca igual que en las demás reuniones (o la importas desde Drive) y la IA resume la llamada. No hay que aprobarla ni se crean tareas: todavía no hay proyecto.
+
+### Enviar la propuesta al terminar
+
+En la reunión aparece **Enviar la propuesta**:
+
+1. **Propuesta:** la asignada, o eliges otra. Botón para verla.
+2. **¿Cambios según la conversación?** Sube una versión nueva (.html o .zip) con una nota de lo que cambió: se publica en el **mismo enlace** y la anterior queda en el historial.
+3. **Para:** el contacto y los participantes, con selector; puedes agregar más.
+4. **Mensaje:** viene con un copy que agradece el espacio, conecta con lo que quieren lograr y muestra la experiencia de DeerSystems. **Personalizar con IA según la conversación** lo reescribe con 2 o 3 puntos concretos de la llamada (necesita la transcripción o el resumen; usa el perfil *Reuniones*, solo proveedores privados). Lo puedes editar todo.
+5. **Vista previa** y **Enviar al cliente**. El correo lleva el botón a la propuesta. Queda registrado cuándo y a quién se envió, y se puede volver a enviar.
+

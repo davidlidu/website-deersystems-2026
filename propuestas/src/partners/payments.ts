@@ -107,7 +107,14 @@ export function createPayments(projectId: number, items: PaymentInput[]): void {
 
 function syncOf(r: Row) {
   const receipt = billing.receiptForPayment(r.id);
-  return { receiptId: receipt?.id ?? null, sync: receipt?.sync_status ?? null, syncError: receipt?.sync_error ?? null, syncedAt: receipt?.synced_at ?? null };
+  return {
+    receiptId: receipt?.id ?? null,
+    sync: receipt?.sync_status ?? null,
+    syncError: receipt?.sync_error ?? null,
+    syncedAt: receipt?.synced_at ?? null,
+    amountCopReceived: receipt?.amount_cop ?? null,
+    financeGroup: receipt?.finance_group ?? null,
+  };
 }
 
 function view(r: Row, v: Viewer) {

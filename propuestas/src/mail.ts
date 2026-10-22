@@ -308,6 +308,21 @@ function plainParagraphs(md: string): string[] {
     .filter(Boolean);
 }
 
+/** Después de la Proposal Call: el mensaje que escribiste (o ajustaste) y el botón a la propuesta. */
+export function proposalAfterCall(p: { to: string; subject: string; title: string; message: string; proposalUrl: string; proposalTitle: string }): Mail {
+  return {
+    to: p.to,
+    subject: p.subject,
+    ...layout({
+      eyebrow: 'Propuesta',
+      title: p.title,
+      paragraphs: plainParagraphs(p.message),
+      cta: { label: p.proposalTitle ? `Ver la propuesta «${p.proposalTitle}»` : 'Ver la propuesta', url: p.proposalUrl },
+      footnote: 'Si tienes dudas o quieres ajustar algo, responde este correo y lo revisamos juntos.',
+    }),
+  };
+}
+
 /** Resumen de una reunión aprobado por DeerSystems: lo hablado, los acuerdos y lo que le toca a cada parte. */
 export function meetingSummary(p: {
   to: string;

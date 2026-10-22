@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { api, docDate, formatDateTime, formatMoney, useApi, type Me, type ProjectSummary, type Receipt, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
 import { InvoiceStatus } from './billing/InvoiceStatus';
+import { useUngroup } from './billing/GroupBar';
 import { ReceiptDetail } from './billing/ReceiptDetail';
 import { ReceiptForm } from './billing/ReceiptForm';
 import { ProjectCard } from './Home';
@@ -102,6 +103,7 @@ function ClientStatement({ clientId }: { clientId: number }) {
   const [paying, setPaying] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const [editing, setEditing] = useState<Receipt | null>(null);
+  const { ungroup } = useUngroup(() => reload());
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const s = data!;
@@ -199,6 +201,7 @@ function ClientStatement({ clientId }: { clientId: number }) {
                   {openId === r.id && (
                     <ReceiptDetail
                       r={r}
+                      onUngroup={ungroup}
                       onEdit={
                         r.paymentId
                           ? undefined

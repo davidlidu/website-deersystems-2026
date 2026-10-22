@@ -41,7 +41,7 @@ function slugify(name: string): string {
 }
 
 /** Sube el archivo crudo (.html o .zip) con parámetros en la URL, igual que el panel de propuestas. */
-async function sendFile<T>(method: 'POST' | 'PUT', path: string, file: File, params: Record<string, string>): Promise<T> {
+export async function sendFile<T>(method: 'POST' | 'PUT', path: string, file: File, params: Record<string, string>): Promise<T> {
   const res = await fetch(`/api/${path}?${new URLSearchParams({ filename: file.name, ...params })}`, {
     method,
     headers: { 'Content-Type': 'application/octet-stream' },

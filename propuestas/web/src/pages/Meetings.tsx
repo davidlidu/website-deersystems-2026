@@ -18,6 +18,7 @@ import {
 import { Empty, ErrorBox, Link, Loading, Markdown, PageHead, useAction, useToast } from '../ui';
 import { ClientsTabs } from './Home';
 import { pickFromDrive } from '../picker';
+import { ProposalSend, SalesCallForm } from './SalesCall';
 import { EditMeeting, ScheduleMeeting } from './project/Schedule';
 
 interface SyncState {
@@ -38,7 +39,11 @@ function MeetingRow({ m }: { m: Meeting }) {
         <strong>{m.title}</strong>
         <small>
           {m.clientName ?? 'Sin cliente'}
-          {m.projectName ? ` · ${m.projectName}` : ' · sin proyecto'}
+          {m.kind && m.kind !== 'proyecto'
+            ? ` · ${m.kind === 'discovery' ? 'Discovery Call' : 'Proposal Call'}${m.proposalSentAt ? ' · propuesta enviada' : ''}`
+            : m.projectName
+              ? ` · ${m.projectName}`
+              : ' · sin proyecto'}
         </small>
       </span>
       <span className="mono">{formatMeetingTime(m.startAt)}</span>
@@ -53,6 +58,7 @@ function MeetingRow({ m }: { m: Meeting }) {
 export function MeetingsPage() {
   const { data, error, loading, reload, setData } = useApi<{ items: Meeting[]; sync: SyncState; settings: { importExternal: boolean } }>('meetings');
   const [scheduling, setScheduling] = useState(false);
+  const [callKind, setCallKind] = useState<'proyecto' | 'discovery' | 'proposal'>('proyecto');
   const { busy, run } = useAction();
   const toast = useToast();
   const [showOld, setShowOld] = useState(false);
@@ -122,12 +128,41 @@ export function MeetingsPage() {
         {sync.lastError && <p className="alert">{sync.lastError}</p>}
       </PageHead>
       {scheduling && (
-        <ScheduleMeeting
-          onDone={async (m) => {
-            setScheduling(false);
-            setData({ ...data!, items: [m, ...all] });
-          }}
-        />
+        <>
+          <div className="segmented call-kinds" role="radiogroup" aria-label="Tipo de reunión">
+            {(
+              [
+                ['proyecto', 'Seguimiento de proyecto'],
+                ['discovery', 'Discovery Call'],
+                ['proposal', 'Proposal Call'],
+              ] as const
+            ).map(([k, label]) => (
+              <button key={k} type="button" role="radio" aria-checked={callKind === k} className={callKind === k ? 'is-active' : ''} onClick={() => setCallKind(k)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {callKind === 'proyecto' ? (
+            <ScheduleMeeting
+              onDone={async (m) => {
+                setScheduling(false);
+                setData({ ...data!, items: [m, ...all] });
+              }}
+            />
+          ) : (
+            <div className="card form-section">
+              <h2>Agendar llamada comercial</h2>
+              <SalesCallForm
+                key={callKind}
+                kind={callKind}
+                onDone={(m) => {
+                  setScheduling(false);
+                  setData({ ...data!, items: [m, ...all] });
+                }}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {(clients.length > 1 || clientFilter) && (
@@ -305,7 +340,9 @@ export function MeetingReviewPage({ id }: { id: number }) {
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const m = data!;
-  const editable = m.status === 'borrador' || (m.status === 'error' && !!m.summary);
+  const sales = !!m.kind && m.kind !== 'proyecto';
+  // Las llamadas comerciales no tienen proyecto: su resumen se lee aquí, sin aprobar ni crear tareas.
+  const editable = !sales && (m.status === 'borrador' || (m.status === 'error' && !!m.summary));
   const canGenerate = ['esperando', 'sin_transcripcion', 'error', 'borrador'].includes(m.status);
 
   const setProject = (projectId: number | null) =>
@@ -399,7 +436,8 @@ export function MeetingReviewPage({ id }: { id: number }) {
             {' / '}
             <Link to={`/reuniones?cliente=${m.clientId}`}>{m.clientName ?? 'Cliente'}</Link>
           </>
-        )}{' '}
+        )}
+        {!m.clientId && m.prospect?.company && <> / {m.prospect.company}</>}{' '}
         / {m.title}
       </div>
       <PageHead eyebrow={`${m.clientName ?? 'Sin cliente'} · ${formatMeetingTime(m.startAt)}`} title={m.title}>
@@ -408,6 +446,13 @@ export function MeetingReviewPage({ id }: { id: number }) {
             <small>Estado</small>
             <MeetingStatusPill status={m.status} />
           </span>
+          {sales ? (
+            <span>
+              <small>Tipo</small>
+              {m.kind === 'discovery' ? 'Discovery Call' : 'Proposal Call'}
+              {m.prospect?.contact ? ` · ${m.prospect.contact}` : ''}
+            </span>
+          ) : (
           <label className="project-head__status">
             <small>Proyecto</small>
             <select value={m.projectId ?? ''} disabled={busy || m.status === 'aprobada'} onChange={(e) => setProject(Number(e.target.value) || null)}>
@@ -421,6 +466,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
                 ))}
             </select>
           </label>
+          )}
           <span>
             <small>Asistentes</small>
             {m.attendees.map((a) => a.name || a.email).join(', ') || '—'}
@@ -548,6 +594,27 @@ export function MeetingReviewPage({ id }: { id: number }) {
           </div>
         </section>
       )}
+
+      {sales && !!m.summary && (
+        <section className="section section--flush">
+          <div className="card prose">
+            <h2>Resumen de la llamada (IA)</h2>
+            <Markdown text={m.summary} />
+            {!!m.agreements?.length && (
+              <>
+                <h3>Acuerdos</h3>
+                <ul>
+                  {m.agreements.map((a, i) => (
+                    <li key={i}>{a}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        </section>
+      )}
+
+      {sales && (m.status !== 'programada' || new Date(m.endAt) < new Date()) && <ProposalSend m={m} onChange={(u) => setData({ ...u, transcript: m.transcript })} />}
 
       {editable && (
         <div className="approve">

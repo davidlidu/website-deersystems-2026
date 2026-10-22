@@ -1,10 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { AiError, completeJson } from '../ai.ts';
+import { AiError, complete, completeJson } from '../ai.ts';
 import { PARTNERS_URL, SUPERADMIN_EMAIL } from '../config.ts';
 import { db as sqlite } from '../db.ts';
 import * as google from '../google.ts';
 import { HttpError, json, readJson } from '../http.ts';
-import { meetingSummary } from '../mail.ts';
+import { getProposal } from '../db.ts';
+import { meetingSummary, proposalAfterCall } from '../mail.ts';
+import { publicUrl } from '../proposals.ts';
 import type { Viewer } from './auth.ts';
 import { actor, optDate, requireOwner, str, visibleProject } from './common.ts';
 import * as db from './db.ts';
@@ -18,6 +20,7 @@ import { notify } from './notify.ts';
  * Estados: programada → esperando (terminó, falta transcripción) → borrador (IA lista) → aprobada.
  * También: sin_transcripcion, error (la IA falló, se puede reintentar) y descartada.
  */
+export type MeetingKind = 'proyecto' | 'discovery' | 'proposal';
 export type MeetingStatus = 'programada' | 'esperando' | 'borrador' | 'aprobada' | 'sin_transcripcion' | 'error' | 'descartada';
 
 export interface Attendee {
@@ -56,6 +59,13 @@ interface Row {
   task_ids: string;
   /** Fase del proyecto a la que pertenece la reunión (null = fuera de las fases). */
   phase_id: number | null;
+  /** proyecto = seguimiento de un proyecto; discovery / proposal = llamadas comerciales (antes de haber proyecto). */
+  kind: MeetingKind;
+  /** Prospecto de la llamada comercial: { company, contact, email } (JSON). */
+  prospect: string | null;
+  proposal_id: number | null;
+  proposal_sent_at: string | null;
+  proposal_sent_to: string | null;
   ai: string | null;
   error: string | null;
   approved_at: string | null;
@@ -100,6 +110,23 @@ sqlite.exec(`
 if (!(sqlite.prepare('PRAGMA table_info(meetings)').all() as { name: string }[]).some((c) => c.name === 'phase_id')) {
   sqlite.exec('ALTER TABLE meetings ADD COLUMN phase_id INTEGER REFERENCES phases(id) ON DELETE SET NULL');
 }
+{
+  const cols = (sqlite.prepare('PRAGMA table_info(meetings)').all() as { name: string }[]).map((c) => c.name);
+  const add = (name: string, def: string) => !cols.includes(name) && sqlite.exec(`ALTER TABLE meetings ADD COLUMN ${name} ${def}`);
+  add('kind', "TEXT NOT NULL DEFAULT 'proyecto'");
+  add('prospect', 'TEXT');
+  add('proposal_id', 'INTEGER');
+  add('proposal_sent_at', 'TEXT');
+  add('proposal_sent_to', 'TEXT');
+}
+
+interface Prospect {
+  company: string;
+  contact: string;
+  email: string;
+}
+const prospectOf = (m: Row): Prospect | null => parse<Prospect | null>(m.prospect, null);
+export const KIND_LABEL: Record<MeetingKind, string> = { proyecto: 'Seguimiento', discovery: 'Discovery Call', proposal: 'Proposal Call' };
 
 const now = () => new Date().toISOString();
 const get = (id: number) => sqlite.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as unknown as Row | undefined;
@@ -158,7 +185,9 @@ function view(m: Row, v: Viewer) {
     projectName: project?.name ?? null,
     phaseId: m.phase_id ?? null,
     clientId: m.client_id,
-    clientName: client?.name ?? null,
+    clientName: client?.name ?? prospectOf(m)?.company ?? null,
+    kind: m.kind ?? 'proyecto',
+    prospect: prospectOf(m),
     title: m.title,
     startAt: m.start_at,
     endAt: m.end_at,
@@ -184,10 +213,21 @@ function view(m: Row, v: Viewer) {
           ai: parse<Record<string, unknown> | null>(m.ai, null),
           error: m.error,
           sentTo: parse<string[]>(m.sent_to, []),
-          clientContacts: clientContacts(project?.client_id ?? m.client_id),
+          clientContacts: [
+            ...(prospectOf(m)?.email ? [{ email: prospectOf(m)!.email, name: prospectOf(m)!.contact, label: 'Contacto del prospecto' }] : []),
+            ...clientContacts(project?.client_id ?? m.client_id),
+          ].filter((c, i, list) => list.findIndex((x) => x.email === c.email) === i),
+          proposal: proposalInfo(m.proposal_id),
+          proposalSentAt: m.proposal_sent_at,
+          proposalSentTo: parse<string[]>(m.proposal_sent_to, []),
         }
       : {}),
   };
+}
+
+function proposalInfo(id: number | null) {
+  const p = id ? getProposal(id) : undefined;
+  return p ? { id: p.id, title: p.title || p.slug, slug: p.slug, url: publicUrl(p.slug), version: p.version, active: !!p.active, views: p.views } : null;
 }
 
 /** Correos principales del cliente para el resumen: la cuenta del portal y el correo de contacto, si son distintos. */
@@ -383,7 +423,9 @@ async function doSync(): Promise<SyncState> {
         attendees.map((a) => clients.get(a.email)).find(Boolean) ??
         existing?.client_id ??
         null;
-      if (!clientId) continue; // reunión sin clientes: no es de la plataforma
+      // Reunión sin clientes: no es de la plataforma, salvo las llamadas comerciales con un prospecto (aún sin cuenta).
+      const sales = !!existing && existing.kind !== 'proyecto';
+      if (!clientId && !sales) continue;
       state.found++;
       const start = new Date(e.start.dateTime).toISOString();
       const end = new Date(e.end.dateTime).toISOString();
@@ -397,10 +439,15 @@ async function doSync(): Promise<SyncState> {
         attendees: JSON.stringify(attendees),
       };
       if (!existing) {
-        insert({ event_id: e.id, client_id: clientId, project_id: lockedProject ?? projectFor(clientId), status: end < now() ? 'esperando' : 'programada', ...fields });
+        insert({ event_id: e.id, client_id: clientId, project_id: lockedProject ?? projectFor(clientId!), status: end < now() ? 'esperando' : 'programada', ...fields });
       } else {
         // El proyecto lo puedes cambiar a mano: la sincronización no lo pisa.
-        update(existing.id, { ...fields, client_id: clientId, ...(existing.project_id ? {} : { project_id: projectFor(clientId) }) });
+        update(existing.id, {
+          ...fields,
+          client_id: clientId ?? existing.client_id,
+          // Las llamadas comerciales no tienen proyecto todavía.
+          ...(existing.project_id || sales || !clientId ? {} : { project_id: projectFor(clientId) }),
+        });
         if (existing.status === 'programada' && end < now()) update(existing.id, { status: 'esperando' });
         if (existing.status === 'esperando' && end > now()) update(existing.id, { status: 'programada' });
       }
@@ -507,6 +554,129 @@ function readContent(body: Record<string, unknown>) {
 }
 
 // ───────── Agendar ─────────
+
+export interface SalesCallInput {
+  kind: 'discovery' | 'proposal';
+  clientId: number | null;
+  company: string;
+  contact: string;
+  email: string;
+  proposalId: number | null;
+  title: string;
+  date: string | null;
+  time: string | null;
+  durationMinutes: number;
+  agenda: string;
+  teamIds: number[];
+  guests: string[];
+}
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** «Discovery Call - Empresa (Contacto)» o «Proposal Call - Empresa (Contacto)». */
+export const salesTitle = (kind: 'discovery' | 'proposal', company: string, contact: string) =>
+  `${KIND_LABEL[kind]} - ${company || 'Cliente'}${contact ? ` (${contact})` : ''}`;
+
+/**
+ * Llamada comercial (Discovery o Proposal Call) con un cliente existente o un prospecto nuevo: Meet en tu Calendar,
+ * invitaciones de Google y, en la Proposal Call, la propuesta ya subida que se enviará al terminar.
+ */
+export async function scheduleSalesCall(input: SalesCallInput): Promise<Row> {
+  if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para agendar reuniones.');
+  if (!google.hasAnyScope('calendar.events')) throw new HttpError(403, 'Falta el permiso para crear eventos: vuelve a conectar Google en Configuración.');
+  const time = input.time && /^\d{2}:\d{2}$/.test(input.time) ? input.time : null;
+  if (!input.date || !time) throw new HttpError(400, 'Elige la fecha y la hora.');
+  const start = new Date(`${input.date}T${time}:00-05:00`);
+  if (start.getTime() < Date.now() - 5 * 60_000) throw new HttpError(400, 'La fecha ya pasó.');
+  const end = new Date(start.getTime() + Math.min(480, Math.max(15, input.durationMinutes || 45)) * 60_000);
+  const client = input.clientId ? db.getClient(input.clientId) : undefined;
+  if (input.clientId && !client) throw new HttpError(400, 'El cliente no existe.');
+  const company = (input.company || client?.name || '').trim().slice(0, 120);
+  const contact = (input.contact || client?.contact_name || '').trim().slice(0, 120);
+  const email = (input.email || (client ? (db.getClientAccount(client.id)?.email ?? client.email) : '') || '').trim().toLowerCase();
+  if (!company) throw new HttpError(400, 'Escribe la empresa o el nombre del cliente.');
+  if (!EMAIL.test(email)) throw new HttpError(400, 'Escribe el correo del contacto.');
+  const proposal = input.proposalId ? getProposal(input.proposalId) : undefined;
+  if (input.proposalId && !proposal) throw new HttpError(400, 'La propuesta no existe.');
+
+  const emails = new Set<string>([email]);
+  const teamIds = new Set(input.teamIds);
+  for (const a of db.listTeam()) if (a.active && teamIds.has(a.id)) emails.add(a.email.toLowerCase());
+  for (const g of input.guests) {
+    const e = g.trim().toLowerCase();
+    if (EMAIL.test(e)) emails.add(e);
+  }
+  emails.delete(SUPERADMIN_EMAIL);
+  const title = input.title.trim().slice(0, 200) || salesTitle(input.kind, company, contact);
+  const agenda = input.agenda.trim().slice(0, 4000);
+
+  let event: google.CalendarEvent;
+  try {
+    event = await google.createCalendarEvent({
+      summary: title,
+      description:
+        agenda ||
+        (input.kind === 'discovery'
+          ? 'Conversación inicial para entender tu negocio, tus retos y cómo podemos ayudarte.'
+          : 'Presentación de la propuesta de DeerSystems.'),
+      startIso: start.toISOString(),
+      endIso: end.toISOString(),
+      attendees: [...emails],
+      privateProps: { dsPartners: '1', dsKind: input.kind },
+    });
+  } catch (err) {
+    throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+  }
+  const staff = staffEmails();
+  const clients = clientByEmail();
+  try {
+    const m = insert({
+      event_id: event.id,
+      client_id: client?.id ?? null,
+      project_id: null,
+      title,
+      start_at: start.toISOString(),
+      end_at: end.toISOString(),
+      meet_code: meetCodeOf(event),
+      meet_url: event.hangoutLink ?? null,
+      calendar_url: event.htmlLink ?? null,
+      attendees: JSON.stringify(
+        [...emails].map((e) => ({ email: e, name: e === email ? contact : '', side: staff.has(e) ? 'deersystems' : clients.has(e) || e === email ? 'cliente' : 'otro' })),
+      ),
+      status: 'programada',
+    });
+    update(m.id, { kind: input.kind, prospect: JSON.stringify({ company, contact, email }), proposal_id: proposal?.id ?? null });
+    return get(m.id)!;
+  } catch (err) {
+    // Si no se pudo registrar aquí, se cancela en Calendar para no dejar invitaciones huérfanas.
+    await google.cancelCalendarEvent(event.id).catch(() => {});
+    throw err;
+  }
+}
+
+/** Copy por defecto del correo tras la Proposal Call: agradece, conecta con lo hablado y muestra experiencia. */
+export function defaultProposalMessage(contact: string, company: string): string {
+  const first = contact.split(' ')[0];
+  return `Hola${first ? ` ${first}` : ''},
+
+Gracias por el espacio de hoy para presentarte la propuesta${company ? ` para ${company}` : ''}. Fue muy valioso escuchar de primera mano cómo trabajan y qué quieren lograr.
+
+En DeerSystems diseñamos software, automatizaciones e inteligencia artificial para empresas que necesitan resultados medibles: menos tareas manuales, procesos que no dependen de una sola persona y datos claros para decidir. Esa experiencia es la que pusimos en esta propuesta, pensada para tu caso y no como una plantilla.
+
+Aquí la tienes para revisarla con calma y compartirla con tu equipo: incluye el alcance, las etapas, los tiempos y la inversión.
+
+Si quieres ajustar algo o resolver dudas, respóndeme este correo o agendamos 15 minutos. Con tu visto bueno, arrancamos con la primera etapa.
+
+Un abrazo,
+David Lidueñas · DeerSystems`;
+}
+
+/** Nombre del contacto y empresa de la reunión: del prospecto o del cliente. */
+function whoOf(m: Row) {
+  const p = prospectOf(m);
+  const client = m.client_id ? db.getClient(m.client_id) : undefined;
+  return { contact: p?.contact || client?.contact_name || '', company: p?.company || client?.name || '' };
+}
 
 export interface ScheduleInput {
   title: string;
@@ -634,6 +804,109 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
     }
 
     // Agendar desde la plataforma: crea el evento con Meet en tu Calendar, invita y lo deja en el proyecto.
+    case 'POST meetings/sales': {
+      requireOwner(v);
+      const body = await readJson(req);
+      const m = await scheduleSalesCall({
+        kind: body.kind === 'proposal' ? 'proposal' : 'discovery',
+        clientId: Number(body.clientId) || null,
+        company: str(body.company, 120),
+        contact: str(body.contact, 120),
+        email: str(body.email, 200),
+        proposalId: Number(body.proposalId) || null,
+        title: str(body.title, 200),
+        date: optDate(body.date) ?? null,
+        time: typeof body.time === 'string' ? body.time : null,
+        durationMinutes: Number(body.durationMinutes) || 45,
+        agenda: typeof body.agenda === 'string' ? body.agenda : '',
+        teamIds: (Array.isArray(body.team) ? body.team : []).map(Number),
+        guests: (Array.isArray(body.guests) ? body.guests : []).map((g) => str(g, 200)),
+      });
+      json(res, 201, view(m, v));
+      return true;
+    }
+
+    // Correo con la propuesta después de la Proposal Call: vista previa y envío.
+    case 'POST meetings/:id/proposal/preview':
+    case 'POST meetings/:id/proposal/send': {
+      requireOwner(v);
+      const m = visible(id, v);
+      const body = await readJson(req);
+      const proposal = getProposal(Number(body.proposalId) || m.proposal_id || 0);
+      if (!proposal) throw new HttpError(400, 'Elige la propuesta que vas a enviar.');
+      const { contact, company } = whoOf(m);
+      const to = [...new Set((Array.isArray(body.to) ? body.to : []).map((e) => str(e, 200).toLowerCase()))].filter((e) => EMAIL.test(e));
+      const message = str(body.message, 8000) || defaultProposalMessage(contact, company);
+      const first = contact.split(' ')[0];
+      const mail = proposalAfterCall({
+        to: to.join(', '),
+        subject: str(body.subject, 200) || `Propuesta DeerSystems${company ? ` para ${company}` : ''}`,
+        title: `${first ? `${first}, gracias` : 'Gracias'} por el espacio: aquí está tu propuesta`,
+        message,
+        proposalUrl: publicUrl(proposal.slug),
+        proposalTitle: proposal.title,
+      });
+      if (route.endsWith('preview')) {
+        json(res, 200, { subject: mail.subject, to: mail.to, html: mail.html });
+        return true;
+      }
+      if (!proposal.active) throw new HttpError(409, 'El enlace de esa propuesta está pausado: actívalo en Propuestas antes de enviarla.');
+      if (!to.length) throw new HttpError(400, 'Elige al menos un destinatario.');
+      if (to.length > 10) throw new HttpError(400, 'Máximo 10 destinatarios.');
+      if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
+      try {
+        await google.sendMail(mail);
+      } catch (err) {
+        throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+      }
+      update(m.id, { proposal_id: proposal.id, proposal_sent_at: now(), proposal_sent_to: JSON.stringify(to) });
+      json(res, 200, view(get(m.id)!, v));
+      return true;
+    }
+
+    // El copy por defecto, o ajustado por la IA con lo que se habló en la llamada (transcripción o resumen).
+    case 'POST meetings/:id/proposal/message': {
+      requireOwner(v);
+      const m = visible(id, v);
+      const { contact, company } = whoOf(m);
+      const body = await readJson(req);
+      if (body.ai !== true) {
+        json(res, 200, { message: defaultProposalMessage(contact, company) });
+        return true;
+      }
+      const context = (m.transcript || m.summary || '').slice(0, 60_000);
+      if (!context.trim()) throw new HttpError(400, 'La reunión aún no tiene transcripción ni resumen: impórtala primero para personalizar el mensaje.');
+      let text: string;
+      try {
+        const completion = await complete({
+          profile: 'reuniones', // conversación con el cliente: solo proveedores privados
+          purpose: 'propuesta-correo',
+          system:
+            'Eres David Lidueñas, fundador de DeerSystems (software, automatización e IA, Colombia). Escribes en español, cálido, directo y profesional, tuteando. Responde SOLO con el cuerpo del correo, sin asunto.',
+          maxOutputTokens: 1200,
+          prompt: `Escribe el correo que acompaña la propuesta después de la llamada en la que se la presentaste a ${contact || 'el cliente'}${company ? ` de ${company}` : ''}.
+
+Debe:
+- Agradecer el espacio para presentar la propuesta.
+- Retomar 2 o 3 puntos concretos de la conversación (sus retos, lo que valoraron, dudas que surgieron) y cómo la propuesta los resuelve.
+- Mostrar experiencia sin presumir: cómo DeerSystems resuelve problemas parecidos con software, automatización e IA, con resultados medibles.
+- Si en la llamada se pidieron cambios, decir que ya están incluidos en esta versión.
+- Cerrar con un siguiente paso claro (visto bueno, dudas o una llamada corta).
+- Máximo 190 palabras, párrafos cortos, sin emojis, sin inventar cifras, clientes ni datos que no estén en la conversación. Firma: David Lidueñas · DeerSystems.
+
+LO QUE SE HABLÓ:
+---
+${context}
+---`,
+        });
+        text = completion.text.trim().replace(/^```\w*\s*/, '').replace(/```$/, '').trim();
+      } catch (err) {
+        throw new HttpError(502, `La IA no respondió: ${(err as Error).message}`);
+      }
+      json(res, 200, { message: text.slice(0, 8000) });
+      return true;
+    }
+
     case 'POST projects/:id/meetings/schedule': {
       requireOwner(v);
       const project = visibleProject(id, v);
@@ -780,6 +1053,11 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
         if (pid && !db.getProject(pid)) throw new HttpError(400, 'El proyecto no existe.');
         // Otra fase no sirve en otro proyecto: al cambiar de proyecto, la reunión queda fuera de las fases.
         update(m.id, { project_id: pid, phase_id: pid === m.project_id ? m.phase_id : null, ...(pid ? { client_id: db.getProject(pid)!.client_id } : {}) });
+      }
+      if ('proposalId' in body) {
+        const proposalId = Number(body.proposalId) || null;
+        if (proposalId && !getProposal(proposalId)) throw new HttpError(400, 'La propuesta no existe.');
+        update(m.id, { proposal_id: proposalId });
       }
       if ('phaseId' in body) {
         const phaseId = Number(body.phaseId) || null;

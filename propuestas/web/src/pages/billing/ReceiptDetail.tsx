@@ -6,7 +6,7 @@ import { Link } from '../../ui';
  * Detalle de un abono (al abrirlo en una lista): notas del pago arriba, los datos en columnas y, abajo,
  * cómo quedó en el Gestor financiero, con el botón para editarlo (lo que se cambie se actualiza allá).
  */
-export function ReceiptDetail({ r, onEdit }: { r: Receipt; onEdit?: () => void }) {
+export function ReceiptDetail({ r, onEdit, onUngroup }: { r: Receipt; onEdit?: () => void; onUngroup?: (ref: string) => void }) {
   const off = r.sendToFinance === false && r.sync !== 'error';
   const status = off ? (
     <span className="sync sync--off">No se envía al Gestor</span>
@@ -69,6 +69,29 @@ export function ReceiptDetail({ r, onEdit }: { r: Receipt; onEdit?: () => void }
           </div>
         ))}
       </dl>
+
+      {r.group && (
+        <div className="rc-detail__group">
+          <span className="rc-detail__label">
+            Entrada unida en el Gestor · {formatMoney(r.group.total)}
+            {r.group.date ? ` · ${docDate(r.group.date)}` : ''}
+          </span>
+          <ul>
+            {r.group.members.map((m) => (
+              <li key={m.id} className={m.self ? 'is-self' : ''}>
+                <span className="mono">{docDate(m.date)}</span>
+                <span>{m.label}</span>
+                <span className="mono">{formatMoney(m.amountCop)}</span>
+              </li>
+            ))}
+          </ul>
+          {onUngroup && (
+            <button className="btn btn--outline btn--xs" onClick={() => onUngroup(r.group!.ref)}>
+              Separar la entrada
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="rc-detail__gestor">
         <div>

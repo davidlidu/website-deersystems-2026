@@ -18,6 +18,7 @@ import {
   type Statement,
 } from '../../lib';
 import { Empty, ErrorBox, Link, Loading, useAction, useToast } from '../../ui';
+import { GroupBar, useUngroup } from '../billing/GroupBar';
 import { InvoiceStatus } from '../billing/InvoiceStatus';
 
 interface PaymentsResponse {
@@ -153,9 +154,11 @@ function PaymentRow({
   invoices,
   onChange,
   onRemove,
+  onUngroup,
 }: {
   p: Payment;
   finance: boolean;
+  onUngroup: (ref: string) => void;
   newInvoiceUrl: string;
   /** Cuentas de cobro del cliente (no anuladas) para asociar a la cuota. */
   invoices: InvoiceSummary[];
@@ -254,7 +257,20 @@ function PaymentRow({
             {p.trm ? ` · TRM ${p.trm.toLocaleString('es-CO')}` : ''}
           </span>
         ) : null}
-        {p.paid && p.sync === 'ok' && <span className="sync sync--ok">✓ En el Gestor financiero</span>}
+        {p.paid && p.sync === 'ok' && (
+          <span className="sync sync--ok">
+            ✓ En el Gestor financiero
+            {p.financeGroup && (
+              <>
+                {' '}
+                <small className="tag tag--group">Entrada unida</small>{' '}
+                <button className="linklike" disabled={busy} onClick={() => onUngroup(p.financeGroup!)}>
+                  Separar
+                </button>
+              </>
+            )}
+          </span>
+        )}
         {p.paid && p.sync === 'error' && (
           <span className="sync sync--error" title={p.syncError ?? ''}>
             ⚠ No se registró en el Gestor: {p.syncError}{' '}
@@ -358,9 +374,12 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
   const [suggested, setSuggested] = useState<Draft[] | null>(null);
   const [adding, setAdding] = useState<Draft | null>(null);
   const [suggesting, setSuggesting] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const { busy, run } = useAction();
   const toast = useToast();
   const owner = me.role === 'owner';
+  const { ungroup } = useUngroup(() => reload());
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
@@ -398,10 +417,73 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
               {suggesting ? 'Leyendo la propuesta…' : 'Sugerir desde la propuesta (IA)'}
             </button>
           </div>
+          {finance && payments.filter((p) => p.paid && p.receiptId).length >= 2 && (
+            <button
+              className={`btn btn--outline btn--sm${merging ? ' is-active' : ''}`}
+              onClick={() => {
+                setMerging(!merging);
+                setSelected(new Set());
+              }}
+            >
+              {merging ? 'Cerrar' : 'Unir pagos en el Gestor'}
+            </button>
+          )}
           <span className={`sync ${finance ? 'sync--ok' : 'sync--off'}`}>
             {finance ? '● Gestor financiero conectado' : <Link to="/configuracion">○ Conecta tu Gestor financiero</Link>}
           </span>
         </div>
+      )}
+
+      {merging && (
+        <section className="card form-section merge-pays">
+          <h2>Unir pagos en una sola entrada del Gestor</h2>
+          <p className="hint">
+            Por ejemplo, dos cuotas que el cliente pagó en una sola transferencia. Aquí cada cuota sigue pagada por separado; en tu Gestor financiero quedan como un
+            solo ingreso por la suma.
+          </p>
+          <ul className="merge-pays__list">
+            {payments
+              .filter((p) => p.paid && p.receiptId)
+              .map((p) => (
+                <li key={p.id}>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(p.id)}
+                      onChange={(e) => {
+                        const next = new Set(selected);
+                        if (e.target.checked) next.add(p.id);
+                        else next.delete(p.id);
+                        setSelected(next);
+                      }}
+                    />
+                    <span>
+                      <strong>{p.label}</strong> · pagado el {formatDate(p.paidAt)}
+                      {p.financeGroup && (
+                        <small className="tag tag--group" title="Ya está en una entrada unida: esa entrada se suma a la nueva, con todos sus pagos">
+                          Ya unida
+                        </small>
+                      )}
+                    </span>
+                  </label>
+                  <span className="mono">{formatMoney(p.amountCopReceived ?? p.amountCop ?? p.amount)}</span>
+                </li>
+              ))}
+          </ul>
+          {selected.size > 0 && (
+            <GroupBar
+              items={payments
+                .filter((p) => selected.has(p.id))
+                .map((p) => ({ receiptId: p.receiptId!, clientId, date: p.paidAt ?? '', amountCop: p.amountCopReceived ?? p.amountCop ?? p.amount, sendToFinance: true }))}
+              onClear={() => setSelected(new Set())}
+              onDone={() => {
+                setMerging(false);
+                setSelected(new Set());
+                reload();
+              }}
+            />
+          )}
+        </section>
       )}
 
       {suggested && (
@@ -461,6 +543,7 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
                   invoices={(clientInvoices.data ?? []).filter((i) => i.status !== 'anulada')}
                   onChange={(u) => setPayments(payments.map((x) => (x.id === u.id ? u : x)))}
                   onRemove={remove}
+                  onUngroup={ungroup}
                 />
               ))}
             </div>

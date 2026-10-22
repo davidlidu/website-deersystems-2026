@@ -4,6 +4,7 @@ import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '.
 import { InvoiceStatus } from './InvoiceStatus';
 import { DateFilter } from './DateFilter';
 import { ImportTab } from './Import';
+import { GroupBar, useUngroup } from './GroupBar';
 import { ReceiptDetail } from './ReceiptDetail';
 import { ReceiptForm } from './ReceiptForm';
 import { ReportsTab } from './Reports';
@@ -93,6 +94,8 @@ function ReceiptsTab() {
   const { data, error, loading, reload, setData } = useApi<Receipt[]>('receipts');
   const [editing, setEditing] = useState<Receipt | 'new' | null>(null);
   const [openId, setOpenId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const { ungroup } = useUngroup(() => reload());
   const [q, setQ] = useState('');
   const [range, setRange] = useState<DateRange>(emptyRange);
   const { busy, run } = useAction();
@@ -139,6 +142,18 @@ function ReceiptsTab() {
           }}
         />
       )}
+      {selected.size > 0 && (
+        <GroupBar
+          items={list
+            .filter((r) => selected.has(r.id))
+            .map((r) => ({ receiptId: r.id, clientId: r.clientId ?? null, date: r.date, amountCop: r.amountCop, sendToFinance: r.sendToFinance !== false }))}
+          onClear={() => setSelected(new Set())}
+          onDone={() => {
+            setSelected(new Set());
+            reload();
+          }}
+        />
+      )}
       {shown.length > 0 && (
         <p className="list-total">
           {shown.length} {shown.length === 1 ? 'abono' : 'abonos'} · <strong>{formatMoney(shown.reduce((n, r) => n + r.amountCop, 0))}</strong>
@@ -160,11 +175,26 @@ function ReceiptsTab() {
               className={`table__row rc-row is-clickable${openId === r.id ? ' is-open' : ''}`}
               onClick={(e) => {
                 // Los botones y enlaces de la fila hacen lo suyo; el resto abre el detalle.
-                if ((e.target as HTMLElement).closest('a, button')) return;
+                if ((e.target as HTMLElement).closest('a, button, input')) return;
                 setOpenId(openId === r.id ? null : r.id);
               }}
             >
-              <span className="mono">{docDate(r.date)}</span>
+              <span className="mono rc-row__date">
+                <input
+                  type="checkbox"
+                  className="rc-row__select"
+                  aria-label="Seleccionar para unir en el Gestor"
+                  title="Seleccionar para unir varios pagos en una sola entrada del Gestor"
+                  checked={selected.has(r.id)}
+                  onChange={(e) => {
+                    const next = new Set(selected);
+                    if (e.target.checked) next.add(r.id);
+                    else next.delete(r.id);
+                    setSelected(next);
+                  }}
+                />
+                {docDate(r.date)}
+              </span>
               <span>
                 <Link to={`/clientes/${r.clientId}`}>{r.clientName}</Link>
                 {r.notes && <small className="rc-row__notes">{r.notes}</small>}
@@ -186,7 +216,9 @@ function ReceiptsTab() {
                 {r.sendToFinance === false && r.sync !== 'error' ? (
                   <span className="sync sync--off" title="Este abono no se envía al Gestor financiero">No se envía</span>
                 ) : r.sync === 'ok' ? (
-                  <span className="sync sync--ok">✓</span>
+                  <span className="sync sync--ok" title={r.group ? `Entrada unida de ${r.group.members.length} pagos` : undefined}>
+                    ✓{r.group && <small className="tag tag--group">Unida</small>}
+                  </span>
                 ) : (
                   <button
                     className="linklike sync sync--error"
@@ -226,7 +258,7 @@ function ReceiptsTab() {
                 </button>
               </span>
             </div>
-            {openId === r.id && <ReceiptDetail r={r} onEdit={r.paymentId ? undefined : () => { setEditing(r); setTimeout(() => document.querySelector('.receipt-form')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); }} />}
+            {openId === r.id && <ReceiptDetail r={r} onUngroup={ungroup} onEdit={r.paymentId ? undefined : () => { setEditing(r); setTimeout(() => document.querySelector('.receipt-form')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); }} />}
             </Fragment>
           ))}
         </div>

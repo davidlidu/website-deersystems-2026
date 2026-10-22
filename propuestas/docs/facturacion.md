@@ -47,6 +47,13 @@ Un abono es lo que entró. Va **ligado al cliente** (como en SmartBilling) y, si
 - **Gestor financiero:** cada abono es un ingreso (`PUT /integrations/billing-payment/{referencia}`), con la categoría = cliente y la descripción = proyecto, tipo de abono o cuenta de cobro.
   - Editar el abono actualiza el ingreso; borrarlo lo quita. Si el Gestor no responde, el abono queda con *⚠ Reintentar*.
 - **Filtros:** búsqueda y fecha (un día, un mes o un rango), con el total de lo filtrado.
+- **Unir varios pagos en una sola entrada del Gestor** (por ejemplo, dos cuotas que el cliente pagó en una sola transferencia):
+  - En *Facturación → Abonos*, marca la casilla de cada abono; en la pestaña *Pagos* del proyecto, usa *Unir pagos en el Gestor*.
+  - La barra muestra cuántos van y la suma. Eliges la fecha de la entrada (por defecto, la del pago más reciente) y, si quieres, la descripción; si la dejas vacía, se arma con lo de cada pago, separado por « + ».
+  - Solo se unen pagos del **mismo cliente** que se envían al Gestor. Si uno ya estaba en otra entrada unida, esa se suma a la nueva.
+  - En el Gestor se borran los ingresos sueltos y queda **un solo ingreso** por la suma (referencia `deersystems-grupo-{uuid}`). En Partners cada abono sigue igual: su cuota, su cuenta de cobro y el saldo.
+  - Se ven con la etiqueta *Unida*. El detalle del abono lista los pagos de la entrada y tiene **Separar la entrada**: cada pago vuelve a ser su propio ingreso.
+  - Si editas, borras o desmarcas uno de esos pagos, la entrada se recalcula; si queda uno solo, se separa sola.
 - **Las cuotas del plan de pagos** también son abonos: se crean al marcarlas pagadas y se editan desde la pestaña *Pagos* del proyecto.
 - **Referencias en el Gestor:**
 
@@ -56,6 +63,7 @@ Un abono es lo que entró. Va **ligado al cliente** (como en SmartBilling) y, si
   | Abono manual | `deersystems-abono-{uuid}` |
   | Pago en línea | `deersystems-wompi-{transacción}` |
   | Importado de SmartBilling | El UUID que ya tenía allá |
+  | Entrada unida (varios abonos) | `deersystems-grupo-{uuid}` |
 
 ## Estado de cuenta
 
