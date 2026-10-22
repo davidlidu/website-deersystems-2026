@@ -54,6 +54,8 @@ interface Row {
   agreements: string;
   proposed_tasks: string;
   task_ids: string;
+  /** Fase del proyecto a la que pertenece la reunión (null = fuera de las fases). */
+  phase_id: number | null;
   ai: string | null;
   error: string | null;
   approved_at: string | null;
@@ -95,6 +97,9 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS meetings_project ON meetings(project_id, start_at);
   CREATE INDEX IF NOT EXISTS meetings_status ON meetings(status, end_at);
 `);
+if (!(sqlite.prepare('PRAGMA table_info(meetings)').all() as { name: string }[]).some((c) => c.name === 'phase_id')) {
+  sqlite.exec('ALTER TABLE meetings ADD COLUMN phase_id INTEGER REFERENCES phases(id) ON DELETE SET NULL');
+}
 
 const now = () => new Date().toISOString();
 const get = (id: number) => sqlite.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as unknown as Row | undefined;
@@ -151,6 +156,7 @@ function view(m: Row, v: Viewer) {
     id: m.id,
     projectId: m.project_id,
     projectName: project?.name ?? null,
+    phaseId: m.phase_id ?? null,
     clientId: m.client_id,
     clientName: client?.name ?? null,
     title: m.title,
@@ -772,7 +778,14 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       if ('projectId' in body) {
         const pid = Number(body.projectId) || null;
         if (pid && !db.getProject(pid)) throw new HttpError(400, 'El proyecto no existe.');
-        update(m.id, { project_id: pid, ...(pid ? { client_id: db.getProject(pid)!.client_id } : {}) });
+        // Otra fase no sirve en otro proyecto: al cambiar de proyecto, la reunión queda fuera de las fases.
+        update(m.id, { project_id: pid, phase_id: pid === m.project_id ? m.phase_id : null, ...(pid ? { client_id: db.getProject(pid)!.client_id } : {}) });
+      }
+      if ('phaseId' in body) {
+        const phaseId = Number(body.phaseId) || null;
+        const current = get(m.id)!;
+        if (phaseId && db.getPhase(phaseId)?.project_id !== current.project_id) throw new HttpError(400, 'La fase no es del proyecto de la reunión.');
+        update(m.id, { phase_id: phaseId });
       }
       json(res, 200, view(get(m.id)!, v));
       return true;

@@ -23,6 +23,37 @@ import {
 import { MeetingStatusPill } from "../Meetings";
 import { EditMeeting, ScheduleMeeting } from "./Schedule";
 
+/** Agrupa las reuniones por fase del proyecto; las que no tienen fase quedan aparte, al final. */
+function byPhase(list: Meeting[], phases: { id: number; name: string }[]) {
+  if (!list.some((m) => m.phaseId)) return [{ key: 'all', title: null as string | null, items: list }];
+  return [
+    ...phases.map((ph) => ({ key: `p${ph.id}`, title: ph.name as string | null, items: list.filter((m) => m.phaseId === ph.id) })),
+    { key: 'none', title: 'Fuera de las fases', items: list.filter((m) => !m.phaseId || !phases.some((ph) => ph.id === m.phaseId)) },
+  ].filter((g) => g.items.length);
+}
+
+function PhaseSelect({ meeting, phases, onChange }: { meeting: Meeting; phases: { id: number; name: string }[]; onChange: (m: Meeting) => void }) {
+  const { busy, run } = useAction();
+  if (!phases.length) return null;
+  return (
+    <span className="input input--chip meeting__phase">
+      <select
+        aria-label="Fase de la reunión"
+        value={meeting.phaseId ?? ''}
+        disabled={busy}
+        onChange={(e) => run(async () => onChange(await api<Meeting>("PATCH", `meetings/${meeting.id}`, { phaseId: Number(e.target.value) || null })))}
+      >
+        <option value="">Sin fase</option>
+        {phases.map((ph) => (
+          <option key={ph.id} value={ph.id}>
+            Fase: {ph.name}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
+
 /** Reuniones del proyecto: las próximas (con enlace de Meet) y los resúmenes aprobados con sus tareas. */
 export function ProjectMeetings({
   me,
@@ -33,7 +64,7 @@ export function ProjectMeetings({
   project: ProjectDetail;
   onOpenTask: (t: Task) => void;
 }) {
-  const { data, error, loading, reload } = useApi<Meeting[]>(
+  const { data, error, loading, reload, setData } = useApi<Meeting[]>(
     `projects/${project.id}/meetings`,
   );
   const [adding, setAdding] = useState(false);
@@ -47,6 +78,8 @@ export function ProjectMeetings({
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const list = data!;
   const upcoming = list.filter((m) => m.status === "programada").reverse();
+  const replace = (u: Meeting) => setData(list.map((x) => (x.id === u.id ? u : x)));
+  const phaseName = (m: Meeting) => project.phases.find((ph) => ph.id === m.phaseId)?.name;
   const approved = list.filter((m) => m.status === "aprobada");
   const inReview = list.filter(
     (m) => !["programada", "aprobada", "descartada"].includes(m.status),
@@ -165,8 +198,11 @@ export function ProjectMeetings({
       <section>
         <h3 className="subhead">Próximas</h3>
         {upcoming.length ? (
+          byPhase(upcoming, project.phases).map((g) => (
+          <div key={g.key} className="meeting-group">
+            {g.title && <h4 className={`meeting-group__title${g.key === 'none' ? ' is-none' : ''}`}>{g.title}</h4>}
           <div className="meeting-list">
-            {upcoming.map((m) =>
+            {g.items.map((m) =>
               editing === m.id ? (
                 <EditMeeting
                   key={m.id}
@@ -182,6 +218,7 @@ export function ProjectMeetings({
                   <div>
                     <strong>{m.title}</strong>
                     <span className="mono">{formatMeetingTime(m.startAt)}</span>
+                    {!owner && phaseName(m) && <span className="tag">{phaseName(m)}</span>}
                   </div>
                   <div className="actions actions--tight">
                     {m.meetUrl && (
@@ -194,6 +231,7 @@ export function ProjectMeetings({
                         Unirse a Meet
                       </a>
                     )}
+                    {owner && <PhaseSelect meeting={m} phases={project.phases} onChange={replace} />}
                     {owner && (
                       <button
                         className="btn btn--outline btn--sm"
@@ -229,6 +267,8 @@ export function ProjectMeetings({
               ),
             )}
           </div>
+          </div>
+          ))
         ) : (
           <Empty>No hay reuniones agendadas.</Empty>
         )}
@@ -237,7 +277,10 @@ export function ProjectMeetings({
       <section>
         <h3 className="subhead">Resúmenes</h3>
         {approved.length ? (
-          approved.map((m) => {
+          byPhase(approved, project.phases).map((g) => (
+          <div key={g.key} className="meeting-group">
+            {g.title && <h4 className={`meeting-group__title${g.key === 'none' ? ' is-none' : ''}`}>{g.title}</h4>}
+          {g.items.map((m) => {
             const tasks = (m.taskIds ?? [])
               .map((id) => project.tasks.find((t) => t.id === id))
               .filter((t): t is Task => !!t);
@@ -248,11 +291,14 @@ export function ProjectMeetings({
                     <p className="eyebrow">{formatDate(m.startAt)}</p>
                     <h3>{m.title}</h3>
                   </div>
-                  {owner && (
-                    <Link className="linklike" to={`/reuniones/${m.id}`}>
-                      Detalle
-                    </Link>
-                  )}
+                  <div className="meeting-summary__tools">
+                    {owner ? <PhaseSelect meeting={m} phases={project.phases} onChange={replace} /> : phaseName(m) && <span className="tag">{phaseName(m)}</span>}
+                    {owner && (
+                      <Link className="linklike" to={`/reuniones/${m.id}`}>
+                        Detalle
+                      </Link>
+                    )}
+                  </div>
                 </header>
                 <Markdown text={m.summary ?? ""} />
                 {!!m.agreements?.length && (
@@ -292,7 +338,9 @@ export function ProjectMeetings({
                 )}
               </article>
             );
-          })
+          })}
+          </div>
+          ))
         ) : (
           <Empty>
             Aquí aparecerán los resúmenes de las reuniones, con los acuerdos y

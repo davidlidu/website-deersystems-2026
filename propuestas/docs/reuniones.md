@@ -57,3 +57,9 @@ El perfil *Reuniones* propone tres cosas: el **resumen**, los **acuerdos** y las
   3. Envía el correo con el diseño de la marca. Las fechas van en español, por ejemplo «sábado, 17 de octubre».
   4. Muestra el resumen al cliente en la pestaña *Reuniones* del proyecto.
 - **Descartar** la saca de la bandeja sin enviar nada.
+
+## Fases y navegación
+
+- **Reunión ligada a una fase:** en *Plan de trabajo → Calendario de reuniones*, cada reunión (próxima o con resumen) tiene el selector *Fase*. Las reuniones se agrupan por fase, en el orden del proyecto; las que no tienen fase quedan aparte, en *Fuera de las fases*. Si ninguna tiene fase, se ve la lista normal. Al cambiar la reunión de proyecto, sale de su fase.
+- **Breadcrumb:** dentro de una reunión se ve *Reuniones / Cliente / Reunión*. El cliente lleva a **Reuniones** filtrado por ese cliente (`/reuniones?cliente=3`); también hay un selector *Todos los clientes* en esa página.
+

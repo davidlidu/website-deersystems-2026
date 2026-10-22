@@ -235,6 +235,8 @@ export interface Meeting {
   id: number;
   projectId: number | null;
   projectName: string | null;
+  /** Fase del proyecto; null = fuera de las fases. */
+  phaseId?: number | null;
   clientId: number | null;
   clientName: string | null;
   title: string;

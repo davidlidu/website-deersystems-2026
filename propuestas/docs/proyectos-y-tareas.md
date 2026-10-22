@@ -18,7 +18,7 @@ Cinco, para orientarse de un vistazo:
 | Pestaña | Quién la ve | Contenido |
 |---|---|---|
 | **Avances** (la principal) | Todos | Generador de avances con IA, editor y historial; desde aquí se abre la bitácora técnica |
-| **Plan de trabajo** | Todos | Interruptor *Tareas* (Lista, Tablero, Calendario) · *Calendario de reuniones* ([Reuniones](./reuniones.md)) · *Cronograma* (Gantt) |
+| **Plan de trabajo** | Todos | Interruptor *Tareas* (Lista, Tablero, Calendario) · *Cronograma* (Gantt) · *Calendario de reuniones* ([Reuniones](./reuniones.md)), agrupadas por fase |
 | **Documentación** | Todos | *Archivos* ([Archivos](./archivos.md)) y *Notas* con formato. El equipo filtra: Todo · Compartido con el cliente · Interno |
 | **Alcance y propuesta** | Todos (valores: tú y el cliente) | Alcance aprobado con la opción y los ajustes; debajo, propuesta y valores pactados. El equipo la ve como *Alcance* |
 | **Pagos** | Tú y el cliente | Plan de pagos ([Pagos](./pagos-y-finanzas.md)) |

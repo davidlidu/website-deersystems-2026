@@ -4,8 +4,10 @@ import {
   formatDateTime,
   formatMeetingTime,
   MEETING_STATUS,
+  navigate,
   timeAgo,
   useApi,
+  useLocation,
   usd,
   type Meeting,
   type MeetingStatus,
@@ -54,10 +56,19 @@ export function MeetingsPage() {
   const { busy, run } = useAction();
   const toast = useToast();
   const [showOld, setShowOld] = useState(false);
+  // ?cliente=3: solo las reuniones de ese cliente (el breadcrumb de cada reunión lleva aquí).
+  const { query } = useLocation();
+  const clientFilter = Number(query.get('cliente')) || null;
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
-  const { items, sync, settings } = data!;
+  const { sync, settings } = data!;
+  const all = data!.items;
+  const items = clientFilter ? all.filter((m) => m.clientId === clientFilter) : all;
+  const clients = [...new Map(all.filter((m) => m.clientId).map((m) => [m.clientId!, m.clientName ?? 'Cliente'])).entries()].sort((a, b) =>
+    a[1].localeCompare(b[1], 'es'),
+  );
+  const setClient = (id: number | null) => navigate(id ? `/reuniones?cliente=${id}` : '/reuniones', true);
 
   const syncNow = () =>
     run(async () => {
@@ -114,9 +125,29 @@ export function MeetingsPage() {
         <ScheduleMeeting
           onDone={async (m) => {
             setScheduling(false);
-            setData({ ...data!, items: [m, ...items] });
+            setData({ ...data!, items: [m, ...all] });
           }}
         />
+      )}
+
+      {(clients.length > 1 || clientFilter) && (
+        <div className="filters meetings-filter">
+          <span className="input input--chip">
+            <select value={clientFilter ?? ''} onChange={(e) => setClient(Number(e.target.value) || null)} aria-label="Cliente">
+              <option value="">Todos los clientes</option>
+              {clients.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </span>
+          {clientFilter && (
+            <button className="chip is-active" onClick={() => setClient(null)}>
+              {clients.find(([id]) => id === clientFilter)?.[1] ?? 'Cliente'} ✕
+            </button>
+          )}
+        </div>
       )}
 
       {groups.map(([title, list, empty]) =>
@@ -362,7 +393,14 @@ export function MeetingReviewPage({ id }: { id: number }) {
   return (
     <>
       <div className="crumbs">
-        <Link to="/reuniones">Reuniones</Link> / {m.title}
+        <Link to="/reuniones">Reuniones</Link>
+        {m.clientId && (
+          <>
+            {' / '}
+            <Link to={`/reuniones?cliente=${m.clientId}`}>{m.clientName ?? 'Cliente'}</Link>
+          </>
+        )}{' '}
+        / {m.title}
       </div>
       <PageHead eyebrow={`${m.clientName ?? 'Sin cliente'} · ${formatMeetingTime(m.startAt)}`} title={m.title}>
         <div className="facts">

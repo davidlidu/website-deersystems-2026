@@ -5788,3 +5788,35 @@ button.table__row {
   flex-basis: 100%;
   margin: 2px 0 0;
 }
+
+/* Reuniones por fase */
+.meeting-group + .meeting-group {
+  margin-top: 16px;
+}
+
+.meeting-group__title {
+  margin: 0 0 8px;
+  font-family: var(--font-display);
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.meeting-group__title.is-none {
+  color: var(--mute);
+  font-weight: 500;
+}
+
+.meeting__phase select {
+  max-width: 220px;
+}
+
+.meeting-summary__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.meetings-filter {
+  margin-top: 8px;
+}

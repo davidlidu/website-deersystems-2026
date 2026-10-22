@@ -328,8 +328,8 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
               onChange={setPlan}
               options={[
                 ['tareas', 'Tareas'],
-                ['reuniones', 'Calendario de reuniones'],
                 ['cronograma', 'Cronograma'],
+                ['reuniones', 'Calendario de reuniones'],
               ]}
             />
             {staff && plan !== 'reuniones' && (
