@@ -250,7 +250,7 @@ export interface Meeting {
   calendarUrl?: string | null;
   proposedTasks?: { title: string; description: string; side: Side; dueDate: string | null }[];
   hasTranscript?: boolean;
-  transcriptSource?: 'meet' | 'manual' | null;
+  transcriptSource?: 'meet' | 'manual' | 'drive' | null;
   transcriptUrl?: string | null;
   transcript?: string | null;
   ai?: { provider: string; model: string; costUsd: number; latencyMs: number; fallbackReason?: string | null } | null;

@@ -48,7 +48,7 @@ interface Row {
   attendees: string;
   status: MeetingStatus;
   transcript: string | null;
-  transcript_source: 'meet' | 'manual' | null;
+  transcript_source: 'meet' | 'manual' | 'drive' | null;
   transcript_url: string | null;
   summary: string;
   agreements: string;
@@ -410,15 +410,7 @@ async function doSync(): Promise<SyncState> {
         continue;
       }
       try {
-        const t = await google.meetTranscript(m.meet_code, m.start_at);
-        if (t.state === 'ready') {
-          update(m.id, { transcript: t.text, transcript_source: 'meet', transcript_url: t.docUrl });
-          await tryGenerate(get(m.id)!);
-          state.processed++;
-        } else if (t.state === 'none' && Date.now() - new Date(m.end_at).getTime() > 3 * 3600_000) {
-          // Tres horas después de terminar y sin transcripción: no se activó en esa reunión.
-          update(m.id, { status: 'sin_transcripcion', error: 'Meet no generó transcripción para esta reunión.' });
-        }
+        if ((await lookupTranscript(m)) === 'ready') state.processed++;
       } catch (err) {
         state.lastError = (err as Error).message;
       }
@@ -428,6 +420,29 @@ async function doSync(): Promise<SyncState> {
   }
   db.setSetting('meetings_sync', state);
   return state;
+}
+
+/**
+ * Busca la transcripción de una reunión terminada en Meet. Si está, genera el resumen.
+ * Sin transcripción tres horas después de terminar (o al buscar a mano), queda «sin transcripción» con la causa.
+ */
+async function lookupTranscript(m: Row, manual = false): Promise<'ready' | 'pending' | 'none'> {
+  if (!m.meet_code) {
+    update(m.id, { status: 'sin_transcripcion', error: 'La reunión no tiene enlace de Meet.' });
+    return 'none';
+  }
+  const t = await google.meetTranscript(m.meet_code, m.start_at);
+  if (t.state === 'ready') {
+    update(m.id, { transcript: t.text, transcript_source: 'meet', transcript_url: t.docUrl, status: 'esperando', error: null });
+    await tryGenerate(get(m.id)!);
+    return 'ready';
+  }
+  if (t.state === 'none' && (manual || Date.now() - new Date(m.end_at).getTime() > 3 * 3600_000)) {
+    update(m.id, { status: 'sin_transcripcion', error: t.reason ?? 'Meet no generó transcripción para esta reunión.' });
+  } else if (t.state === 'pending' && manual) {
+    update(m.id, { status: 'esperando', error: null });
+  }
+  return t.state;
 }
 
 /** Cada 10 minutos, si Google está conectado. */
@@ -759,6 +774,49 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
         if (pid && !db.getProject(pid)) throw new HttpError(400, 'El proyecto no existe.');
         update(m.id, { project_id: pid, ...(pid ? { client_id: db.getProject(pid)!.client_id } : {}) });
       }
+      json(res, 200, view(get(m.id)!, v));
+      return true;
+    }
+
+    // Volver a buscar en Meet (por ejemplo, si la transcripción tardó más de lo normal).
+    case 'POST meetings/:id/lookup': {
+      requireOwner(v);
+      const m = visible(id, v);
+      if (m.status === 'aprobada') throw new HttpError(409, 'La reunión ya fue aprobada.');
+      if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración.');
+      let result: string;
+      try {
+        result = await lookupTranscript(m, true);
+      } catch (err) {
+        throw new HttpError(502, (err as Error).message);
+      }
+      json(res, 200, { result, meeting: view(get(m.id)!, v) });
+      return true;
+    }
+
+    // Transcripción o notas desde un documento de Drive elegido con el selector (permiso drive.file).
+    case 'POST meetings/:id/transcript/drive': {
+      requireOwner(v);
+      const m = visible(id, v);
+      if (m.status === 'aprobada') throw new HttpError(409, 'La reunión ya fue aprobada.');
+      const fileId = str((await readJson(req)).fileId, 200);
+      if (!/^[\w-]{10,}$/.test(fileId)) throw new HttpError(400, 'Elige el documento en Drive.');
+      let text: string;
+      let url: string | null;
+      try {
+        const meta = await google.fileMeta(fileId);
+        if (!google.isGoogleNative(meta.mimeType) && !/^text\//.test(meta.mimeType)) {
+          throw new HttpError(400, `«${meta.name}» no es un documento de texto. Elige el documento de la transcripción o de las notas (no el video).`);
+        }
+        text = (await google.fileText(fileId, meta.mimeType)).trim();
+        url = meta.webViewLink ?? null;
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+        throw new HttpError(502, (err as Error).message);
+      }
+      if (text.length < 50) throw new HttpError(400, 'El documento está vacío o es muy corto.');
+      update(m.id, { transcript: text.slice(0, 400_000), transcript_source: 'drive', transcript_url: url, error: null });
+      await tryGenerate(get(m.id)!);
       json(res, 200, view(get(m.id)!, v));
       return true;
     }

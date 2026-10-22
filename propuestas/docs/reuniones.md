@@ -33,7 +33,11 @@ Cada 10 minutos, o con *Sincronizar ahora*, se lee el calendario.
 Cuando la reunión termina, se busca su transcripción en la API de Meet (`conferenceRecords` → `transcripts` → `entries`).
 
 - La transcripción **debe estar activada** en la reunión de Meet, y Business Standard la permite.
-- Si no hay transcripción, pegas el texto o tus notas.
+- **Notas de Gemini:** con «Tomar notas con Gemini», Meet guarda en *Drive → Meet Recordings* un documento con dos pestañas, *Las notas* y *Transcripción*. Esa transcripción puede no salir por la API de Meet y la reunión queda *Sin transcripción*: impórtala desde Drive. La grabación (video) no sirve: no tiene texto.
+- **La causa se muestra** en la reunión: Meet no encontró la reunión con ese código (se hizo en otro enlace u otra cuenta), la encontró sin transcripción, o la transcripción salió vacía.
+- **Importar desde Drive:** abre el selector de tu Drive; eliges el documento de las notas de Gemini o de la transcripción (no el video) y la IA arma el resumen. Se leen **todas las pestañas** con la API de Google Docs, empezando por *Transcripción*; si esa API no está habilitada en tu proyecto de Google Cloud, se usa la exportación de Drive, que solo trae la primera pestaña (*Las notas*). No necesita permisos nuevos: con `drive.file` solo se lee el documento que elijas.
+- **Buscar de nuevo en Meet:** vuelve a consultar la API al instante, por si la transcripción tardó más de las 3 horas de espera.
+- O pegas el texto o tus notas.
 - Las reuniones fuera de Meet (llamadas, Zoom, presenciales) se registran desde el proyecto con *Registrar reunión sin Meet*, pegando la transcripción.
 
 ## 4. Resumen con IA

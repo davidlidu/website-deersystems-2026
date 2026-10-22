@@ -471,7 +471,7 @@ async function meetAll<T>(path: string, key: string): Promise<T[]> {
 
 export type TranscriptResult =
   | { state: 'ready'; record: string; text: string; docUrl: string | null }
-  | { state: 'pending' | 'none'; record: string | null };
+  | { state: 'pending' | 'none'; record: string | null; reason?: string };
 
 /**
  * Busca la transcripción de una reunión por su código de Meet (abc-defg-hij) cerca de la hora de inicio.
@@ -484,7 +484,9 @@ export async function meetTranscript(meetingCode: string, startIso: string): Pro
     `conferenceRecords?filter=${encodeURIComponent(filter)}`,
     'conferenceRecords',
   );
-  if (!records.length) return { state: 'none', record: null };
+  if (!records.length) {
+    return { state: 'none', record: null, reason: `Meet no tiene registro de una reunión con el código ${meetingCode} desde las ${new Date(since).toLocaleString('es-CO', { timeZone: 'America/Bogota', hour: 'numeric', minute: '2-digit', day: 'numeric', month: 'short' })} (¿se hizo en otro enlace o con otra cuenta?).` };
+  }
   // La sesión que empezó más cerca de la hora agendada.
   const target = new Date(startIso).getTime();
   records.sort((a, b) => Math.abs(new Date(a.startTime).getTime() - target) - Math.abs(new Date(b.startTime).getTime() - target));
@@ -496,7 +498,15 @@ export async function meetTranscript(meetingCode: string, startIso: string): Pro
     'transcripts',
   );
   const done = transcripts.find((t) => t.state === 'FILE_GENERATED' || t.state === 'ENDED');
-  if (!done) return { state: transcripts.length ? 'pending' : 'none', record: record.name };
+  if (!done) {
+    return transcripts.length
+      ? { state: 'pending', record: record.name }
+      : {
+          state: 'none',
+          record: record.name,
+          reason: 'La reunión se encontró en Meet, pero Meet no entregó la transcripción por su API. Si usaste «Tomar notas con Gemini», la transcripción queda dentro de ese documento (pestaña «Transcripción»): impórtalo desde Drive.',
+        };
+  }
 
   const participants = await meetAll<{
     name: string;
@@ -508,7 +518,11 @@ export async function meetTranscript(meetingCode: string, startIso: string): Pro
     participants.map((p) => [p.name, p.signedinUser?.displayName ?? p.anonymousUser?.displayName ?? p.phoneUser?.displayName ?? 'Participante']),
   );
   const entries = await meetAll<{ participant?: string; text?: string; startTime?: string }>(`${done.name}/entries`, 'transcriptEntries');
-  if (!entries.length) return { state: done.state === 'FILE_GENERATED' ? 'none' : 'pending', record: record.name };
+  if (!entries.length) {
+    return done.state === 'FILE_GENERATED'
+      ? { state: 'none', record: record.name, reason: 'Meet generó la transcripción, pero vacía. Impórtala desde Drive o pega el texto.' }
+      : { state: 'pending', record: record.name };
+  }
 
   // Une las intervenciones seguidas de la misma persona: "Laura: …".
   const lines: string[] = [];
@@ -551,6 +565,64 @@ export async function fileMeta(fileId: string): Promise<DriveFile> {
 
 /** Documentos, hojas y presentaciones de Google no tienen archivo: se exportan a PDF para descargarlos. */
 export const isGoogleNative = (mime: string) => mime.startsWith('application/vnd.google-apps.');
+
+interface DocsTab {
+  tabProperties?: { title?: string };
+  documentTab?: { body?: { content?: DocsElement[] } };
+  childTabs?: DocsTab[];
+}
+interface DocsElement {
+  paragraph?: { elements?: { textRun?: { content?: string } }[] };
+  table?: { tableRows?: { tableCells?: { content?: DocsElement[] }[] }[] };
+}
+
+const docsText = (content: DocsElement[] = []): string =>
+  content
+    .map((el) =>
+      el.paragraph
+        ? (el.paragraph.elements ?? []).map((e) => e.textRun?.content ?? '').join('')
+        : el.table
+          ? (el.table.tableRows ?? []).map((row) => (row.tableCells ?? []).map((c) => docsText(c.content).trim()).join(' | ') + '\n').join('')
+          : '',
+    )
+    .join('');
+
+/**
+ * Las notas de Gemini traen pestañas («Las notas» y «Transcripción»). La API de Docs las lee todas;
+ * si hay una pestaña de transcripción se usa esa, que es la conversación completa.
+ */
+async function docTabsText(fileId: string): Promise<string | null> {
+  const r = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(fileId)}?includeTabsContent=true`, {
+    headers: { Authorization: `Bearer ${await accessToken()}` },
+  });
+  if (!r.ok) return null; // p. ej. la API de Docs no está habilitada: se usa la exportación de Drive
+  const doc = (await r.json()) as { tabs?: DocsTab[] };
+  const flat: DocsTab[] = [];
+  const walk = (tabs: DocsTab[] = []) => tabs.forEach((t) => (flat.push(t), walk(t.childTabs)));
+  walk(doc.tabs);
+  if (!flat.length) return null;
+  const isTranscript = (t: DocsTab) => /transcrip/i.test(t.tabProperties?.title ?? '');
+  const transcript = flat.filter(isTranscript);
+  const chosen = transcript.length ? [...transcript, ...flat.filter((t) => !isTranscript(t))] : flat;
+  return chosen
+    .map((t) => `## ${t.tabProperties?.title ?? 'Documento'}\n${docsText(t.documentTab?.body?.content).trim()}`)
+    .join('\n\n');
+}
+
+/** Texto de un archivo de Drive: un Google Doc (transcripción o notas de Gemini, con todas sus pestañas) o un archivo de texto. */
+export async function fileText(fileId: string, mime: string): Promise<string> {
+  if (mime === 'application/vnd.google-apps.document') {
+    const tabs = await docTabsText(fileId).catch(() => null);
+    if (tabs && tabs.replace(/^## .*$/gm, '').trim().length > 50) return tabs;
+  }
+  const url = isGoogleNative(mime)
+    ? `${DRIVE}/files/${encodeURIComponent(fileId)}/export?mimeType=text%2Fplain`
+    : `${DRIVE}/files/${encodeURIComponent(fileId)}?alt=media`;
+  const r = await driveFetch(url);
+  if (r.status === 404) throw new GoogleError('El archivo ya no está en Drive.');
+  if (!r.ok) throw new GoogleError(`Drive ${r.status}: no se pudo leer el archivo.`);
+  return (await r.text()).replace(/^\uFEFF/, '');
+}
 
 export async function exportPdf(fileId: string): Promise<Response> {
   const r = await driveFetch(`${DRIVE}/files/${encodeURIComponent(fileId)}/export?mimeType=application%2Fpdf`);

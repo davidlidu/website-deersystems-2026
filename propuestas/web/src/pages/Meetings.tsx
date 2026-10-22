@@ -15,6 +15,7 @@ import {
 } from '../lib';
 import { Empty, ErrorBox, Link, Loading, Markdown, PageHead, useAction, useToast } from '../ui';
 import { ClientsTabs } from './Home';
+import { pickFromDrive } from '../picker';
 import { EditMeeting, ScheduleMeeting } from './project/Schedule';
 
 interface SyncState {
@@ -293,6 +294,25 @@ export function MeetingReviewPage({ id }: { id: number }) {
       setPaste('');
     });
 
+  const lookup = () =>
+    run(async () => {
+      const r = await api<{ result: 'ready' | 'pending' | 'none'; meeting: Meeting }>('POST', `meetings/${m.id}/lookup`);
+      setData(r.meeting);
+      if (r.result === 'ready') toast('Transcripción encontrada: resumen generado.');
+      else if (r.result === 'pending') toast('Meet todavía está generando la transcripción. Se buscará sola cada 10 minutos.');
+      else toast(r.meeting.error ?? 'Meet no tiene transcripción de esta reunión.', true);
+    });
+
+  const fromDrive = () =>
+    run(async () => {
+      const [file] = await pickFromDrive();
+      if (!file) return;
+      const updated = await api<Meeting>('POST', `meetings/${m.id}/transcript/drive`, { fileId: file.id });
+      setData(updated);
+      if (updated.status === 'error') toast(updated.error ?? 'La IA falló.', true);
+      else toast(`«${file.name}» importado: resumen generado. Revísalo antes de enviarlo.`);
+    });
+
   const discard = () => {
     if (!confirm('¿Descartar esta reunión? No se enviará nada al cliente.')) return;
     run(async () => setData(await api<Meeting>('POST', `meetings/${m.id}/discard`)));
@@ -449,9 +469,25 @@ export function MeetingReviewPage({ id }: { id: number }) {
         <section className="card form-section">
           <h2>{m.hasTranscript ? 'Generar el resumen' : 'Transcripción'}</h2>
           {m.status === 'error' && m.error && <p className="alert">{m.error}</p>}
-          {m.status === 'sin_transcripcion' && <p className="hint">{m.error ?? 'Meet no generó transcripción.'} Puedes pegarla o escribir tus notas.</p>}
+          {m.status === 'sin_transcripcion' && <p className="callout">{m.error ?? 'Meet no generó transcripción.'}</p>}
           {m.status === 'esperando' && !m.hasTranscript && (
-            <p className="hint">Se está esperando la transcripción de Meet. Si no la activaste, pega aquí el texto o tus notas de la reunión.</p>
+            <p className="hint">Se está esperando la transcripción de Meet (se busca sola cada 10 minutos).</p>
+          )}
+          {!m.hasTranscript && (
+            <div className="transcript-sources">
+              <button className="btn btn--primary btn--sm" disabled={busy} onClick={fromDrive}>
+                Importar desde Drive
+              </button>
+              {m.meetUrl && (
+                <button className="btn btn--outline btn--sm" disabled={busy} onClick={lookup}>
+                  Buscar de nuevo en Meet
+                </button>
+              )}
+              <p className="hint">
+                Elige en tu Drive (carpeta <em>Meet Recordings</em>) el documento de las <strong>notas de Gemini</strong> o de la <strong>transcripción</strong>, no
+                el video. Se leen todas sus pestañas (también «Transcripción») y la IA arma el resumen con ese texto.
+              </p>
+            </div>
           )}
           {m.hasTranscript && (
             <div className="actions actions--tight">
@@ -643,7 +679,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
       {m.transcript && (
         <section className="section">
           <button className="linklike" onClick={() => setShowTranscript(!showTranscript)}>
-            {showTranscript ? 'Ocultar' : 'Ver'} transcripción ({m.transcriptSource === 'manual' ? 'pegada a mano' : 'de Meet'})
+            {showTranscript ? 'Ocultar' : 'Ver'} transcripción ({m.transcriptSource === 'manual' ? 'pegada a mano' : m.transcriptSource === 'drive' ? 'importada de Drive' : 'de Meet'})
           </button>
           {showTranscript && <pre className="transcript card">{m.transcript}</pre>}
         </section>

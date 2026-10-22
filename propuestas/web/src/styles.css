@@ -5775,3 +5775,16 @@ button.table__row {
   border-color: rgba(0, 180, 216, 0.5);
   color: var(--cian);
 }
+
+.transcript-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 4px 0 16px;
+}
+
+.transcript-sources .hint {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+}
