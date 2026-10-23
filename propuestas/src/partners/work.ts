@@ -4,6 +4,7 @@ import type { Viewer } from './auth.ts';
 import { actor, isStaff, noteView, optDate, requireStaff, str, taskView, teamNames, visibleProject, visibleTask } from './common.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
+import { announceUpdate } from './updates.ts';
 
 const STATUS_LABEL: Record<db.TaskStatus, string> = {
   pendiente: 'Pendiente',
@@ -253,6 +254,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         { taskTitle, excerpt: text.slice(0, 140), visibility },
         { taskId, internal: visibility === 'internal' },
       );
+      let email: Awaited<ReturnType<typeof announceUpdate>> | null = null;
       const path = taskId ? taskPath(project.id, taskId) : `/proyectos/${project.id}?tab=${kind === 'avance' ? 'avances' : 'notas'}`;
       if (v.kind === 'client') {
         notify('client_comment', {
@@ -264,7 +266,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           path,
         });
       } else if (kind === 'avance') {
-        if (visibility === 'shared') notify('staff_update', { actor: v, projectId: project.id, title: `Nuevo avance en ${project.name}`, body: text, path });
+        if (visibility === 'shared') email = await announceUpdate(project, note, v);
       } else if (visibility === 'shared') {
         notify('staff_comment', {
           actor: v,
@@ -275,7 +277,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           path,
         });
       }
-      json(res, 201, noteView(note, v));
+      json(res, 201, { ...noteView(db.getNote(note.id)!, v), ...(email ? { email } : {}) });
       return true;
     }
 

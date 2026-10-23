@@ -136,6 +136,8 @@ export interface Completion {
   outputTokens: number;
   costUsd: number;
   latencyMs: number;
+  /** El modelo se quedó sin tokens de salida: el texto puede venir cortado. */
+  truncated?: boolean;
   /** Si respondió el respaldo: por qué falló el principal. */
   fallbackReason?: string;
 }
@@ -182,7 +184,7 @@ async function callGemini(target: Target, key: string, req: Request, s: Stored, 
   const outputTokens = (u.candidatesTokenCount ?? 0) + (u.thoughtsTokenCount ?? 0);
   const price = s.prices[target.model];
   const costUsd = price ? (inputTokens * price.input + outputTokens * price.output) / 1e6 : 0;
-  return { text, provider: 'gemini', model: target.model, inputTokens, outputTokens, costUsd };
+  return { text, provider: 'gemini', model: target.model, inputTokens, outputTokens, costUsd, truncated: data.candidates?.[0]?.finishReason === 'MAX_TOKENS' };
 }
 
 async function callOpenRouter(target: Target, key: string, req: Request, _s: Stored, privateOnly: boolean): Promise<Omit<Completion, 'latencyMs'>> {
@@ -230,6 +232,7 @@ async function callOpenRouter(target: Target, key: string, req: Request, _s: Sto
     inputTokens: data.usage?.prompt_tokens ?? 0,
     outputTokens: data.usage?.completion_tokens ?? 0,
     costUsd: data.usage?.cost ?? 0,
+    truncated: data.choices?.[0]?.finish_reason === 'length',
   };
 }
 

@@ -2,11 +2,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AiError, complete } from '../ai.ts';
 import { PARTNERS_URL } from '../config.ts';
 import { db as sqlite } from '../db.ts';
+import * as google from '../google.ts';
 import { HttpError, json, readJson } from '../http.ts';
+import { projectUpdate } from '../mail.ts';
 import type { Viewer } from './auth.ts';
-import { requireStaff, visibleProject } from './common.ts';
+import { noteView, requireStaff, visibleProject } from './common.ts';
 import * as db from './db.ts';
-import { notify } from './notify.ts';
+import { clientEmailFor, notify } from './notify.ts';
 
 /**
  * Generador de avances: arma el avance del día con lo que pasó en el proyecto (tareas completadas o enviadas a revisión,
@@ -106,7 +108,8 @@ async function aiDraft(project: db.Project, f: DayFacts): Promise<string> {
     profile: 'reuniones', // datos del cliente: solo proveedores privados
     purpose: 'avance',
     system: SYSTEM,
-    maxOutputTokens: 1500,
+    // Holgado: en los modelos que razonan, el razonamiento también gasta de aquí y cortaba el avance.
+    maxOutputTokens: 8192,
     prompt: `Proyecto: ${project.name}
 Avance total: ${pct(f.progress)} % (${f.progress.done} de ${f.progress.total} tareas).
 
@@ -132,6 +135,7 @@ Escribe el avance:
   });
   const text = completion.text.trim().replace(/^```(?:markdown|md)?\s*/i, '').replace(/```$/, '').trim();
   if (!text) throw new AiError('La IA no devolvió texto.');
+  if (completion.truncated) throw new AiError('la respuesta llegó incompleta');
   return text.slice(0, 10_000);
 }
 
@@ -150,6 +154,41 @@ export async function draftUpdate(project: db.Project): Promise<{ body: string; 
 export const autoUpdatesOn = (projectId: number) =>
   !!(sqlite.prepare('SELECT auto_updates FROM projects WHERE id = ?').get(projectId) as { auto_updates?: number } | undefined)?.auto_updates;
 
+// ───────── El avance por correo ─────────
+
+/** Le manda al cliente el avance completo por correo y lo deja marcado, para no enviarlo dos veces. */
+export async function emailUpdate(project: db.Project, note: db.Note): Promise<void> {
+  const client = db.getClientAccount(project.client_id);
+  if (!client?.active) throw new HttpError(409, 'El cliente no tiene acceso activo al portal: no hay a qué correo enviarlo.');
+  if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
+  await google.sendMail(
+    projectUpdate({
+      to: client.email,
+      projectName: project.name,
+      body: note.body,
+      date: new Date(note.created_at).toLocaleDateString('es-CO', { timeZone: TZ, day: 'numeric', month: 'long' }),
+      url: `${PARTNERS_URL}/proyectos/${project.id}?tab=avances&avance=${note.id}`,
+    }),
+  );
+  db.markNoteEmailed(note.id);
+}
+
+/**
+ * Al publicar un avance compartido: el aviso en la app y, si el cliente recibe los avances por correo,
+ * el avance completo (en vez del resumen corto de avisos). 'off' = ese aviso por correo está apagado.
+ */
+export async function announceUpdate(project: db.Project, note: db.Note, actor: Viewer | null): Promise<'sent' | 'off' | 'error'> {
+  notify('staff_update', { actor, projectId: project.id, title: `Nuevo avance en ${project.name}`, body: note.body, path: `/proyectos/${project.id}?tab=avances`, skipEmail: true });
+  if (!clientEmailFor('staff_update', project.id)) return 'off';
+  try {
+    await emailUpdate(project, note);
+    return 'sent';
+  } catch (err) {
+    console.error(`No se pudo enviar por correo el avance ${note.id}:`, (err as Error).message);
+    return 'error';
+  }
+}
+
 // ───────── Envío automático diario ─────────
 
 async function publishAuto(project: db.Project): Promise<boolean> {
@@ -159,7 +198,7 @@ async function publishAuto(project: db.Project): Promise<boolean> {
   const f = facts(project, date);
   if (isEmpty(f)) return false;
   const { body, ai } = await draftUpdate(project);
-  db.createNote({
+  const note = db.createNote({
     project_id: project.id,
     task_id: null,
     kind: 'avance',
@@ -171,7 +210,7 @@ async function publishAuto(project: db.Project): Promise<boolean> {
     ai,
   });
   db.logActivity({ projectId: project.id, actorKind: 'owner', actorName: 'DeerSystems', type: 'update_posted', data: { excerpt: body.slice(0, 140), auto: true } });
-  notify('staff_update', { actor: null, projectId: project.id, title: `Nuevo avance en ${project.name}`, body, path: `/proyectos/${project.id}?tab=avances` });
+  await announceUpdate(project, note, null);
   return true;
 }
 
@@ -198,6 +237,18 @@ export async function handleUpdates(route: string, id: number, req: IncomingMess
     case 'POST projects/:id/updates/draft': {
       requireStaff(v);
       json(res, 200, await draftUpdate(visibleProject(id, v)));
+      return true;
+    }
+
+    case 'POST notes/:id/email': {
+      requireStaff(v);
+      const note = db.getNote(id);
+      if (!note || note.kind !== 'avance') throw new HttpError(404, 'El avance no existe.');
+      const project = visibleProject(note.project_id, v);
+      if (note.visibility !== 'shared') throw new HttpError(400, 'Es un avance solo para el equipo: compártelo con el cliente antes de enviarlo.');
+      if (note.emailed_at) throw new HttpError(409, 'Este avance ya se le envió por correo al cliente.');
+      await emailUpdate(project, note);
+      json(res, 200, noteView(db.getNote(note.id)!, v));
       return true;
     }
 

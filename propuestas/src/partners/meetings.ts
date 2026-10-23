@@ -59,6 +59,8 @@ interface Row {
   task_ids: string;
   /** Fase del proyecto a la que pertenece la reunión (null = fuera de las fases). */
   phase_id: number | null;
+  /** La tarea tipo reunión que la muestra en el cronograma (se crea al asignarle una fase). */
+  plan_task_id: number | null;
   /** proyecto = seguimiento de un proyecto; discovery / proposal = llamadas comerciales (antes de haber proyecto). */
   kind: MeetingKind;
   /** Prospecto de la llamada comercial: { company, contact, email } (JSON). */
@@ -118,6 +120,7 @@ if (!(sqlite.prepare('PRAGMA table_info(meetings)').all() as { name: string }[])
   add('proposal_id', 'INTEGER');
   add('proposal_sent_at', 'TEXT');
   add('proposal_sent_to', 'TEXT');
+  add('plan_task_id', 'INTEGER');
 }
 
 interface Prospect {
@@ -139,10 +142,57 @@ const parse = <T>(s: string | null, fallback: T): T => {
   }
 };
 
-function update(id: number, fields: Partial<Omit<Row, 'id' | 'created_at'>>): void {
+function update(id: number, fields: Partial<Omit<Row, 'id' | 'created_at' | 'plan_task_id'>>): void {
   for (const [col, value] of Object.entries(fields)) {
     sqlite.prepare(`UPDATE meetings SET ${col} = ?, updated_at = ? WHERE id = ?`).run(value as string | number | null, now(), id);
   }
+  if (['title', 'start_at', 'phase_id', 'project_id', 'status'].some((k) => k in fields)) syncPlanTask(id, 'phase_id' in fields);
+}
+
+/**
+ * La reunión en el cronograma: una tarea tipo reunión en su fase y con su fecha. Se crea al asignarle una fase y
+ * después sigue a la reunión (título, fecha, fase); queda completada cuando ya ocurrió y se quita si se descarta
+ * o pasa a otro proyecto. Si la borraste del cronograma, no vuelve hasta que le asignes una fase de nuevo.
+ */
+function syncPlanTask(id: number, phaseChanged: boolean): void {
+  const m = get(id);
+  if (!m) return;
+  const setTask = (taskId: number | null) => sqlite.prepare('UPDATE meetings SET plan_task_id = ? WHERE id = ?').run(taskId, m.id);
+  let task = m.plan_task_id ? db.getTask(m.plan_task_id) : undefined;
+  if (!m.project_id || m.kind !== 'proyecto' || m.status === 'descartada' || (task && task.project_id !== m.project_id)) {
+    if (task) db.deleteTask(task.id);
+    if (m.plan_task_id) setTask(null);
+    return;
+  }
+  const date = new Date(m.start_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+  const description = m.meet_url ? `Enlace de Meet: ${m.meet_url}` : '';
+  if (task) {
+    db.updateTask(task.id, { title: m.title, phase_id: m.phase_id, start_date: date, due_date: date });
+  } else {
+    if (!phaseChanged || !m.phase_id) return;
+    task = db.createTask({
+      projectId: m.project_id,
+      phaseId: m.phase_id,
+      title: m.title,
+      description,
+      side: 'deersystems',
+      assigneeId: null,
+      startDate: date,
+      dueDate: date,
+      position: db.nextTaskPosition(m.project_id),
+      source: 'manual',
+      kind: 'reunion',
+    });
+    setTask(task.id);
+  }
+  const happened = m.status !== 'programada';
+  if (happened !== (task.status === 'completada')) db.setTaskStatus(task.id, happened ? 'completada' : 'pendiente');
+}
+
+/** Quita la reunión y su tarea del cronograma. */
+function remove(m: Row): void {
+  if (m.plan_task_id) db.deleteTask(m.plan_task_id);
+  sqlite.prepare('DELETE FROM meetings WHERE id = ?').run(m.id);
 }
 
 function insert(r: Partial<Row> & Pick<Row, 'title' | 'start_at' | 'end_at'>): Row {
@@ -404,7 +454,7 @@ async function doSync(): Promise<SyncState> {
     for (const e of events) {
       const existing = byEvent(e.id);
       if (e.status === 'cancelled') {
-        if (existing && ['programada', 'esperando'].includes(existing.status)) sqlite.prepare('DELETE FROM meetings WHERE id = ?').run(existing.id);
+        if (existing && ['programada', 'esperando'].includes(existing.status)) remove(existing);
         continue;
       }
       if (!e.start?.dateTime || !e.end?.dateTime) continue; // eventos de día completo
@@ -687,6 +737,8 @@ export interface ScheduleInput {
   includeClient: boolean;
   teamIds: number[];
   guests: string[];
+  /** Fase del proyecto: la reunión queda en ella y aparece en el cronograma. */
+  phaseId?: number | null;
 }
 
 /**
@@ -716,6 +768,7 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
   }
   emails.delete(SUPERADMIN_EMAIL); // tú eres el organizador
   if (!emails.size) throw new HttpError(400, 'Invita al menos a una persona.');
+  if (input.phaseId && db.getPhase(input.phaseId)?.project_id !== project.id) throw new HttpError(400, 'La fase no es de este proyecto.');
   const title = input.title.trim().slice(0, 200) || `Reunión · ${project.name}`;
   const agenda = input.agenda.trim().slice(0, 4000);
 
@@ -756,11 +809,12 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
     await google.cancelCalendarEvent(event.id).catch(() => {});
     throw err;
   }
+  if (input.phaseId) update(m.id, { phase_id: input.phaseId });
   const a = actor(v);
   const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
   db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'meeting_scheduled', data: { title, when } });
   notify('meeting_scheduled', { actor: v, projectId: project.id, title: `Reunión agendada: «${title}»`, body: when, path: `/proyectos/${project.id}?tab=reuniones` });
-  return m;
+  return get(m.id)!;
 }
 
 // ───────── API ─────────
@@ -798,6 +852,7 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       json(res, 200, {
         client: { name: client.contact_name || client.name, company: client.name, email: account?.email ?? client.email },
         team: db.listTeam().filter((a) => a.active).map((a) => ({ id: a.id, name: a.name, email: a.email })),
+        phases: db.listPhases(project.id).map((p) => ({ id: p.id, name: p.name })),
         canSchedule: google.connectionStatus().connected && google.hasAnyScope('calendar.events'),
       });
       return true;
@@ -883,7 +938,7 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
           purpose: 'propuesta-correo',
           system:
             'Eres David Lidueñas, fundador de DeerSystems (software, automatización e IA, Colombia). Escribes en español, cálido, directo y profesional, tuteando. Responde SOLO con el cuerpo del correo, sin asunto.',
-          maxOutputTokens: 1200,
+          maxOutputTokens: 8192,
           prompt: `Escribe el correo que acompaña la propuesta después de la llamada en la que se la presentaste a ${contact || 'el cliente'}${company ? ` de ${company}` : ''}.
 
 Debe:
@@ -920,6 +975,7 @@ ${context}
         includeClient: body.includeClient !== false,
         teamIds: (Array.isArray(body.team) ? body.team : []).map(Number),
         guests: (Array.isArray(body.guests) ? body.guests : []).map((g) => str(g, 200)),
+        phaseId: Number(body.phaseId) || null,
       }, v);
       json(res, 201, view(m, v));
       return true;
@@ -998,7 +1054,7 @@ ${context}
           throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
         }
       }
-      sqlite.prepare('DELETE FROM meetings WHERE id = ?').run(m.id);
+      remove(m);
       if (m.project_id) {
         const a = actor(v);
         db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: 'meeting_cancelled', data: { title: m.title } });

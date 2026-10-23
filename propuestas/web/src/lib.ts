@@ -166,6 +166,8 @@ export interface Note {
   body: string;
   /** Lo redactó el generador de avances con IA. */
   ai: boolean;
+  /** Avances: cuándo se le envió completo al cliente por correo; null = solo está en el portal. */
+  emailedAt: string | null;
   createdAt: string;
   updatedAt: string;
   canEdit: boolean;

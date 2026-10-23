@@ -5,6 +5,7 @@ import { ErrorBox, Link, Loading, useAction, useToast } from '../../ui';
 interface Contacts {
   client: { name: string; company: string; email: string };
   team: { id: number; name: string; email: string }[];
+  phases: { id: number; name: string }[];
   canSchedule: boolean;
 }
 
@@ -45,12 +46,17 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
         durationMinutes: Number(fd.get('duration')),
         agenda: fd.get('agenda'),
         includeClient: fd.get('includeClient') === 'on',
+        phaseId: Number(fd.get('phase')) || null,
         team: [...team],
         guests: String(fd.get('guests') ?? '')
           .split(/[,;\s]+/)
           .filter((x) => x.includes('@')),
       });
-      toast('Reunión agendada. Google Calendar envió las invitaciones con el enlace de Meet.');
+      toast(
+        m.phaseId
+          ? 'Reunión agendada y añadida al cronograma. Google Calendar envió las invitaciones con el enlace de Meet.'
+          : 'Reunión agendada. Google Calendar envió las invitaciones con el enlace de Meet.',
+      );
       onDone(m);
     });
   };
@@ -91,6 +97,22 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
           </label>
         </div>
       </div>
+      {c.phases.length > 0 && (
+        <label className="field">
+          <span className="field__label">Fase del proyecto</span>
+          <span className="input">
+            <select name="phase" defaultValue="">
+              <option value="">Sin fase (no aparece en el cronograma)</option>
+              {c.phases.map((ph) => (
+                <option key={ph.id} value={ph.id}>
+                  {ph.name}
+                </option>
+              ))}
+            </select>
+          </span>
+          <small className="hint">La reunión queda en esa fase y aparece en el cronograma con su fecha.</small>
+        </label>
+      )}
       <label className="field">
         <span className="field__label">Agenda (va en la invitación)</span>
         <textarea name="agenda" rows={3} placeholder="Temas a revisar…" />

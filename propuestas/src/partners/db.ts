@@ -514,6 +514,7 @@ db.exec(`
 `);
 // Avances: los que redactó la IA llevan la marca; cada proyecto puede publicar uno automático al día.
 addColumn('notes', 'ai', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('notes', 'emailed_at', 'TEXT');
 addColumn('projects', 'auto_updates', 'INTEGER NOT NULL DEFAULT 0');
 
 export type TaskFields = Partial<
@@ -562,6 +563,8 @@ export interface Note {
   body: string;
   /** 1 = lo redactó la IA (generador de avances). */
   ai: number;
+  /** Avances: cuándo se le envió completo al cliente por correo (al publicar o con «Enviar por correo»). */
+  emailed_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -594,7 +597,7 @@ export function commentCounts(projectId: number, internal: boolean): Map<number,
   return new Map(rows.map((r) => [r.task_id, r.n]));
 }
 
-export function createNote(n: Omit<Note, 'id' | 'created_at' | 'updated_at' | 'ai'> & { ai?: boolean }): Note {
+export function createNote(n: Omit<Note, 'id' | 'created_at' | 'updated_at' | 'ai' | 'emailed_at'> & { ai?: boolean }): Note {
   const t = now();
   const { lastInsertRowid } = db
     .prepare(
@@ -608,6 +611,10 @@ export function createNote(n: Omit<Note, 'id' | 'created_at' | 'updated_at' | 'a
 export function updateNote(id: number, body: string, visibility?: Note['visibility']): void {
   db.prepare('UPDATE notes SET body = ?, updated_at = ? WHERE id = ?').run(body, now(), id);
   if (visibility) db.prepare('UPDATE notes SET visibility = ? WHERE id = ?').run(visibility, id);
+}
+
+export function markNoteEmailed(id: number): void {
+  db.prepare('UPDATE notes SET emailed_at = ? WHERE id = ?').run(now(), id);
 }
 
 export function deleteNote(id: number): void {

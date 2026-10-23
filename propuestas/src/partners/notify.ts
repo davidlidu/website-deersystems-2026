@@ -124,6 +124,8 @@ export function notify(
     path: string;
     /** Para team_assigned: la cuenta del equipo asignada. */
     accountId?: number;
+    /** Solo el aviso en la app: el correo lo manda quien llama (p. ej. el avance completo). */
+    skipEmail?: boolean;
   },
 ): void {
   try {
@@ -170,7 +172,7 @@ export function notify(
           collapse: type === 'client_status',
         });
       }
-      if (email && t.email) {
+      if (email && t.email && !ctx.skipEmail) {
         enqueueMail(t.email, t.name, t.client, { title: ctx.title, body: body || (project?.name ?? ''), url: `${PARTNERS_URL}${ctx.path}` }, s.digestMinutes);
       }
     }
@@ -178,6 +180,14 @@ export function notify(
     // Un aviso que falla nunca debe romper la acción que lo disparó.
     console.error('No se pudo registrar el aviso:', err);
   }
+}
+
+/** La cuenta del cliente del proyecto si este aviso le llega por correo (lo permites tú y no lo apagó en «Mi cuenta»). */
+export function clientEmailFor(type: EventType, projectId: number): db.Account | null {
+  const project = db.getProject(projectId);
+  const a = project ? db.getClientAccount(project.client_id) : undefined;
+  if (!a?.active || !getSettings().events[type].email) return null;
+  return db.getPersonalPrefs(a.id)[type]?.email === false ? null : a;
 }
 
 /** Cómo lo lee cada persona en «Mi cuenta» (el texto de Configuración está escrito para ti). */

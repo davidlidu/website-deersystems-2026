@@ -17,7 +17,7 @@ import {
   type PaymentDraft,
   type Statement,
 } from '../../lib';
-import { Empty, ErrorBox, Link, Loading, useAction, useToast } from '../../ui';
+import { Empty, ErrorBox, Link, Loading, MoneyInput, useAction, useToast } from '../../ui';
 import { GroupBar, useUngroup } from '../billing/GroupBar';
 import { InvoiceStatus } from '../billing/InvoiceStatus';
 
@@ -105,12 +105,11 @@ function MarkPaid({ p, onDone, onCancel }: { p: Payment; onDone: (p: Payment) =>
           <label className="field">
             <span className="field__label">TRM</span>
             <span className="input">
-              <input
-                inputMode="decimal"
+              <MoneyInput
                 value={trm}
-                onChange={(e) => {
-                  setTrm(e.target.value);
-                  if (!copTouched && Number(e.target.value)) setCop(String(Math.round(p.amount * Number(e.target.value))));
+                onChange={(v) => {
+                  setTrm(v);
+                  if (!copTouched && Number(v)) setCop(String(Math.round(p.amount * Number(v))));
                 }}
               />
             </span>
@@ -118,11 +117,10 @@ function MarkPaid({ p, onDone, onCancel }: { p: Payment; onDone: (p: Payment) =>
           <label className="field">
             <span className="field__label">Pesos recibidos (COP)</span>
             <span className="input">
-              <input
-                inputMode="decimal"
+              <MoneyInput
                 value={cop}
-                onChange={(e) => {
-                  setCop(e.target.value);
+                onChange={(v) => {
+                  setCop(v);
                   setCopTouched(true);
                 }}
               />
@@ -216,7 +214,7 @@ function PaymentRow({
           <input inputMode="decimal" value={d.percent} placeholder="%" aria-label="Porcentaje" onChange={(e) => setD({ ...d, percent: e.target.value })} onBlur={() => save({})} />
         </span>
         <span className="input pay-row__amount">
-          <input inputMode="decimal" value={d.amount} aria-label="Monto" onChange={(e) => setD({ ...d, amount: e.target.value })} onBlur={() => save({})} />
+          <MoneyInput value={d.amount} aria-label="Monto" onChange={(amount) => setD({ ...d, amount })} onBlur={() => save({})} />
         </span>
         <span className="input">
           <select value={d.currency} aria-label="Moneda" onChange={(e) => save({ currency: e.target.value as Currency })}>
@@ -349,7 +347,7 @@ export function DraftRow({ d, onChange, onRemove }: { d: Draft; onChange: (patch
         <input inputMode="decimal" value={d.percent} placeholder="%" aria-label="Porcentaje" onChange={(e) => onChange({ percent: e.target.value })} />
       </span>
       <span className="input pay-row__amount">
-        <input inputMode="decimal" value={d.amount} placeholder="Monto" aria-label="Monto" onChange={(e) => onChange({ amount: e.target.value })} />
+        <MoneyInput value={d.amount} placeholder="Monto" aria-label="Monto" onChange={(amount) => onChange({ amount })} />
       </span>
       <span className="input">
         <select value={d.currency} aria-label="Moneda" onChange={(e) => onChange({ currency: e.target.value as Currency })}>
@@ -498,14 +496,14 @@ function JointPayment({
               <label className="field">
                 <span className="field__label">TRM</span>
                 <span className="input">
-                  <input inputMode="decimal" value={trm} onChange={(e) => setTrm(e.target.value)} />
+                  <MoneyInput value={trm} onChange={setTrm} />
                 </span>
               </label>
             )}
             <label className="field">
               <span className="field__label">Total recibido (COP)</span>
               <span className="input">
-                <input inputMode="decimal" value={total} onChange={(e) => setTotal(e.target.value)} placeholder={String(Math.round(expected) || '')} />
+                <MoneyInput value={total} onChange={setTotal} placeholder={Math.round(expected) ? Math.round(expected).toLocaleString('es-CO') : ''} />
               </span>
             </label>
             <label className="field joint-fields__desc">

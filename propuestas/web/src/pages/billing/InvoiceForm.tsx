@@ -15,7 +15,7 @@ import {
   type Payment,
   type ProjectSummary,
 } from '../../lib';
-import { ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../../ui';
+import { ErrorBox, Link, Loading, MoneyInput, PageHead, useAction, useToast } from '../../ui';
 import { Choice } from './Choice';
 import { RichText } from './RichText';
 
@@ -301,7 +301,7 @@ export function InvoiceFormPage({ id }: { id?: number }) {
             <label className="field">
               <span className="field__label">TRM del día (COP por 1 USD)</span>
               <span className="input">
-                <input inputMode="decimal" value={f.exchangeRate} onChange={(e) => set({ exchangeRate: e.target.value })} />
+                <MoneyInput value={f.exchangeRate} onChange={(exchangeRate) => set({ exchangeRate })} />
               </span>
             </label>
           )}
@@ -330,7 +330,7 @@ export function InvoiceFormPage({ id }: { id?: number }) {
               </span>
               <Choice label="Unidad" value={it.unit} options={UNITS} onChange={(unit) => setItem(it.key, { unit })} />
               <span className="input">
-                <input inputMode="decimal" value={it.unitPrice} onChange={(e) => setItem(it.key, { unitPrice: e.target.value })} aria-label="Valor unitario" />
+                <MoneyInput value={it.unitPrice} onChange={(unitPrice) => setItem(it.key, { unitPrice })} aria-label="Valor unitario" />
               </span>
               <span className="mono cc-items__sum">{formatMoney((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), f.currency)}</span>
               <button className="icon-btn icon-btn--danger" disabled={items.length === 1} onClick={() => setItems((l) => l.filter((x) => x.key !== it.key))} aria-label="Quitar ítem" title="Quitar">

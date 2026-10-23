@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, formatMoney, today, useApi, type Currency, type InvoiceSummary, type Receipt } from '../../lib';
-import { useAction, useToast } from '../../ui';
+import { MoneyInput, useAction, useToast } from '../../ui';
 import { Choice } from './Choice';
 
 const METHODS = ['Transferencia', 'QR', 'Nequi', 'Daviplata', 'PSE', 'Efectivo', 'Consignación'];
@@ -111,7 +111,7 @@ export function ReceiptForm({
         <label className="field">
           <span className="field__label">Monto</span>
           <span className="input input--money">
-            <input inputMode="decimal" value={f.amount} onChange={(e) => set({ amount: e.target.value })} placeholder="0" />
+            <MoneyInput value={f.amount} onChange={(amount) => set({ amount })} placeholder="0" />
             <select value={f.currency} onChange={(e) => set({ currency: e.target.value as Currency })} aria-label="Moneda">
               <option value="COP">COP</option>
               <option value="USD">USD</option>
@@ -123,17 +123,16 @@ export function ReceiptForm({
             <label className="field">
               <span className="field__label">TRM</span>
               <span className="input">
-                <input inputMode="decimal" value={f.trm} onChange={(e) => set({ trm: e.target.value })} />
+                <MoneyInput value={f.trm} onChange={(trm) => set({ trm })} />
               </span>
             </label>
             <label className="field">
               <span className="field__label">Pesos recibidos (COP)</span>
               <span className="input">
-                <input
-                  inputMode="decimal"
+                <MoneyInput
                   value={f.amountCop}
-                  onChange={(e) => {
-                    set({ amountCop: e.target.value });
+                  onChange={(amountCop) => {
+                    set({ amountCop });
                     setCopTouched(true);
                   }}
                 />

@@ -59,10 +59,13 @@ export function ProjectMeetings({
   me,
   project,
   onOpenTask,
+  onTasksChange,
 }: {
   me: Me;
   project: ProjectDetail;
   onOpenTask: (t: Task) => void;
+  /** Las reuniones con fase también son tareas del cronograma: al agendar, editar o cancelar hay que recargarlo. */
+  onTasksChange: () => void;
 }) {
   const { data, error, loading, reload, setData } = useApi<Meeting[]>(
     `projects/${project.id}/meetings`,
@@ -134,6 +137,7 @@ export function ProjectMeetings({
           onDone={() => {
             setScheduling(false);
             reload();
+            onTasksChange();
           }}
         />
       )}
@@ -211,6 +215,7 @@ export function ProjectMeetings({
                   onDone={() => {
                     setEditing(null);
                     reload();
+                    onTasksChange();
                   }}
                 />
               ) : (
@@ -231,7 +236,16 @@ export function ProjectMeetings({
                         Unirse a Meet
                       </a>
                     )}
-                    {owner && <PhaseSelect meeting={m} phases={project.phases} onChange={replace} />}
+                    {owner && (
+                      <PhaseSelect
+                        meeting={m}
+                        phases={project.phases}
+                        onChange={(u) => {
+                          replace(u);
+                          onTasksChange();
+                        }}
+                      />
+                    )}
                     {owner && (
                       <button
                         className="btn btn--outline btn--sm"
@@ -256,6 +270,7 @@ export function ProjectMeetings({
                             await api("POST", `meetings/${m.id}/cancel`);
                             toast("Reunión cancelada.");
                             await reload();
+                            onTasksChange();
                           });
                         }}
                       >

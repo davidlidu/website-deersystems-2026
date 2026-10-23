@@ -36,6 +36,8 @@ interface Block {
   /** Imagen en línea (adjunta con Content-ID): p. ej. el QR de pago. Gmail no muestra imágenes data:. */
   image?: { cid: string; alt: string; caption: string };
   footnote?: string;
+  /** Contenido ya armado (p. ej. un avance en Markdown): HTML escapado y su versión en texto plano; va después de los párrafos. */
+  rich?: { html: string; text: string };
 }
 
 function layout(b: Block): { html: string; text: string } {
@@ -94,7 +96,7 @@ function layout(b: Block): { html: string; text: string } {
         <div style="font:500 11px/1.4 ${MONO};letter-spacing:.18em;text-transform:uppercase;color:${C.cian};margin-bottom:10px">${esc(b.eyebrow)}</div>
         <h1 style="margin:0 0 16px;font:700 24px/1.2 ${DISPLAY};letter-spacing:-.03em;color:${C.ink}">${esc(b.title)}</h1>
         ${b.paragraphs.map((p) => `<p style="margin:0 0 16px;font:400 15px/1.65 ${FONT};color:${C.body}">${esc(p).replace(/\n/g, '<br>')}</p>`).join('')}
-        ${facts}${items}${sections}${
+        ${b.rich?.html ?? ''}${facts}${items}${sections}${
           b.image
             ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:4px 0 20px"><tr><td align="center" style="padding:14px;border-radius:12px;background:#ffffff">
                 <img src="cid:${esc(b.image.cid)}" width="190" height="190" alt="${esc(b.image.alt)}" style="display:block;width:190px;height:190px;border:0">
@@ -115,6 +117,7 @@ function layout(b: Block): { html: string; text: string } {
     b.title,
     '',
     ...b.paragraphs.flatMap((p) => [p, '']),
+    ...(b.rich ? [b.rich.text, ''] : []),
     ...(b.facts ?? []).map(([k, v]) => `${k}: ${v}`),
     ...(b.sections ?? []).filter((sec) => sec.bullets.length).flatMap((sec) => [sec.heading.toUpperCase(), ...sec.bullets.map((x) => `• ${x}`), '']),
     ...(b.items ?? []).flatMap((it) => [`• ${it.title}`, ...(it.body ? [`  ${it.body}`] : []), `  ${it.url}`, '']),
@@ -306,6 +309,46 @@ function plainParagraphs(md: string): string[] {
         .trim(),
     )
     .filter(Boolean);
+}
+
+/** Markdown del portal (negritas, cursivas, enlaces, viñetas) → HTML en línea para el correo. */
+function mdHtml(md: string): string {
+  const inline = (s: string) =>
+    esc(s)
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t: string, u: string) => `<a href="${u}" style="color:${C.verde};text-decoration:underline">${t}</a>`)
+      .replace(/\*\*([^*]+)\*\*/g, `<strong style="color:${C.ink}">$1</strong>`)
+      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+  const p = `margin:0 0 16px;font:400 15px/1.65 ${FONT};color:${C.body}`;
+  return md
+    .split(/\n{2,}/)
+    .map((block) => {
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (!lines.length) return '';
+      const bullet = /^([-*•]|\d+[.)])\s+/;
+      if (lines.every((l) => bullet.test(l))) {
+        const tag = /^\d/.test(lines[0]) ? 'ol' : 'ul';
+        return `<${tag} style="margin:0 0 16px;padding-left:20px">${lines.map((l) => `<li style="margin:0 0 6px;font:400 15px/1.6 ${FONT};color:${C.body}">${inline(l.replace(bullet, ''))}</li>`).join('')}</${tag}>`;
+      }
+      return `<p style="${p}">${lines.map((l) => inline(l.replace(/^#{1,6}\s+/, ''))).join('<br>')}</p>`;
+    })
+    .join('');
+}
+
+/** Un avance del proyecto, completo, para el cliente. */
+export function projectUpdate(p: { to: string; projectName: string; body: string; date: string; url: string }): Mail {
+  return {
+    to: p.to,
+    subject: `Avance de ${p.projectName} · ${p.date}`,
+    ...layout({
+      eyebrow: `${p.projectName} · ${p.date}`,
+      title: 'Nuevo avance de tu proyecto',
+      // El avance ya trae su saludo.
+      paragraphs: [],
+      rich: { html: mdHtml(p.body), text: p.body.replace(/\*\*([^*]+)\*\*/g, '$1') },
+      cta: { label: 'Ver el avance en DeerSystems Partners', url: p.url },
+      footnote: 'Recibes este correo porque tienes un proyecto activo con DeerSystems. Puedes responderlo si tienes comentarios.',
+    }),
+  };
 }
 
 /** Después de la Proposal Call: el mensaje que escribiste (o ajustaste) y el botón a la propuesta. */

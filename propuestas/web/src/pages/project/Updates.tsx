@@ -65,6 +65,7 @@ function PreviewDialog({ body, internal, onClose }: { body: string; internal: bo
 function UpdateItem({
   note,
   projectId,
+  staff,
   focused,
   editorProps,
   onChange,
@@ -73,6 +74,7 @@ function UpdateItem({
 }: {
   note: Note;
   projectId: number;
+  staff: boolean;
   focused: boolean;
   editorProps: { variables: Variable[]; links: InsertGroup[] };
   onChange: (n: Note) => void;
@@ -100,6 +102,13 @@ function UpdateItem({
     run(async () => {
       await api('DELETE', `notes/${note.id}`);
       onDelete(note.id);
+    });
+  };
+  const sendEmail = () => {
+    if (!confirm('¿Enviarle este avance completo al cliente por correo?')) return;
+    run(async () => {
+      onChange(await api<Note>('POST', `notes/${note.id}/email`));
+      toast('Avance enviado al correo del cliente.');
     });
   };
   const copy = () =>
@@ -150,6 +159,17 @@ function UpdateItem({
                 Copiar enlace
               </button>
             )}
+            {staff &&
+              note.visibility === 'shared' &&
+              (note.emailedAt ? (
+                <span className="tag tag--sent" title={`Enviado el ${formatDateTime(note.emailedAt)}`}>
+                  ✓ Enviado por correo
+                </span>
+              ) : (
+                <button className="btn btn--outline btn--xs" onClick={sendEmail} disabled={busy} title="Hasta ahora solo está en el portal">
+                  Enviar por correo
+                </button>
+              ))}
             <button className="btn btn--outline btn--xs" onClick={onOpenLog}>
               Ver bitácora técnica
             </button>
@@ -243,11 +263,19 @@ export function UpdatesPanel({
   const publish = () => {
     if (!text.trim()) return;
     run(async () => {
-      const note = await api<Note>('POST', `projects/${project.id}/notes`, { body: text, kind: 'avance', visibility: internal ? 'internal' : 'shared', ai: aiDraft });
+      const { email, ...note } = await api<Note & { email?: 'sent' | 'off' | 'error' }>('POST', `projects/${project.id}/notes`, {
+        body: text,
+        kind: 'avance',
+        visibility: internal ? 'internal' : 'shared',
+        ai: aiDraft,
+      });
       setData([note, ...(data ?? [])]);
       setText('');
       setAiDraft(false);
-      toast(internal ? 'Avance guardado (solo equipo).' : 'Avance publicado: le llega al cliente.');
+      if (internal) toast('Avance guardado (solo equipo).');
+      else if (email === 'sent') toast('Avance publicado: el cliente lo ve en el portal y le llegó a su correo.');
+      else if (email === 'error') toast('Avance publicado en el portal, pero no se pudo enviar el correo. Usa «Enviar por correo» para reintentar.', true);
+      else toast('Avance publicado en el portal. Los avances por correo están apagados: usa «Enviar por correo» si quieres mandarlo.');
     });
   };
 
@@ -333,6 +361,7 @@ export function UpdatesPanel({
               key={n.id}
               note={n}
               projectId={project.id}
+              staff={staff}
               focused={n.id === focusId}
               editorProps={editorProps}
               onChange={(u) => setData(data!.map((x) => (x.id === u.id ? u : x)))}

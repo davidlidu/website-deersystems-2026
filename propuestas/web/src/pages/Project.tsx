@@ -340,7 +340,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
           </div>
           {plan === 'reuniones' ? (
             <div className="narrow-col">
-              <ProjectMeetings me={me} project={p} onOpenTask={(t) => setDrawer({ taskId: t.id })} />
+              <ProjectMeetings me={me} project={p} onOpenTask={(t) => setDrawer({ taskId: t.id })} onTasksChange={reload} />
             </div>
           ) : (
             <>

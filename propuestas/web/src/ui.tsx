@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState, type AnchorHTMLAttributes, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 import { navigate, STATUS, type Progress, type TaskStatus } from './lib';
 
 // ───────── Enlaces internos ─────────
@@ -13,6 +13,67 @@ export function Link({ to, ...props }: { to: string } & AnchorHTMLAttributes<HTM
         if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
         navigate(to);
+      }}
+    />
+  );
+}
+
+// ───────── Campos de dinero ─────────
+
+/** "1000000.5" → "1.000.000,5" (miles con punto, decimales con coma, como en Colombia). */
+function groupMoney(raw: string) {
+  const [int, dec] = raw.split('.');
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return dec === undefined ? grouped : `${grouped},${dec}`;
+}
+
+/** Lo escrito ("1.000.000,5", "$ 2.500.000") → número plano ("1000000.5"). Un punto al final se toma como coma decimal. */
+function parseMoney(text: string) {
+  let s = text.replace(/[^\d.,]/g, '');
+  if (!s.includes(',') && s.endsWith('.')) s = `${s.slice(0, -1)},`;
+  const [int, ...dec] = s.split(',');
+  const i = int.replace(/\./g, '').replace(/^0+(?=\d)/, '');
+  return dec.length ? `${i || '0'}.${dec.join('').replace(/\./g, '')}` : i;
+}
+
+/**
+ * Input de montos que separa los miles con punto mientras escribes.
+ * `value` y `onChange` van en número plano ("1000000"), así `Number(value)` sigue funcionando.
+ */
+export function MoneyInput({
+  value,
+  onChange,
+  ...props
+}: { value: string; onChange: (value: string) => void } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'>) {
+  const ref = useRef<HTMLInputElement>(null);
+  const caret = useRef<number | null>(null); // cifras (y coma) antes del cursor, para dejarlo donde iba
+  const shown = groupMoney(value);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || caret.current === null || document.activeElement !== el) return;
+    let pos = 0;
+    for (let seen = 0; pos < shown.length && seen < caret.current; pos++) if (/[\d,]/.test(shown[pos])) seen++;
+    caret.current = null;
+    el.setSelectionRange(pos, pos);
+  });
+  return (
+    <input
+      {...props}
+      ref={ref}
+      inputMode="decimal"
+      value={shown}
+      onChange={(e) => {
+        let text = e.target.value;
+        let at = e.target.selectionStart ?? text.length;
+        // Borrar solo un punto de miles no cambiaría nada: se borra la cifra de al lado.
+        const kind = (e.nativeEvent as InputEvent).inputType;
+        if (parseMoney(text) === value && text.length === shown.length - 1) {
+          if (kind === 'deleteContentBackward' && at > 0) text = text.slice(0, --at) + text.slice(at + 1);
+          else if (kind === 'deleteContentForward') text = text.slice(0, at) + text.slice(at + 1);
+        }
+        const trailingDot = at === text.length && !text.includes(',') && text.endsWith('.');
+        caret.current = (text.slice(0, at).match(/[\d,]/g)?.length ?? 0) + (trailingDot ? 1 : 0);
+        onChange(parseMoney(text));
       }}
     />
   );
