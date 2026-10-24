@@ -156,30 +156,34 @@ export const autoUpdatesOn = (projectId: number) =>
 
 // ───────── El avance por correo ─────────
 
+/** El correo del avance (para enviarlo o verlo antes). Sin `noteId`, el enlace va a la pestaña de avances. */
+function updateMail(project: db.Project, to: string, body: string, createdAt: string, noteId?: number) {
+  return projectUpdate({
+    to,
+    projectName: project.name,
+    body,
+    date: new Date(createdAt).toLocaleDateString('es-CO', { timeZone: TZ, day: 'numeric', month: 'long' }),
+    url: `${PARTNERS_URL}/proyectos/${project.id}?tab=avances${noteId ? `&avance=${noteId}` : ''}`,
+  });
+}
+
 /** Le manda al cliente el avance completo por correo y lo deja marcado, para no enviarlo dos veces. */
 export async function emailUpdate(project: db.Project, note: db.Note): Promise<void> {
   const client = db.getClientAccount(project.client_id);
   if (!client?.active) throw new HttpError(409, 'El cliente no tiene acceso activo al portal: no hay a qué correo enviarlo.');
   if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
-  await google.sendMail(
-    projectUpdate({
-      to: client.email,
-      projectName: project.name,
-      body: note.body,
-      date: new Date(note.created_at).toLocaleDateString('es-CO', { timeZone: TZ, day: 'numeric', month: 'long' }),
-      url: `${PARTNERS_URL}/proyectos/${project.id}?tab=avances&avance=${note.id}`,
-    }),
-  );
+  await google.sendMail(updateMail(project, client.email, note.body, note.created_at, note.id));
   db.markNoteEmailed(note.id);
 }
 
 /**
- * Al publicar un avance compartido: el aviso en la app y, si el cliente recibe los avances por correo,
- * el avance completo (en vez del resumen corto de avisos). 'off' = ese aviso por correo está apagado.
+ * Al publicar un avance compartido: el aviso en la app y, si corresponde, el avance completo por correo
+ * (en vez del resumen corto de avisos). `email`: lo que elegiste al publicar; sin elegir (el envío diario
+ * automático), se sigue lo configurado en Avisos. 'off' = no se envió por correo.
  */
-export async function announceUpdate(project: db.Project, note: db.Note, actor: Viewer | null): Promise<'sent' | 'off' | 'error'> {
+export async function announceUpdate(project: db.Project, note: db.Note, actor: Viewer | null, email?: boolean): Promise<'sent' | 'off' | 'error'> {
   notify('staff_update', { actor, projectId: project.id, title: `Nuevo avance en ${project.name}`, body: note.body, path: `/proyectos/${project.id}?tab=avances`, skipEmail: true });
-  if (!clientEmailFor('staff_update', project.id)) return 'off';
+  if (!(email ?? !!clientEmailFor('staff_update', project.id))) return 'off';
   try {
     await emailUpdate(project, note);
     return 'sent';
@@ -237,6 +241,35 @@ export async function handleUpdates(route: string, id: number, req: IncomingMess
     case 'POST projects/:id/updates/draft': {
       requireStaff(v);
       json(res, 200, await draftUpdate(visibleProject(id, v)));
+      return true;
+    }
+
+    // Para el editor de avances: a quién le llegaría el correo y si por defecto se envía.
+    case 'GET projects/:id/updates/mail': {
+      requireStaff(v);
+      const project = visibleProject(id, v);
+      const client = db.getClientAccount(project.client_id);
+      const ready = !!client?.active && google.connectionStatus().connected;
+      json(res, 200, {
+        to: client?.active ? client.email : null,
+        canSend: ready,
+        defaultOn: ready && !!clientEmailFor('staff_update', project.id),
+        reason: !client?.active ? 'El cliente no tiene acceso activo al portal.' : !ready ? 'Conecta Google en Configuración para enviar correos.' : null,
+      });
+      return true;
+    }
+
+    // Vista previa del correo de un avance (lo que está en el editor o uno ya publicado).
+    case 'POST projects/:id/updates/mail-preview': {
+      requireStaff(v);
+      const project = visibleProject(id, v);
+      const body = await readJson(req);
+      const text = typeof body.body === 'string' ? body.body.trim().slice(0, 10_000) : '';
+      if (!text) throw new HttpError(400, 'Escribe el avance para ver el correo.');
+      const note = Number(body.noteId) ? db.getNote(Number(body.noteId)) : undefined;
+      const to = db.getClientAccount(project.client_id)?.email ?? 'cliente@empresa.com';
+      const m = updateMail(project, to, text, note?.created_at ?? new Date().toISOString(), note?.project_id === project.id ? note.id : undefined);
+      json(res, 200, { subject: m.subject, to: m.to, html: m.html });
       return true;
     }
 

@@ -266,7 +266,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           path,
         });
       } else if (kind === 'avance') {
-        if (visibility === 'shared') email = await announceUpdate(project, note, v);
+        if (visibility === 'shared') email = await announceUpdate(project, note, v, typeof body.email === 'boolean' ? body.email : undefined);
       } else if (visibility === 'shared') {
         notify('staff_comment', {
           actor: v,

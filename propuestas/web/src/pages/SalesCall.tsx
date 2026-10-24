@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api, formatDateTime, today, useApi, type Meeting, type TeamMember } from '../lib';
 import { Link, Loading, useAction, useToast } from '../ui';
 import { sendFile, type ProposalRow } from './Proposals';
+import { SlotStatus } from './project/Schedule';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LABEL = { discovery: 'Discovery Call', proposal: 'Proposal Call' } as const;
@@ -37,6 +38,8 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
   const [proposalId, setProposalId] = useState<number | null>(null);
   const [title, setTitle] = useState<string | null>(null);
   const [teamIds, setTeamIds] = useState<Set<number>>(new Set());
+  const [slot, setSlot] = useState({ date: today(), time: nextSlot(), duration: initialKind === 'discovery' ? 30 : 45 });
+  const [blocked, setBlocked] = useState(true);
   const { busy, run } = useAction();
   const toast = useToast();
 
@@ -84,7 +87,10 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
     <form className="stack" onSubmit={submit}>
       <div className="segmented" role="radiogroup" aria-label="Tipo de llamada">
         {(Object.keys(LABEL) as Kind[]).map((k) => (
-          <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'is-active' : ''} onClick={() => setKind(k)}>
+          <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'is-active' : ''} onClick={() => {
+              setKind(k);
+              setSlot((s) => ({ ...s, duration: k === 'discovery' ? 30 : 45 }));
+            }}>
             {LABEL[k]}
           </button>
         ))}
@@ -165,20 +171,20 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
         <label className="field">
           <span className="field__label">Fecha</span>
           <span className="input">
-            <input name="date" type="date" required min={today()} defaultValue={today()} />
+            <input name="date" type="date" required min={today()} value={slot.date} onChange={(e) => setSlot({ ...slot, date: e.target.value })} />
           </span>
         </label>
         <div className="form-grid form-grid--tight">
           <label className="field">
             <span className="field__label">Hora (Colombia)</span>
             <span className="input">
-              <input name="time" type="time" required step={900} defaultValue={nextSlot()} />
+              <input name="time" type="time" required step={900} value={slot.time} onChange={(e) => setSlot({ ...slot, time: e.target.value })} />
             </span>
           </label>
           <label className="field">
             <span className="field__label">Duración</span>
             <span className="input">
-              <select name="duration" defaultValue={kind === 'discovery' ? '30' : '45'} key={kind}>
+              <select name="duration" value={slot.duration} onChange={(e) => setSlot({ ...slot, duration: Number(e.target.value) })}>
                 {[15, 30, 45, 60, 90].map((m) => (
                   <option key={m} value={m}>
                     {m < 60 ? `${m} min` : `${m / 60} h${m % 60 ? ` ${m % 60} min` : ''}`}
@@ -189,6 +195,7 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
           </label>
         </div>
       </div>
+      <SlotStatus date={slot.date} time={slot.time} duration={slot.duration} onPick={(date, time) => setSlot({ ...slot, date, time })} onConflict={setBlocked} />
       <label className="field">
         <span className="field__label">Agenda (va en la invitación)</span>
         <textarea name="agenda" rows={3} placeholder={kind === 'discovery' ? 'Conocer el negocio, los procesos actuales y lo que quieren lograr…' : 'Presentación de la propuesta, preguntas y siguientes pasos…'} />
@@ -223,7 +230,7 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
       </label>
       <p className="hint">Activa la transcripción en Meet: con ella la IA resume la llamada y personaliza el correo de la propuesta.</p>
       <div className="actions actions--tight">
-        <button className="btn btn--primary" disabled={busy}>
+        <button className="btn btn--primary" disabled={busy || blocked}>
           {busy ? 'Agendando…' : `Agendar ${LABEL[kind]}`}
         </button>
       </div>

@@ -9,6 +9,7 @@ import { meetingSummary, proposalAfterCall } from '../mail.ts';
 import { publicUrl } from '../proposals.ts';
 import type { Viewer } from './auth.ts';
 import { actor, optDate, requireOwner, str, visibleProject } from './common.ts';
+import { assertFree, checkSlots } from './availability.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
 
@@ -648,6 +649,7 @@ export async function scheduleSalesCall(input: SalesCallInput): Promise<Row> {
   if (!EMAIL.test(email)) throw new HttpError(400, 'Escribe el correo del contacto.');
   const proposal = input.proposalId ? getProposal(input.proposalId) : undefined;
   if (input.proposalId && !proposal) throw new HttpError(400, 'La propuesta no existe.');
+  await assertFree(start, end);
 
   const emails = new Set<string>([email]);
   const teamIds = new Set(input.teamIds);
@@ -769,6 +771,7 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
   emails.delete(SUPERADMIN_EMAIL); // tú eres el organizador
   if (!emails.size) throw new HttpError(400, 'Invita al menos a una persona.');
   if (input.phaseId && db.getPhase(input.phaseId)?.project_id !== project.id) throw new HttpError(400, 'La fase no es de este proyecto.');
+  await assertFree(start, end);
   const title = input.title.trim().slice(0, 200) || `Reunión · ${project.name}`;
   const agenda = input.agenda.trim().slice(0, 4000);
 
@@ -859,6 +862,19 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
     }
 
     // Agendar desde la plataforma: crea el evento con Meet en tu Calendar, invita y lo deja en el proyecto.
+    // Qué está ocupado y si los horarios pedidos chocan (formularios de agendar, editar y el plan de la propuesta).
+    case 'POST calendar/check': {
+      requireOwner(v);
+      const body = await readJson(req);
+      const slots = (Array.isArray(body.slots) ? body.slots : []).slice(0, 30).map((s: Record<string, unknown>) => ({
+        date: str(s?.date, 10),
+        time: str(s?.time, 5),
+        durationMinutes: Math.min(480, Math.max(15, Number(s?.durationMinutes) || 45)),
+      }));
+      json(res, 200, await checkSlots(slots, Number(body.excludeMeetingId) || null));
+      return true;
+    }
+
     case 'POST meetings/sales': {
       requireOwner(v);
       const body = await readJson(req);
@@ -1003,6 +1019,7 @@ ${context}
       );
       emails.delete(SUPERADMIN_EMAIL); // tú eres el organizador
       if (!emails.size) throw new HttpError(400, 'Deja al menos a una persona invitada.');
+      await assertFree(start, end, m.id);
       const notifyGuests = body.notify !== false;
 
       let event: google.CalendarEvent | null = null;

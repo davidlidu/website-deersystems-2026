@@ -5148,6 +5148,22 @@ textarea:focus {
   margin: 0;
 }
 
+.update__foot > .actions {
+  margin-left: auto;
+}
+
+.update__mail {
+  margin: 0;
+}
+
+.slot-status {
+  margin: 0;
+}
+
+.slot-status .btn {
+  margin-left: 6px;
+}
+
 .vis-toggle {
   display: inline-flex;
   gap: 6px;

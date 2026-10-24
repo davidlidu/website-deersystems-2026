@@ -3,6 +3,7 @@ import { AiError, completeJson, type Completion } from '../ai.ts';
 import type { Proposal } from '../db.ts';
 import { listVersionFiles, resolveFile } from '../storage.ts';
 import type { Side } from './db.ts';
+import { placeMeetings } from './availability.ts';
 import { normalizePayment, PAYMENTS_PROMPT, type PaymentInput } from './payments.ts';
 
 export interface DraftTask {
@@ -358,6 +359,8 @@ export async function extractDraft(proposal: Proposal, approval: Approval = { op
   if (!draft.phases.some((p) => p.tasks.length)) {
     throw new AiError(`El modelo ${completion.model} no devolvió tareas. Vuelve a intentarlo o prueba otro modelo.`);
   }
+  // Las reuniones propuestas no pueden caer en horarios que ya tienes ocupados.
+  draft.warnings.push(...(await placeMeetings(draft.meetings)));
   return { draft, ai: aiInfo(completion) };
 }
 
@@ -426,6 +429,7 @@ Reglas:
     .map((c) => str(c, 300))
     .filter(Boolean)
     .slice(0, 8);
+  changes.push(...(await placeMeetings(draft.meetings)));
   const plan: Plan = { startDate: draft.startDate, endDate: draft.endDate, phases: draft.phases, meetings: draft.meetings };
   return { plan, changes, warnings: draft.warnings, ai: aiInfo(completion) };
 }

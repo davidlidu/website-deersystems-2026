@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api, today, useApi, type Meeting, type ProjectSummary } from '../../lib';
 import { ErrorBox, Link, Loading, useAction, useToast } from '../../ui';
 
@@ -7,6 +7,89 @@ interface Contacts {
   team: { id: number; name: string; email: string }[];
   phases: { id: number; name: string }[];
   canSchedule: boolean;
+}
+
+// ───────── Disponibilidad ─────────
+
+export interface SlotResult {
+  slots: { conflict: { title: string; start: string; end: string } | null; suggestion: { date: string; time: string } | null }[];
+  days: Record<string, { start: string; end: string; title: string }[]>;
+}
+
+/** "jue, 23 oct, 11:00 a. m." */
+export const slotLabel = (date: string, time: string) =>
+  new Date(`${date}T${time}:00-05:00`).toLocaleString('es-CO', { timeZone: 'America/Bogota', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+
+/**
+ * Revisa contra tu calendario (y las reuniones de Partners) los horarios dados, cada vez que cambian.
+ * `pending` mientras llega la respuesta de los valores actuales.
+ */
+export function useSlotCheck(slots: { date: string; time: string; durationMinutes: number }[], excludeMeetingId?: number) {
+  const key = JSON.stringify([slots, excludeMeetingId ?? null]);
+  const [state, setState] = useState<{ key: string; result: SlotResult | null }>({ key: '', result: null });
+  useEffect(() => {
+    if (!slots.length) return setState({ key, result: { slots: [], days: {} } });
+    let live = true;
+    const t = setTimeout(() => {
+      api<SlotResult>('POST', 'calendar/check', { slots, excludeMeetingId })
+        .then((result) => live && setState({ key, result }))
+        .catch(() => live && setState({ key, result: null }));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return { result: state.key === key ? state.result : null, pending: state.key !== key };
+}
+
+/** Bajo los campos de fecha y hora: si el horario choca, con qué y cuál es el siguiente libre; si no, lo ocupado ese día. */
+export function SlotStatus({
+  date,
+  time,
+  duration,
+  excludeMeetingId,
+  onPick,
+  onConflict,
+}: {
+  date: string;
+  time: string;
+  duration: number;
+  excludeMeetingId?: number;
+  onPick: (date: string, time: string) => void;
+  /** Para deshabilitar el botón de agendar mientras el horario esté ocupado (o se esté revisando). */
+  onConflict: (blocked: boolean) => void;
+}) {
+  const { result, pending } = useSlotCheck([{ date, time, durationMinutes: duration }], excludeMeetingId);
+  const s = result?.slots[0];
+  const blocked = pending || !!s?.conflict;
+  useEffect(() => onConflict(blocked), [blocked, onConflict]);
+  if (!date || !time) return null;
+  if (s?.conflict) {
+    return (
+      <p className="alert slot-status">
+        Ese horario está ocupado: se cruza con «{s.conflict.title}» ({s.conflict.start} – {s.conflict.end}).{' '}
+        {s.suggestion ? (
+          <button type="button" className="btn btn--outline btn--xs" onClick={() => onPick(s.suggestion!.date, s.suggestion!.time)}>
+            Usar el siguiente libre: {slotLabel(s.suggestion.date, s.suggestion.time)}
+          </button>
+        ) : (
+          'Elige otra fecha.'
+        )}
+      </p>
+    );
+  }
+  const day = result?.days[date] ?? [];
+  return (
+    <p className="hint slot-status">
+      {pending
+        ? 'Revisando tu calendario…'
+        : day.length
+          ? `Horario libre. Ese día ya tienes: ${day.map((b) => `${b.start} – ${b.end} (${b.title})`).join(' · ')}.`
+          : 'Horario libre: no tienes nada más ese día.'}
+    </p>
+  );
 }
 
 /** Siguiente media hora, para proponer una hora razonable. */
@@ -19,6 +102,8 @@ function nextSlot(): string {
 function Fields({ projectId, projectName, onDone }: { projectId: number; projectName: string; onDone: (m: Meeting) => void }) {
   const { data, error, loading, reload } = useApi<Contacts>(`projects/${projectId}/contacts`);
   const [team, setTeam] = useState<Set<number>>(new Set());
+  const [slot, setSlot] = useState({ date: today(), time: nextSlot(), duration: 45 });
+  const [blocked, setBlocked] = useState(true);
   const { busy, run } = useAction();
   const toast = useToast();
 
@@ -73,20 +158,20 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
         <label className="field">
           <span className="field__label">Fecha</span>
           <span className="input">
-            <input name="date" type="date" required min={today()} defaultValue={today()} />
+            <input name="date" type="date" required min={today()} value={slot.date} onChange={(e) => setSlot({ ...slot, date: e.target.value })} />
           </span>
         </label>
         <div className="form-grid form-grid--tight">
           <label className="field">
             <span className="field__label">Hora (Colombia)</span>
             <span className="input">
-              <input name="time" type="time" required step={900} defaultValue={nextSlot()} />
+              <input name="time" type="time" required step={900} value={slot.time} onChange={(e) => setSlot({ ...slot, time: e.target.value })} />
             </span>
           </label>
           <label className="field">
             <span className="field__label">Duración</span>
             <span className="input">
-              <select name="duration" defaultValue="45">
+              <select name="duration" value={slot.duration} onChange={(e) => setSlot({ ...slot, duration: Number(e.target.value) })}>
                 {[15, 30, 45, 60, 90, 120].map((m) => (
                   <option key={m} value={m}>
                     {m < 60 ? `${m} min` : `${m / 60} h${m % 60 ? ` ${m % 60} min` : ''}`}
@@ -97,6 +182,7 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
           </label>
         </div>
       </div>
+      <SlotStatus date={slot.date} time={slot.time} duration={slot.duration} onPick={(date, time) => setSlot({ ...slot, date, time })} onConflict={setBlocked} />
       {c.phases.length > 0 && (
         <label className="field">
           <span className="field__label">Fase del proyecto</span>
@@ -149,7 +235,7 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
         terminar, la IA prepare el resumen.
       </p>
       <div className="actions actions--tight">
-        <button className="btn btn--primary" disabled={busy}>
+        <button className="btn btn--primary" disabled={busy || blocked}>
           {busy ? 'Agendando…' : 'Agendar y enviar invitaciones'}
         </button>
       </div>
@@ -204,6 +290,8 @@ export function EditMeeting({ meeting, onDone, onCancel }: { meeting: Meeting; o
   const duration = Math.max(15, Math.round((new Date(meeting.endAt).getTime() - new Date(meeting.startAt).getTime()) / 60_000) || 45);
   const [invited, setInvited] = useState<Set<string>>(new Set(meeting.attendees.map((a) => a.email.toLowerCase())));
   const [extra, setExtra] = useState('');
+  const [slot, setSlot] = useState({ date, time, duration });
+  const [blocked, setBlocked] = useState(true);
   const { busy, run } = useAction();
   const toast = useToast();
 
@@ -251,20 +339,20 @@ export function EditMeeting({ meeting, onDone, onCancel }: { meeting: Meeting; o
         <label className="field">
           <span className="field__label">Fecha</span>
           <span className="input">
-            <input name="date" type="date" required min={today()} defaultValue={date} />
+            <input name="date" type="date" required min={today()} value={slot.date} onChange={(e) => setSlot({ ...slot, date: e.target.value })} />
           </span>
         </label>
         <div className="form-grid form-grid--tight">
           <label className="field">
             <span className="field__label">Hora (Colombia)</span>
             <span className="input">
-              <input name="time" type="time" required step={900} defaultValue={time} />
+              <input name="time" type="time" required step={900} value={slot.time} onChange={(e) => setSlot({ ...slot, time: e.target.value })} />
             </span>
           </label>
           <label className="field">
             <span className="field__label">Duración</span>
             <span className="input">
-              <select name="duration" defaultValue={String(duration)}>
+              <select name="duration" value={slot.duration} onChange={(e) => setSlot({ ...slot, duration: Number(e.target.value) })}>
                 {options.map((m) => (
                   <option key={m} value={m}>
                     {m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`}
@@ -275,6 +363,14 @@ export function EditMeeting({ meeting, onDone, onCancel }: { meeting: Meeting; o
           </label>
         </div>
       </div>
+      <SlotStatus
+        date={slot.date}
+        time={slot.time}
+        duration={slot.duration}
+        excludeMeetingId={meeting.id}
+        onPick={(d, t) => setSlot({ ...slot, date: d, time: t })}
+        onConflict={setBlocked}
+      />
       <fieldset className="invitees">
         <legend className="field__label">Invitados</legend>
         {[...people.values()].map((p) => (
@@ -305,7 +401,7 @@ export function EditMeeting({ meeting, onDone, onCancel }: { meeting: Meeting; o
       </label>
       <p className="hint">Si no avisas, el cambio queda en Calendar sin enviar correos: los invitados nuevos no recibirán la invitación con el enlace.</p>
       <div className="actions actions--tight">
-        <button className="btn btn--primary" disabled={busy}>
+        <button className="btn btn--primary" disabled={busy || blocked}>
           {busy ? 'Guardando…' : 'Guardar cambios'}
         </button>
         <button type="button" className="btn btn--outline" disabled={busy} onClick={onCancel}>

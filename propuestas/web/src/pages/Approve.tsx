@@ -3,6 +3,7 @@ import { api, draftBody, emptyDraft, money, today, useApi, usd, type PaymentDraf
 import { ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
 import type { ProposalRow } from './Proposals';
 import { DraftRow } from './project/Payments';
+import { slotLabel, useSlotCheck } from './project/Schedule';
 
 interface DraftTask {
   key: string;
@@ -231,6 +232,10 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const google = useApi<{ connected: boolean; missingScopes?: string[] }>('settings/google');
   const canSchedule = !!google.data?.connected && !google.data.missingScopes?.some((sc) => sc.endsWith('calendar.events'));
   const [meetings, setMeetings] = useState<DraftMeeting[]>([]);
+  // Ninguna reunión del plan puede caer en un horario ya ocupado (ni cruzarse con otra del mismo plan).
+  const dated = meetings.filter((m) => m.date && m.time);
+  const slotCheck = useSlotCheck(dated.map((m) => ({ date: m.date, time: m.time, durationMinutes: m.durationMinutes })));
+  const clashes = new Map(dated.map((m, i) => [m.key, slotCheck.result?.slots[i]?.conflict ? slotCheck.result.slots[i] : null]));
   const toast = useToast();
   const { busy, run } = useAction();
 
@@ -275,6 +280,8 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     api<DraftResponse>('POST', `proposals/${proposalId}/draft`, { option, notes })
       .then(({ draft, ai, existingClientId }) => {
         setAiInfo(ai);
+        // Avisos del borrador: valores en el alcance, reuniones movidas por choque de horario…
+        draft.warnings?.forEach((w) => toast(w));
         setClient({ name: draft.clientName, contactName: draft.contactName, email: draft.clientEmail, phone: draft.clientPhone });
         if (existingClientId) {
           setClientMode('existing');
@@ -473,6 +480,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     if (!taskCount) return toast('Agrega al menos una tarea.', true);
     const badPayment = payments.find((p) => (p.label.trim() || p.amount) && !(p.label.trim() && Number(p.amount) > 0));
     if (badPayment) return toast('Cada pago necesita el tipo de abono y un monto mayor a cero.', true);
+    if ([...clashes.values()].some(Boolean)) return toast('Hay reuniones en horarios ocupados: muévelas al siguiente horario libre.', true);
     if (priceWarning && !confirm('El alcance o alguna tarea parece mencionar valores, y tu equipo puede verlos. ¿Crear el proyecto igual?')) return;
     run(async () => {
       const sent = phases.filter((p) => p.tasks.some((t) => t.title.trim()));
@@ -883,6 +891,20 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                     </button>
                   </div>
                   <textarea rows={1} value={m.purpose} placeholder="Qué se presenta o se valida con el cliente" onChange={(e) => setM({ purpose: e.target.value })} />
+                  {(() => {
+                    const c = clashes.get(m.key);
+                    if (!c?.conflict) return null;
+                    return (
+                      <p className="alert slot-status">
+                        Horario ocupado: se cruza con «{c.conflict.title}» ({c.conflict.start} – {c.conflict.end}).{' '}
+                        {c.suggestion && (
+                          <button type="button" className="btn btn--outline btn--xs" onClick={() => setM({ date: c.suggestion!.date, time: c.suggestion!.time })}>
+                            Mover a {slotLabel(c.suggestion.date, c.suggestion.time)}
+                          </button>
+                        )}
+                      </p>
+                    );
+                  })()}
                 </div>
               );
             })}

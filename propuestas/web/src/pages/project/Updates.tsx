@@ -25,9 +25,89 @@ function Visibility({ internal, onChange }: { internal: boolean; onChange: (inte
   );
 }
 
-/** Lo que verá el cliente, antes de publicar. */
-function PreviewDialog({ body, internal, onClose }: { body: string; internal: boolean; onClose: () => void }) {
+interface MailInfo {
+  to: string | null;
+  canSend: boolean;
+  defaultOn: boolean;
+  reason: string | null;
+}
+
+/** El correo del avance tal como le llegaría al cliente. */
+function MailPreview({ projectId, body, noteId }: { projectId: number; body: string; noteId?: number }) {
+  const [preview, setPreview] = useState<{ subject: string; to: string; html: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<{ subject: string; to: string; html: string }>('POST', `projects/${projectId}/updates/mail-preview`, { body, noteId })
+      .then(setPreview)
+      .catch((err) => setError(err.message));
+  }, [projectId, body, noteId]);
+  if (error) return <p className="alert">{error}</p>;
+  if (!preview) return <Loading />;
+  return (
+    <>
+      <div className="mail-accordion__meta">
+        <span>
+          <small>Asunto</small>
+          {preview.subject}
+        </span>
+        <span>
+          <small>Para</small>
+          {preview.to}
+        </span>
+      </div>
+      {/* sandbox sin permisos: el HTML del correo no puede ejecutar nada en el portal. */}
+      <iframe className="mail-preview" sandbox="" srcDoc={preview.html} title="Vista previa del correo del avance" />
+    </>
+  );
+}
+
+/** Ver el correo de un avance ya publicado y enviarlo desde ahí. */
+function SendMailDialog({ note, projectId, onSent, onClose }: { note: Note; projectId: number; onSent: (n: Note) => void; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  useEffect(() => ref.current?.showModal(), []);
+  const send = () =>
+    run(async () => {
+      onSent(await api<Note>('POST', `notes/${note.id}/email`));
+      toast('Avance enviado al correo del cliente.');
+      ref.current?.close();
+    });
+  return (
+    <dialog
+      ref={ref}
+      className="modal"
+      aria-labelledby="update-mail-title"
+      onClose={onClose}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) ref.current?.close();
+      }}
+    >
+      <div className="modal__in">
+        <header className="modal__head">
+          <h2 id="update-mail-title">Enviar el avance por correo</h2>
+          <button className="icon-btn" onClick={() => ref.current?.close()} aria-label="Cerrar">
+            ✕
+          </button>
+        </header>
+        <MailPreview projectId={projectId} body={note.body} noteId={note.id} />
+        <div className="actions actions--tight">
+          <button className="btn btn--primary btn--sm" disabled={busy} onClick={send}>
+            {busy ? 'Enviando…' : 'Enviar al cliente'}
+          </button>
+          <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => ref.current?.close()}>
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
+/** Lo que verá el cliente, antes de publicar: en el portal y, si se envía, en su correo. */
+function PreviewDialog({ projectId, body, internal, email, onClose }: { projectId: number; body: string; internal: boolean; email: boolean; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [tab, setTab] = useState<'portal' | 'correo'>(!internal && email ? 'correo' : 'portal');
   useEffect(() => ref.current?.showModal(), []);
   return (
     <dialog
@@ -46,17 +126,39 @@ function PreviewDialog({ body, internal, onClose }: { body: string; internal: bo
             ✕
           </button>
         </header>
-        <p className="hint">{internal ? 'Solo lo verá tu equipo.' : 'Así lo verá el cliente en el portal y en el aviso por correo.'}</p>
-        <article className="update update--preview card">
-          <div className="update__head">
-            <span className="update__avatar" aria-hidden="true">
-              DS
-            </span>
-            <strong>DeerSystems</strong>
-            <time>Ahora</time>
+        {!internal && (
+          <div className="segmented segmented--sm" role="tablist" aria-label="Dónde lo ve el cliente">
+            <button role="tab" aria-selected={tab === 'portal'} className={tab === 'portal' ? 'is-active' : ''} onClick={() => setTab('portal')}>
+              En el portal
+            </button>
+            <button role="tab" aria-selected={tab === 'correo'} className={tab === 'correo' ? 'is-active' : ''} onClick={() => setTab('correo')}>
+              En su correo
+            </button>
           </div>
-          <Markdown text={body} />
-        </article>
+        )}
+        <p className="hint">
+          {internal
+            ? 'Solo lo verá tu equipo.'
+            : tab === 'portal'
+              ? 'Así lo verá el cliente en el portal.'
+              : email
+                ? 'Así le llegará al correo al publicar.'
+                : 'Así le llegaría si activas «Enviar también por correo» (ahora no se enviará).'}
+        </p>
+        {tab === 'correo' && !internal ? (
+          <MailPreview projectId={projectId} body={body} />
+        ) : (
+          <article className="update update--preview card">
+            <div className="update__head">
+              <span className="update__avatar" aria-hidden="true">
+                DS
+              </span>
+              <strong>DeerSystems</strong>
+              <time>Ahora</time>
+            </div>
+            <Markdown text={body} />
+          </article>
+        )}
       </div>
     </dialog>
   );
@@ -104,13 +206,7 @@ function UpdateItem({
       onDelete(note.id);
     });
   };
-  const sendEmail = () => {
-    if (!confirm('¿Enviarle este avance completo al cliente por correo?')) return;
-    run(async () => {
-      onChange(await api<Note>('POST', `notes/${note.id}/email`));
-      toast('Avance enviado al correo del cliente.');
-    });
-  };
+  const [mailing, setMailing] = useState(false);
   const copy = () =>
     navigator.clipboard.writeText(updateUrl(projectId, note.id)).then(
       () => toast('Enlace copiado.'),
@@ -166,7 +262,7 @@ function UpdateItem({
                   ✓ Enviado por correo
                 </span>
               ) : (
-                <button className="btn btn--outline btn--xs" onClick={sendEmail} disabled={busy} title="Hasta ahora solo está en el portal">
+                <button className="btn btn--outline btn--xs" onClick={() => setMailing(true)} disabled={busy} title="Hasta ahora solo está en el portal">
                   Enviar por correo
                 </button>
               ))}
@@ -181,6 +277,7 @@ function UpdateItem({
           </div>
         </>
       )}
+      {mailing && <SendMailDialog note={note} projectId={projectId} onSent={onChange} onClose={() => setMailing(false)} />}
     </li>
   );
 }
@@ -205,6 +302,10 @@ export function UpdatesPanel({
   const staff = me.role !== 'client';
   const { data, error, loading, reload, setData } = useApi<Note[]>(`projects/${project.id}/notes?kind=avance`);
   const meetings = useApi<Meeting[]>(staff ? `projects/${project.id}/meetings` : null);
+  const mailInfo = useApi<MailInfo>(staff ? `projects/${project.id}/updates/mail` : null);
+  // null = lo que diga Configuración → Avisos para este cliente; al tocar el interruptor, lo que elijas para este avance.
+  const [emailChoice, setEmailChoice] = useState<boolean | null>(null);
+  const email = !!mailInfo.data?.canSend && (emailChoice ?? mailInfo.data.defaultOn);
   const [text, setText] = useState('');
   const [aiDraft, setAiDraft] = useState(false);
   const [internal, setInternal] = useState(false);
@@ -263,19 +364,21 @@ export function UpdatesPanel({
   const publish = () => {
     if (!text.trim()) return;
     run(async () => {
-      const { email, ...note } = await api<Note & { email?: 'sent' | 'off' | 'error' }>('POST', `projects/${project.id}/notes`, {
+      const { email: mailed, ...note } = await api<Note & { email?: 'sent' | 'off' | 'error' }>('POST', `projects/${project.id}/notes`, {
         body: text,
         kind: 'avance',
         visibility: internal ? 'internal' : 'shared',
         ai: aiDraft,
+        email: !internal && email,
       });
       setData([note, ...(data ?? [])]);
       setText('');
       setAiDraft(false);
+      setEmailChoice(null);
       if (internal) toast('Avance guardado (solo equipo).');
-      else if (email === 'sent') toast('Avance publicado: el cliente lo ve en el portal y le llegó a su correo.');
-      else if (email === 'error') toast('Avance publicado en el portal, pero no se pudo enviar el correo. Usa «Enviar por correo» para reintentar.', true);
-      else toast('Avance publicado en el portal. Los avances por correo están apagados: usa «Enviar por correo» si quieres mandarlo.');
+      else if (mailed === 'sent') toast('Avance publicado: el cliente lo ve en el portal y le llegó a su correo.');
+      else if (mailed === 'error') toast('Avance publicado en el portal, pero no se pudo enviar el correo. Usa «Enviar por correo» para reintentar.', true);
+      else toast('Avance publicado solo en el portal. Si luego quieres, usa «Enviar por correo».');
     });
   };
 
@@ -329,6 +432,18 @@ export function UpdatesPanel({
               <span className="update__who">
                 <span className="hint">{internal ? 'Solo lo verá tu equipo.' : 'El cliente verá este avance.'}</span>
                 <Visibility internal={internal} onChange={setInternal} />
+                {!internal && mailInfo.data && (
+                  <label className="auto-switch auto-switch--left update__mail" title={mailInfo.data.reason ?? `Se envía a ${mailInfo.data.to}`}>
+                    <span className="switch">
+                      <input type="checkbox" role="switch" checked={email} disabled={!mailInfo.data.canSend} onChange={(e) => setEmailChoice(e.target.checked)} />
+                      <span className="switch__track" aria-hidden="true" />
+                    </span>
+                    <span>
+                      Enviar también por correo
+                      <small>{mailInfo.data.canSend ? (email ? `A ${mailInfo.data.to}` : 'Solo quedará en el portal') : mailInfo.data.reason}</small>
+                    </span>
+                  </label>
+                )}
                 {aiDraft && <span className="tag tag--ai">Borrador de la IA</span>}
               </span>
               <span className="actions actions--tight">
@@ -374,7 +489,7 @@ export function UpdatesPanel({
         <Empty>{staff ? 'Aún no hay avances. Genera el primero con IA o escríbelo arriba.' : 'Aquí verás los avances que publique DeerSystems.'}</Empty>
       )}
 
-      {preview && <PreviewDialog body={text} internal={internal} onClose={() => setPreview(false)} />}
+      {preview && <PreviewDialog projectId={project.id} body={text} internal={internal} email={email} onClose={() => setPreview(false)} />}
     </div>
   );
 }

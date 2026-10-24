@@ -328,6 +328,8 @@ export interface CalendarEvent {
   hangoutLink?: string;
   start?: { dateTime?: string; date?: string };
   end?: { dateTime?: string; date?: string };
+  /** "transparent" = marcado como disponible: no ocupa el horario. */
+  transparency?: string;
   attendees?: { email?: string; displayName?: string; responseStatus?: string; self?: boolean; organizer?: boolean }[];
   conferenceData?: { conferenceId?: string; conferenceSolution?: { key?: { type?: string } } };
   extendedProperties?: { private?: Record<string, string> };
