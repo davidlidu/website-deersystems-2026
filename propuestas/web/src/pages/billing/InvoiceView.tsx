@@ -362,7 +362,7 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
 
       {sending && (
         <SendDialog
-          initial={[inv.client.email].filter(Boolean).join(', ')}
+          initial={(inv.client.invoiceEmails ?? [inv.client.email]).filter(Boolean).join(', ')}
           me={me.email}
           busy={busy}
           onSend={send}

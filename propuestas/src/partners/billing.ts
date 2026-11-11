@@ -398,6 +398,8 @@ export function invoiceDetail(r: InvoiceRow) {
       address: client.address,
       phone: client.phone,
       email: client.email,
+      /** A quién se propone enviarla: cuenta o contacto, más los correos adicionales que reciben cuentas de cobro. */
+      invoiceEmails: db.invoiceEmails(client.id),
     },
     receipts: (sqlite.prepare('SELECT * FROM receipts WHERE invoice_id = ? ORDER BY date').all(r.id) as unknown as ReceiptRow[]).map(receiptView),
   };
@@ -922,10 +924,9 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       if (current.status === 'anulada') throw new HttpError(409, 'La cuenta de cobro está anulada.');
       const body = await readJson(req, 40 * 1024 * 1024);
       const client = db.getClient(current.client_id)!;
-      const account = db.getClientAccount(client.id);
-      // Uno o varios correos (separados por coma, punto y coma o espacio).
+      // Uno o varios correos (separados por coma, punto y coma o espacio). Sin ninguno: los de cuentas de cobro del cliente.
       const list = [...new Set(String(body.to ?? '').toLowerCase().split(/[\s,;]+/).filter(Boolean))];
-      if (!list.length) list.push(...[account?.email || client.email || ''].filter(Boolean));
+      if (!list.length) list.push(...db.invoiceEmails(client.id));
       if (!list.length) throw new HttpError(400, 'El cliente no tiene correo: escríbelo para enviarle la cuenta de cobro.');
       const bad = list.find((e) => !EMAIL_RE.test(e));
       if (bad) throw new HttpError(400, `«${bad}» no es un correo válido.`);
@@ -970,7 +971,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
         dueDate: current.due_date ? longDate(current.due_date) : null,
         projectName: current.project_id ? (db.getProject(current.project_id)?.name ?? null) : null,
         bankInfo: profile.bankInfo,
-        portal: !!account?.active,
+        portal: !!db.getClientAccount(client.id)?.active,
         payUrl: payUrl(current),
         qr: !!qr,
         links,

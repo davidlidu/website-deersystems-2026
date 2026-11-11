@@ -19,8 +19,55 @@ interface ClientDetail {
   city: string;
   address: string;
   sb_id: string | null;
+  extraEmails: ExtraEmail[];
   account: { email: string; active: boolean; lastLoginAt: string | null } | null;
   projects: ProjectSummary[];
+}
+
+interface ExtraEmail {
+  email: string;
+  label: string;
+  /** Si recibe las cuentas de cobro. */
+  invoices: boolean;
+}
+
+/** Otros correos del cliente (facturación, contabilidad, gerencia…), cada uno con su etiqueta. */
+function ExtraEmails({ list, onChange }: { list: ExtraEmail[]; onChange: (list: ExtraEmail[]) => void }) {
+  const edit = (i: number, p: Partial<ExtraEmail>) => onChange(list.map((e, j) => (j === i ? { ...e, ...p } : e)));
+  return (
+    <div className="field field--wide">
+      <span className="field__label">Otros correos</span>
+      {list.length > 0 && (
+        <div className="extra-emails">
+          {list.map((e, i) => (
+            <div key={i} className="extra-emails__row">
+              <span className="input">
+                <input value={e.label} onChange={(ev) => edit(i, { label: ev.target.value })} placeholder="Para qué (p. ej. Facturación)" aria-label="Etiqueta del correo" maxLength={60} />
+              </span>
+              <span className="input">
+                <input type="email" value={e.email} onChange={(ev) => edit(i, { email: ev.target.value })} placeholder="correo@empresa.com" aria-label="Correo" />
+              </span>
+              <label className="auto-switch auto-switch--left extra-emails__invoices">
+                <span className="switch">
+                  <input type="checkbox" role="switch" checked={e.invoices} onChange={(ev) => edit(i, { invoices: ev.target.checked })} />
+                  <span className="switch__track" aria-hidden="true" />
+                </span>
+                <span>Recibe cuentas de cobro</span>
+              </label>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => onChange(list.filter((_, j) => j !== i))} aria-label={`Quitar ${e.email || 'correo'}`}>
+                Quitar
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {list.length < 10 && (
+        <button type="button" className="btn btn--outline btn--sm extra-emails__add" onClick={() => onChange([...list, { email: '', label: list.length ? '' : 'Facturación', invoices: true }])}>
+          + Agregar correo
+        </button>
+      )}
+    </div>
+  );
 }
 
 /** Datos que salen en la cuenta de cobro, editables por el administrador. */
@@ -34,6 +81,7 @@ function BillingData({ c, onSaved }: { c: ClientDetail; onSaved: () => void }) {
     address: c.address,
     phone: c.phone,
     email: c.email ?? '',
+    extraEmails: c.extraEmails ?? [],
   });
   const { busy, run } = useAction();
   const toast = useToast();
@@ -79,6 +127,7 @@ function BillingData({ c, onSaved }: { c: ClientDetail; onSaved: () => void }) {
             </span>
           </label>
         ))}
+        <ExtraEmails list={f.extraEmails} onChange={(extraEmails) => set({ extraEmails })} />
       </div>
       <button
         className="btn btn--primary btn--sm"
@@ -86,6 +135,7 @@ function BillingData({ c, onSaved }: { c: ClientDetail; onSaved: () => void }) {
         onClick={() =>
           run(async () => {
             await api('PATCH', `clients/${c.id}`, f);
+            set({ extraEmails: f.extraEmails.filter((e) => e.email.trim()) });
             toast('Datos guardados.');
             onSaved();
           })

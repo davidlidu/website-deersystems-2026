@@ -292,6 +292,7 @@ function clientContacts(clientId: number | null): { email: string; name: string;
   };
   add(db.getClientAccount(clientId)?.email, client?.contact_name || client?.name || '', 'Cuenta principal');
   add(client?.email, client?.contact_name || client?.name || '', 'Correo de contacto');
+  for (const e of db.extraEmails(client)) add(e.email, '', e.label || 'Otro correo');
   return out;
 }
 

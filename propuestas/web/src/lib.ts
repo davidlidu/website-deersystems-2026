@@ -483,6 +483,8 @@ export interface BillingClient {
   address: string;
   phone: string;
   email: string | null;
+  /** A quién se propone enviar la cuenta de cobro (contacto más los correos adicionales que la reciben). */
+  invoiceEmails?: string[];
 }
 
 /** Entrada unida del Gestor: varios abonos del mismo cliente en un solo ingreso. */

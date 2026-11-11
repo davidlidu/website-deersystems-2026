@@ -498,6 +498,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       const account = db.getClientAccount(id);
       return json(res, 200, {
         ...client,
+        extraEmails: db.extraEmails(client),
         account: account ? { email: account.email, active: !!account.active, lastLoginAt: account.last_login_at } : null,
         projects: db.listProjects(id).map((p) => projectSummary(p, v)),
       });
@@ -520,11 +521,24 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         const other = email ? db.getClientByEmail(email) : undefined;
         if (other && other.id !== id) throw new HttpError(409, `Ese correo ya es de ${other.name}.`);
       }
+      // Otros correos (facturación, contabilidad…): solo el administrador.
+      let extra: db.ExtraEmail[] | undefined;
+      if (v.kind === 'owner' && Array.isArray(body.extraEmails)) {
+        extra = [];
+        for (const e of body.extraEmails.slice(0, 10) as Record<string, unknown>[]) {
+          const address = str(e?.email, 200).toLowerCase();
+          if (!address) continue;
+          if (!EMAIL_RE.test(address)) throw new HttpError(400, `«${address}» no es un correo válido.`);
+          if (address === (email === undefined ? db.getClient(id)?.email : email) || extra.some((x) => x.email === address)) continue;
+          extra.push({ email: address, label: str(e?.label, 60), invoices: e?.invoices !== false });
+        }
+      }
       db.updateClient(id, {
         name: str(body.name, 160) || undefined,
         contact_name: text('contactName', 160),
         phone: text('phone', 60),
         email,
+        extra_emails: extra,
         ...billingFields,
       });
       const account = db.getClientAccount(id);

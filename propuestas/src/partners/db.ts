@@ -29,6 +29,8 @@ export interface Client {
   address: string;
   /** Id del cliente en SmartBilling, si vino de allá (la importación es idempotente). */
   sb_id: string | null;
+  /** Otros correos del cliente (facturación, contabilidad…), en JSON: [{email, label, invoices}]. */
+  extra_emails: string;
 }
 
 export interface Account {
@@ -328,11 +330,36 @@ export function updateClient(
     city?: string;
     address?: string;
     sb_id?: string | null;
+    extra_emails?: ExtraEmail[];
   },
 ): void {
   for (const [col, value] of Object.entries(fields)) {
-    if (value !== undefined) db.prepare(`UPDATE clients SET ${col} = ? WHERE id = ?`).run(value, id);
+    if (value !== undefined) db.prepare(`UPDATE clients SET ${col} = ? WHERE id = ?`).run(Array.isArray(value) ? JSON.stringify(value) : value, id);
   }
+}
+
+/** Correo adicional del cliente. `invoices`: si recibe las cuentas de cobro. */
+export interface ExtraEmail {
+  email: string;
+  label: string;
+  invoices: boolean;
+}
+
+export function extraEmails(client: Pick<Client, 'extra_emails'> | undefined): ExtraEmail[] {
+  try {
+    const list = JSON.parse(client?.extra_emails || '[]');
+    return Array.isArray(list) ? list.filter((e) => typeof e?.email === 'string' && e.email) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A quién van las cuentas de cobro: la cuenta del portal o el correo de contacto, más los adicionales marcados. */
+export function invoiceEmails(clientId: number): string[] {
+  const client = getClient(clientId);
+  if (!client) return [];
+  const main = getClientAccount(clientId)?.email || client.email;
+  return [...new Set([main, ...extraEmails(client).filter((e) => e.invoices).map((e) => e.email)].filter((e): e is string => !!e).map((e) => e.toLowerCase()))];
 }
 
 // ───────── Proyectos, fases y tareas ─────────
@@ -733,6 +760,7 @@ addColumn('clients', 'doc_number', "TEXT NOT NULL DEFAULT ''");
 addColumn('clients', 'city', "TEXT NOT NULL DEFAULT ''");
 addColumn('clients', 'address', "TEXT NOT NULL DEFAULT ''");
 addColumn('clients', 'sb_id', 'TEXT');
+addColumn('clients', 'extra_emails', "TEXT NOT NULL DEFAULT '[]'");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS clients_sb_id ON clients(sb_id) WHERE sb_id IS NOT NULL");
 addColumn('projects', 'drive_folder_id', 'TEXT');
 

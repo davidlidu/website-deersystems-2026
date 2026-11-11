@@ -6041,3 +6041,38 @@ button.table__row {
 .joint-fields__desc {
   grid-column: 1 / -1;
 }
+
+/* Otros correos del cliente (facturación, contabilidad…) */
+.extra-emails {
+  display: grid;
+  gap: 10px;
+}
+
+.extra-emails__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.extra-emails__invoices {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.extra-emails__add {
+  justify-self: start;
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .extra-emails__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .extra-emails__row > .input {
+    grid-column: 1 / -1;
+  }
+}

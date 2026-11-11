@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   addDays,
   api,
+  formatDate,
   formatMoney,
   formatTrm,
   hasText,
@@ -12,7 +13,9 @@ import {
   type BillingProfile,
   type Currency,
   type InvoiceDetail,
+  money,
   type Payment,
+  type ProjectDetail,
   type ProjectSummary,
 } from '../../lib';
 import { ErrorBox, Link, Loading, MoneyInput, PageHead, useAction, useToast } from '../../ui';
@@ -37,6 +40,35 @@ interface Item {
 const key = () => Math.random().toString(36).slice(2);
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const emptyItem = (): Item => ({ key: key(), description: '', quantity: '1', unit: 'UND', unitPrice: '' });
+/**
+ * Detalle del proyecto para la descripción del ítem: qué se cobra (cuota y su peso en el total),
+ * la opción aprobada, el periodo, el avance y en qué va cada fase. Queda editable en el formulario.
+ */
+function projectDescription(proj: ProjectDetail, payments: Payment[], cuota?: Payment): string {
+  const out = [`<p><strong>Proyecto: ${esc(proj.name)}</strong></p>`];
+  if (proj.approvedOption) out.push(`<p>${esc(proj.approvedOption)}</p>`);
+  if (cuota) {
+    const same = payments.filter((x) => x.currency === cuota.currency);
+    const n = same.findIndex((x) => x.id === cuota.id) + 1;
+    const total = same.reduce((t, x) => t + x.amount, 0);
+    const of = same.length > 1 ? ` · cuota ${n} de ${same.length}` : '';
+    const weight = cuota.percent ? ` (${cuota.percent}% del valor total del proyecto: ${money(total, cuota.currency)})` : same.length > 1 ? ` (valor total del proyecto: ${money(total, cuota.currency)})` : '';
+    out.push(`<p><strong>${esc(cuota.label)}</strong>${of}${weight}</p>`);
+  }
+  if (proj.startDate || proj.endDate) out.push(`<p>Periodo: ${formatDate(proj.startDate)} – ${formatDate(proj.endDate)}</p>`);
+  if (proj.progress.total) out.push(`<p>Avance del proyecto: ${proj.progress.percent}% (${proj.progress.done} de ${proj.progress.total} actividades completadas)</p>`);
+  const phases = proj.phases
+    .map((ph) => {
+      const tasks = proj.tasks.filter((t) => t.phaseId === ph.id);
+      const done = tasks.filter((t) => t.status === 'completada').length;
+      const state = !tasks.length ? '' : done === tasks.length ? 'completada' : done || tasks.some((t) => t.status !== 'pendiente') ? 'en curso' : 'pendiente';
+      return `<li>${esc(ph.name)}${state ? ` — ${state}` : ''}</li>`;
+    })
+    .join('');
+  if (phases) out.push(`<p>Fases:</p><ul>${phases}</ul>`);
+  return out.join('');
+}
+
 const UNITS = ['UND', 'Servicio', 'Hora', 'Mes', 'Proyecto', 'Licencia'];
 
 /** Cliente nuevo solo de facturación (sin acceso al portal), desde el mismo formulario. */
@@ -132,22 +164,22 @@ export function InvoiceFormPage({ id }: { id?: number }) {
     const p = profile.data;
     setF((x) => ({ ...x, number: nextNumber.data!.number, notes: p.defaultNotes, dueDate: p.defaultDueDays ? addDays(x.date, p.defaultDueDays) : '' }));
     const projectQ = Number(query.get('proyecto'));
-    if (paymentId && projectQ) {
-      api<{ payments: Payment[] }>('GET', `projects/${projectQ}/payments`)
-        .then(async ({ payments }) => {
-          const cuota = payments.find((x) => x.id === paymentId);
-          if (!cuota) return;
-          const proj = await api<{ name: string }>('GET', `projects/${projectQ}`);
+    if (projectQ) {
+      // Desde un proyecto: el ítem llega con el detalle del proyecto (y, si es una cuota, con su monto).
+      Promise.all([api<ProjectDetail>('GET', `projects/${projectQ}`), api<{ payments: Payment[] }>('GET', `projects/${projectQ}/payments`)])
+        .then(([proj, { payments }]) => {
+          const cuota = paymentId ? payments.find((x) => x.id === paymentId) : undefined;
+          if (paymentId && !cuota) return;
           setItems([
             {
               key: key(),
-              description: `<p><strong>${esc(proj.name)}</strong></p><p>${esc(cuota.label)}${cuota.percent ? ` (${cuota.percent}%)` : ''}</p>`,
+              description: projectDescription(proj, payments, cuota),
               quantity: '1',
               unit: 'Servicio',
-              unitPrice: String(cuota.amount),
+              unitPrice: cuota ? String(cuota.amount) : '',
             },
           ]);
-          setF((x) => ({ ...x, currency: cuota.currency, dueDate: cuota.dueDate ?? x.dueDate }));
+          if (cuota) setF((x) => ({ ...x, currency: cuota.currency, dueDate: cuota.dueDate ?? x.dueDate }));
         })
         .catch(() => {});
     }
