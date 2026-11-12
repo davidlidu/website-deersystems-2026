@@ -34,6 +34,7 @@ import * as db from './db.ts';
 import { handleFiles } from './files.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import { handleBilling } from './billing.ts';
+import { handleScheduled } from './scheduled.ts';
 import { handleFinance } from './finance.ts';
 import { handleImport } from './import-smartbilling.ts';
 import { handleOnlinePayments, handleWompiWebhook } from './online-payments.ts';
@@ -976,6 +977,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   if (await handlePayments(route, id, req, res, v)) return;
   if (await handleFinance(route, id, req, res, v, url)) return;
   if (await handleBilling(route, id, req, res, v, url)) return;
+  if (await handleScheduled(route, id, req, res, v, url)) return;
   if (await handleImport(route, id, req, res, v)) return;
   if (await handleOnlinePayments(route, id, req, res, v)) return;
   throw new HttpError(404, 'Ruta no encontrada.');

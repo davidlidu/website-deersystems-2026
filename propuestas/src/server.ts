@@ -10,6 +10,7 @@ import { projectsForProposal, pruneNotifications } from './partners/db.ts';
 import { startShareFixer } from './partners/files.ts';
 import { startScheduler } from './partners/meetings.ts';
 import { startUpdatesScheduler } from './partners/updates.ts';
+import { startScheduledMails } from './partners/scheduled.ts';
 import { flushAll } from './partners/notify.ts';
 import { approveScript, handleApprovalPage } from './partners/approvals.ts';
 import { handlePartners } from './partners/routes.ts';
@@ -226,6 +227,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 pruneNotifications();
 startScheduler();
 startUpdatesScheduler();
+startScheduledMails();
 startShareFixer();
 
 // En cada despliegue Dokploy detiene el contenedor: antes de salir se envían los correos de avisos en cola.

@@ -3,6 +3,7 @@ import { api, formatDateTime, today, useApi, type Meeting, type TeamMember } fro
 import { Link, Loading, useAction, useToast } from '../ui';
 import { sendFile, type ProposalRow } from './Proposals';
 import { SlotStatus } from './project/Schedule';
+import { ScheduleButton, ScheduledMails } from '../Schedule';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const LABEL = { discovery: 'Discovery Call', proposal: 'Proposal Call' } as const;
@@ -348,15 +349,18 @@ export function ProposalSend({ m, onChange }: { m: Meeting; onChange: (m: Meetin
       toast('Mensaje personalizado con lo que se habló. Revísalo antes de enviar.');
     });
 
+  const [scheduled, setScheduled] = useState(0);
   const body = { proposalId, to: [...recipients], subject, message };
 
-  const send = () => {
+  const send = (sendAt?: string) => {
     if (!proposalId) return toast('Elige la propuesta.', true);
     if (!recipients.size) return toast('Elige al menos un destinatario.', true);
-    if (!confirm(`¿Enviar «${current?.title || current?.slug}» a ${[...recipients].join(', ')}?`)) return;
+    const when = sendAt ? ` el ${formatDateTime(sendAt)}` : '';
+    if (!confirm(`¿${sendAt ? 'Programar' : 'Enviar'} «${current?.title || current?.slug}» a ${[...recipients].join(', ')}${when}?`)) return;
     run(async () => {
-      onChange(await api<Meeting>('POST', `meetings/${m.id}/proposal/send`, body));
-      toast('Propuesta enviada.');
+      onChange(await api<Meeting>('POST', `meetings/${m.id}/proposal/send`, { ...body, sendAt }));
+      if (sendAt) setScheduled((n) => n + 1);
+      toast(sendAt ? `Propuesta programada para el ${formatDateTime(sendAt)}.` : 'Propuesta enviada.');
     });
   };
 
@@ -485,10 +489,12 @@ export function ProposalSend({ m, onChange }: { m: Meeting; onChange: (m: Meetin
         <button type="button" className="btn btn--outline btn--sm" disabled={busy || !proposalId} onClick={() => setPreview(true)}>
           Vista previa
         </button>
-        <button type="button" className="btn btn--primary btn--sm" disabled={busy || !proposalId || !recipients.size} onClick={send}>
+        <button type="button" className="btn btn--primary btn--sm" disabled={busy || !proposalId || !recipients.size} onClick={() => send()}>
           {busy ? 'Enviando…' : m.proposalSentAt ? 'Enviar de nuevo' : 'Enviar al cliente'}
         </button>
+        <ScheduleButton what="la propuesta" busy={busy} disabled={!proposalId || !recipients.size} onSchedule={send} />
       </div>
+      <ScheduledMails kind="proposal" refId={m.id} refresh={scheduled} onSent={() => void api<Meeting>('GET', `meetings/${m.id}`).then(onChange)} />
       {!hasContext && <p className="hint">Para personalizar el mensaje con la IA, primero importa la transcripción de la llamada (arriba).</p>}
       {preview && <PreviewDialog meetingId={m.id} body={body} onClose={() => setPreview(false)} />}
     </section>

@@ -6139,3 +6139,136 @@ button.table__row {
   color: var(--mute);
   font-size: 13px;
 }
+
+/* ───────── Envíos programados ───────── */
+
+/* Junto a cada «Enviar»: reloj en cian para que se note que el envío se puede dejar para después. */
+.btn--schedule {
+  border-color: rgba(0, 180, 216, 0.45);
+  background: rgba(0, 180, 216, 0.1);
+  color: var(--cian);
+}
+
+.btn--schedule:hover:not(:disabled) {
+  border-color: var(--cian);
+  background: rgba(0, 180, 216, 0.18);
+}
+
+.btn--schedule svg {
+  flex: none;
+}
+
+.modal--sm {
+  width: min(460px, calc(100vw - 32px));
+}
+
+.schedule__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.schedule__title svg {
+  color: var(--cian);
+}
+
+.schedule__presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.schedule__preset {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-sm);
+  background: rgba(5, 25, 35, 0.4);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.2s var(--ease);
+}
+
+.schedule__preset strong {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.schedule__preset small {
+  color: var(--mute);
+  font-size: 0.75rem;
+}
+
+.schedule__preset:hover,
+.schedule__preset.is-on {
+  border-color: var(--cian);
+}
+
+.schedule__preset.is-on {
+  background: rgba(0, 180, 216, 0.12);
+}
+
+.scheduled {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scheduled__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 180, 216, 0.35);
+  border-radius: var(--r-sm);
+  background: rgba(0, 180, 216, 0.07);
+}
+
+.scheduled__icon {
+  display: inline-flex;
+  color: var(--cian);
+}
+
+.scheduled__text {
+  display: grid;
+  flex: 1 1 220px;
+  min-width: 0;
+  gap: 2px;
+}
+
+.scheduled__text strong {
+  color: var(--ink);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.scheduled__text small {
+  color: var(--mute);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.scheduled__item--enviado {
+  border-color: rgba(126, 217, 87, 0.35);
+  background: rgba(126, 217, 87, 0.06);
+}
+
+.scheduled__item--enviado .scheduled__icon {
+  color: var(--verde);
+}
+
+.scheduled__item--error {
+  border-color: rgba(239, 71, 111, 0.45);
+  background: rgba(239, 71, 111, 0.08);
+}
+
+.scheduled__item--error .scheduled__icon,
+.scheduled__text .scheduled__error {
+  color: var(--coral);
+}

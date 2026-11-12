@@ -6,6 +6,7 @@ import { InvoiceDocument } from './InvoiceDocument';
 import { downloadPdf, pdfBase64, pdfName } from './pdf';
 import { ReceiptForm } from './ReceiptForm';
 import { pickFromDrive } from '../../picker';
+import { ScheduleButton, ScheduledMails } from '../../Schedule';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -28,7 +29,7 @@ const sizeLabel = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed
  * A quién se envía: uno o varios correos (coma, punto y coma o espacio), y una copia para ti si quieres.
  * Archivos adicionales: de Drive van como enlace (no se cargan a la app); del computador, como adjunto que no se guarda aquí.
  */
-function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; me: string; busy: boolean; onSend: (to: string, extras: SendExtras) => void; onClose: () => void }) {
+function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; me: string; busy: boolean; onSend: (to: string, extras: SendExtras, sendAt?: string) => void; onClose: () => void }) {
   const [text, setText] = useState(initial);
   const [copy, setCopy] = useState(false);
   const [driveFiles, setDriveFiles] = useState<SendExtras['driveFiles']>([]);
@@ -155,7 +156,10 @@ function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; m
           )}
         </div>
 
-        <p className="hint">Va con el PDF adjunto, tus datos de pago y el QR{' '}(y el botón de pago en línea si lo activaste).</p>
+        <p className="hint">
+          Va con el PDF adjunto, tus datos de pago y el QR{' '}(y el botón de pago en línea si lo activaste). Si la programas, sale con el PDF como está ahora; si la editas
+          después, cancela el envío y prográmala de nuevo.
+        </p>
         <div className="actions actions--tight">
           <button
             className="btn btn--primary btn--sm"
@@ -164,6 +168,12 @@ function SendDialog({ initial, me, busy, onSend, onClose }: { initial: string; m
           >
             {busy ? 'Enviando…' : `Enviar a ${list.length} ${list.length === 1 ? 'destinatario' : 'destinatarios'}`}
           </button>
+          <ScheduleButton
+            what="la cuenta de cobro"
+            busy={busy}
+            disabled={!list.length || bad.length > 0 || list.length > 10}
+            onSchedule={(sendAt) => onSend(list.join(', '), { driveFiles, files }, sendAt)}
+          />
           <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => ref.current?.close()}>
             Cancelar
           </button>
@@ -211,6 +221,7 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
   };
   const [paying, setPaying] = useState(false);
   const [sending, setSending] = useState(false);
+  const [scheduled, setScheduled] = useState(0);
   const [pdfBusy, setPdfBusy] = useState(false);
   const { busy, run } = useAction();
   const toast = useToast();
@@ -233,19 +244,26 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
     }
   };
 
-  const send = (to: string, extras: SendExtras) =>
+  const send = (to: string, extras: SendExtras, sendAt?: string) =>
     run(async () => {
       const pdf = await fullSize(() => pdfBase64(doc.current!));
-      const r = await api<InvoiceDetail & { sentTo: string }>('POST', `invoices/${inv.id}/send`, {
+      const r = await api<InvoiceDetail & { sentTo: string; scheduledAt?: string }>('POST', `invoices/${inv.id}/send`, {
         to,
         pdf,
         driveFiles: extras.driveFiles.map((f) => f.id),
         files: extras.files.map((f) => ({ name: f.name, data: f.data })),
+        sendAt,
       });
       setSending(false);
       const n = extras.driveFiles.length + extras.files.length;
-      toast(`Enviada a ${r.sentTo}${n ? ` con ${n} ${n === 1 ? 'archivo adicional' : 'archivos adicionales'}` : ''}.`);
-      await reload();
+      const files = n ? ` con ${n} ${n === 1 ? 'archivo adicional' : 'archivos adicionales'}` : '';
+      if (r.scheduledAt) {
+        setScheduled((x) => x + 1);
+        toast(`Programada para el ${formatDateTime(r.scheduledAt)} a ${r.sentTo}${files}.`);
+      } else {
+        toast(`Enviada a ${r.sentTo}${files}.`);
+        await reload();
+      }
     });
 
   const toggleOnline = (enabled: boolean) => {
@@ -334,6 +352,8 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
           )}
         </div>
       </div>
+
+      {owner && <ScheduledMails kind="invoice" refId={inv.id} refresh={scheduled} onSent={() => void reload()} />}
 
       {owner && onlineReady && !voided && !inv.paid && (
         <div className="online-pay">

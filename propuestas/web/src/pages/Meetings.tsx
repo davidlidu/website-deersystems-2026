@@ -19,6 +19,7 @@ import { Empty, ErrorBox, Link, Loading, Markdown, PageHead, useAction, useToast
 import { ClientsTabs } from './Home';
 import { pickFromDrive } from '../picker';
 import { ProposalSend, SalesCallForm } from './SalesCall';
+import { ScheduleButton, ScheduledMails } from '../Schedule';
 import { EditMeeting, ScheduleMeeting } from './project/Schedule';
 
 interface SyncState {
@@ -321,7 +322,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
   const [paste, setPaste] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState(false);
-  const [result, setResult] = useState<{ tasks: number; mail: { sent: string[]; failed: string[]; error: string | null } } | null>(null);
+  const [result, setResult] = useState<{ tasks: number; mail: { sent: string[]; failed: string[]; error: string | null; scheduledAt?: string | null } } | null>(null);
 
   // Al llegar (o regenerarse) el borrador, se copia al formulario editable.
   useEffect(() => {
@@ -386,14 +387,16 @@ export function MeetingReviewPage({ id }: { id: number }) {
     run(async () => setData(await api<Meeting>('POST', `meetings/${m.id}/discard`)));
   };
 
-  const approve = () => {
+  const approve = (sendAt?: string) => {
     if (!m.projectId) return toast('Elige el proyecto de la reunión.', true);
     if (!summary.trim()) return toast('El resumen está vacío.', true);
     const to = [...recipients];
+    if (sendAt && !to.length) return toast('Marca al menos un destinatario para programar el correo.', true);
     const chosen = tasks.filter((t) => t.include && t.title.trim());
-    if (!confirm(`Se crearán ${chosen.length} tareas en «${m.projectName}»${to.length ? ` y se enviará el resumen a ${to.join(', ')}` : ''}. ¿Continuar?`)) return;
+    const mailPart = !to.length ? '' : sendAt ? ` y el resumen saldrá a ${to.join(', ')} el ${formatDateTime(sendAt)}` : ` y se enviará el resumen a ${to.join(', ')}`;
+    if (!confirm(`Se crearán ${chosen.length} tareas en «${m.projectName}»${mailPart}. ¿Continuar?`)) return;
     run(async () => {
-      const r = await api<{ meeting: Meeting; tasks: number; mail: { sent: string[]; failed: string[]; error: string | null } }>(
+      const r = await api<{ meeting: Meeting; tasks: number; mail: { sent: string[]; failed: string[]; error: string | null; scheduledAt: string | null } }>(
         'POST',
         `meetings/${m.id}/approve`,
         {
@@ -402,6 +405,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
           agreements: agreements.filter((a) => a.trim()),
           tasks: chosen.map((t) => ({ ...t, dueDate: t.dueDate || null })),
           recipients: to,
+          sendAt,
         },
       );
       setData({ ...r.meeting, transcript: m.transcript });
@@ -500,7 +504,11 @@ export function MeetingReviewPage({ id }: { id: number }) {
         <div className="stack">
           <p className="callout">
             Listo: se crearon {result.tasks} tareas.{' '}
-            {result.mail.sent.length ? `Resumen enviado a ${result.mail.sent.join(', ')}.` : 'No se envió correo.'}
+            {result.mail.scheduledAt
+              ? `El resumen saldrá el ${formatDateTime(result.mail.scheduledAt)}.`
+              : result.mail.sent.length
+                ? `Resumen enviado a ${result.mail.sent.join(', ')}.`
+                : 'No se envió correo.'}
           </p>
           {result.mail.error && <p className="alert">Correo: {result.mail.error}</p>}
         </div>
@@ -526,6 +534,8 @@ export function MeetingReviewPage({ id }: { id: number }) {
             </div>
           </>
         ))}
+
+      {m.status === 'aprobada' && <ScheduledMails kind="summary" refId={m.id} refresh={result ? 1 : 0} />}
 
       {m.status === 'aprobada' && (
         <section className="section section--flush">
@@ -766,9 +776,10 @@ export function MeetingReviewPage({ id }: { id: number }) {
             </form>
             <p className="hint">{recipients.size ? `Se enviará a ${recipients.size} ${recipients.size === 1 ? 'persona' : 'personas'}.` : 'Nadie marcado: se aprueba sin enviar correo.'}</p>
             <div className="actions actions--tight">
-              <button className="btn btn--primary" disabled={busy} onClick={approve}>
+              <button className="btn btn--primary" disabled={busy} onClick={() => approve()}>
                 {busy ? 'Enviando…' : 'Aprobar y enviar'}
               </button>
+              <ScheduleButton what="el resumen" small={false} busy={busy} disabled={!recipients.size} onSchedule={approve} />
               <button className="btn btn--outline" disabled={busy} onClick={() => generate(false)}>
                 Regenerar con IA
               </button>
@@ -776,7 +787,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
                 Descartar
               </button>
             </div>
-            <p className="hint">Al aprobar, las tareas entran al proyecto y a la bitácora, y el cliente ve el resumen en la pestaña Reuniones.</p>
+            <p className="hint">Con «Programar» las tareas entran ya y el resumen sale a la hora que elijas. Al aprobar, las tareas entran al proyecto y a la bitácora, y el cliente ve el resumen en la pestaña Reuniones.</p>
           </section>
         </div>
       )}

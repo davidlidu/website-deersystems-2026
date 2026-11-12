@@ -7,6 +7,7 @@ import { invoiceForClient } from '../mail.ts';
 import type { Viewer } from './auth.ts';
 import { EMAIL_RE, optDate, requireOwner, str } from './common.ts';
 import * as db from './db.ts';
+import { onScheduled, readSendAt, scheduleMail } from './scheduled.ts';
 import { deleteIncome, FinanceError, paymentMethodFor, todayBogota, trmFor, upsertIncome } from './finance.ts';
 
 /**
@@ -380,6 +381,15 @@ export function payUrl(r: InvoiceRow): string | null {
   const row = r as InvoiceRow & { online_link_url?: string | null };
   return row.online_link_url && db.getSetting<{ enabled?: boolean }>('online_payments')?.enabled && r.status !== 'anulada' ? row.online_link_url : null;
 }
+
+// Cuenta de cobro programada: no sale si la anulaste o la borraste; al salir queda como enviada.
+onScheduled('invoice', {
+  check: (id) => {
+    const r = getInvoice(id);
+    return !r ? 'La cuenta de cobro ya no existe.' : r.status === 'anulada' ? 'La cuenta de cobro está anulada.' : null;
+  },
+  sent: (id) => void sqlite.prepare('UPDATE invoices SET sent_at = ? WHERE id = ?').run(now(), id),
+});
 
 export function invoiceDetail(r: InvoiceRow) {
   const client = db.getClient(r.client_id)!;
@@ -934,7 +944,8 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       const to = list.join(', ');
       const pdf = typeof body.pdf === 'string' ? Buffer.from(body.pdf.replace(/^data:application\/pdf;base64,/, ''), 'base64') : null;
       if (!pdf || pdf.subarray(0, 4).toString() !== '%PDF') throw new HttpError(400, 'Falta el PDF de la cuenta de cobro.');
-      if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
+      const sendAt = readSendAt(body.sendAt);
+      if (!sendAt && !google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
       const longDate = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' });
       const cop = (n: number) => `$ ${n.toLocaleString('es-CO', { maximumFractionDigits: 0 })}`;
       // Archivos adicionales: de Drive van como enlace (se comparten "con el enlace", solo lectura); del computador, adjuntos sin guardarse aquí.
@@ -978,15 +989,22 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
         extraFiles: extra.map((f) => f.name),
       });
       const safe = (t: string) => t.replace(/[\\/:*?"<>|]+/g, '-').slice(0, 80);
+      const full = {
+        ...mail,
+        attachments: [
+          { name: `Cuenta de Cobro-${safe(current.number)} ${safe(client.name)}.pdf`, mime: 'application/pdf', data: pdf },
+          ...(qr ? [{ name: `qr-pago.${qr[1].split('/')[1]}`, mime: qr[1], data: Buffer.from(qr[2], 'base64'), cid: 'qr-pago' }] : []),
+          ...extra,
+        ],
+      };
+      if (sendAt) {
+        // Programada: sale con el PDF de hoy a la hora elegida (si para entonces no está anulada).
+        const s = scheduleMail({ kind: 'invoice', refId: current.id, sendAt, mail: full, label: `cuenta de cobro ${current.number}`, path: `/cuentas-de-cobro/${current.id}` });
+        json(res, 200, { ...invoiceDetail(current), sentTo: to, scheduledAt: s.sendAt });
+        return true;
+      }
       try {
-        await google.sendMail({
-          ...mail,
-          attachments: [
-            { name: `Cuenta de Cobro-${safe(current.number)} ${safe(client.name)}.pdf`, mime: 'application/pdf', data: pdf },
-            ...(qr ? [{ name: `qr-pago.${qr[1].split('/')[1]}`, mime: qr[1], data: Buffer.from(qr[2], 'base64'), cid: 'qr-pago' }] : []),
-            ...extra,
-          ],
-        });
+        await google.sendMail(full);
       } catch (err) {
         if (err instanceof google.GoogleError) throw new HttpError(502, err.message);
         throw err;

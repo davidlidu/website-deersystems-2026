@@ -21,6 +21,7 @@ export const EVENTS = {
   meeting_draft: { audience: 'owner', label: 'Hay un resumen de reunión listo para revisar', app: true, email: true },
   meeting_summary: { audience: 'client', label: 'Se aprueba el resumen de una reunión (además del correo con el resumen)', app: true, email: false },
   online_payment: { audience: 'owner', label: 'Llega un pago en línea (Wompi)', app: true, email: true },
+  scheduled_mail: { audience: 'owner', label: 'Sale (o falla) un correo que programaste', app: true, email: false },
   proposal_approved: { audience: 'owner', label: 'Un cliente aprueba una propuesta desde el enlace (y el plan con IA queda listo)', app: true, email: true },
 } as const;
 

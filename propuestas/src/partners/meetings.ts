@@ -12,6 +12,7 @@ import { actor, optDate, requireOwner, str, visibleProject } from './common.ts';
 import { assertFree, checkSlots } from './availability.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
+import { onScheduled, readSendAt, scheduleMail } from './scheduled.ts';
 
 /**
  * Reuniones con clientes: se leen de Google Calendar (eventos donde participa el correo de un cliente),
@@ -149,6 +150,18 @@ function update(id: number, fields: Partial<Omit<Row, 'id' | 'created_at' | 'pla
   }
   if (['title', 'start_at', 'phase_id', 'project_id', 'status'].some((k) => k in fields)) syncPlanTask(id, 'phase_id' in fields);
 }
+
+// Propuesta programada: a la hora de enviar el enlace debe seguir activo; al salir, la reunión queda con «enviada».
+onScheduled<{ proposalId: number; to: string[] }>('proposal', {
+  check: (_meetingId, meta) => {
+    const p = getProposal(meta.proposalId);
+    if (!p) return 'La propuesta ya no existe.';
+    return p.active ? null : 'El enlace de la propuesta está pausado: actívalo en Propuestas y reintenta.';
+  },
+  sent: (meetingId, meta) => {
+    if (get(meetingId)) update(meetingId, { proposal_id: meta.proposalId, proposal_sent_at: now(), proposal_sent_to: JSON.stringify(meta.to) });
+  },
+});
 
 /**
  * La reunión en el cronograma: una tarea tipo reunión en su fase y con su fecha. Se crea al asignarle una fase y
@@ -925,6 +938,22 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       if (!proposal.active) throw new HttpError(409, 'El enlace de esa propuesta está pausado: actívalo en Propuestas antes de enviarla.');
       if (!to.length) throw new HttpError(400, 'Elige al menos un destinatario.');
       if (to.length > 10) throw new HttpError(400, 'Máximo 10 destinatarios.');
+      const sendAt = readSendAt(body.sendAt);
+      if (sendAt) {
+        // Programado: se guarda el correo tal cual y sale a esa hora (si el enlace sigue activo).
+        update(m.id, { proposal_id: proposal.id });
+        scheduleMail({
+          kind: 'proposal',
+          refId: m.id,
+          sendAt,
+          mail,
+          meta: { proposalId: proposal.id, to },
+          label: `propuesta «${proposal.title || proposal.slug}»`,
+          path: `/reuniones/${m.id}`,
+        });
+        json(res, 200, view(get(m.id)!, v));
+        return true;
+      }
       if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
       try {
         await google.sendMail(mail);
@@ -1238,6 +1267,7 @@ ${context}
       const recipients = [...new Set((Array.isArray(body.recipients) ? body.recipients : []).map((e) => str(e, 200).toLowerCase()))].filter((e) =>
         /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e),
       );
+      const sendAt = readSendAt(body.sendAt);
 
       const created = db.transaction(() =>
         tasks.map((t) =>
@@ -1291,8 +1321,14 @@ ${context}
       }
 
       // El resumen sale de inmediato (no espera el agrupado de avisos): es un entregable para el cliente.
-      const mail = { sent: [] as string[], failed: [] as string[], error: null as string | null };
-      if (recipients.length) {
+      // O a la hora que elegiste: se guarda un correo por destinatario y salen solos.
+      const mail = { sent: [] as string[], failed: [] as string[], error: null as string | null, scheduledAt: null as string | null };
+      if (recipients.length && sendAt) {
+        for (const to of recipients) {
+          scheduleMail({ kind: 'summary', refId: m.id, sendAt, mail: summaryMail(m, project, to, content), label: `resumen de «${m.title}»`, path: `/reuniones/${m.id}` });
+        }
+        mail.scheduledAt = sendAt;
+      } else if (recipients.length) {
         if (!google.connectionStatus().connected) mail.error = 'Google no está conectado: el correo no se envió.';
         else {
           for (const to of recipients) {
