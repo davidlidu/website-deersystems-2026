@@ -1,3 +1,5 @@
+import { loadChunk } from '../../lib';
+
 /**
  * PDF de la cuenta de cobro, generado en el navegador (html2canvas + jsPDF, A4). Las librerías se cargan solo al usarlas.
  *
@@ -11,7 +13,7 @@ const PAGE_H = 297;
 const TOP_MARGIN = 12; // mm, en las páginas 2 en adelante
 
 async function render(el: HTMLElement) {
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas-pro'), import('jspdf')]);
+  const [{ default: html2canvas }, { jsPDF }] = await loadChunk(() => Promise.all([import('html2canvas-pro'), import('jspdf')]));
   const canvas = await html2canvas(el, { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' });
   const pxPerMm = canvas.width / PAGE_W;
   const ratio = canvas.height / el.offsetHeight; // de px del DOM a px del lienzo

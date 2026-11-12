@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   api,
   formatDate,
+  loadChunk,
   navigate,
   PROJECT_STATUS,
   seesMoney,
@@ -105,7 +106,7 @@ function PlanPdfButton({ project, tasks }: { project: ProjectDetail; tasks: Task
       }
       onClick={() =>
         run(async () => {
-          const { downloadPlanPdf } = await import('./project/ganttPdf');
+          const { downloadPlanPdf } = await loadChunk(() => import('./project/ganttPdf'));
           await downloadPlanPdf(project, tasks, { filtered: tasks.length < project.tasks.length });
         })
       }

@@ -1,23 +1,41 @@
-import { lazy, StrictMode, Suspense, useEffect, useState } from 'react';
+import { Component, lazy, StrictMode, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Bell } from './Bell';
 import { Tour, tourPostponed } from './Tour';
-import { api, match, navigate, useLocation, type Me } from './lib';
+import { api, loadChunk, match, navigate, useLocation, type Me } from './lib';
 import { HomePage } from './pages/Home';
 import { ForgotPage, LoginPage, ResetPage } from './pages/Login';
 
 // Carga diferida: cada pantalla se descarga solo cuando se abre (la app inicial pesa mucho menos).
-const AccountPage = lazy(() => import('./pages/Account').then((m) => ({ default: m.AccountPage })));
-const ApprovePage = lazy(() => import('./pages/Approve').then((m) => ({ default: m.ApprovePage })));
-const BillingPage = lazy(() => import('./pages/billing/Billing').then((m) => ({ default: m.BillingPage })));
-const InvoiceFormPage = lazy(() => import('./pages/billing/InvoiceForm').then((m) => ({ default: m.InvoiceFormPage })));
-const InvoiceViewPage = lazy(() => import('./pages/billing/InvoiceView').then((m) => ({ default: m.InvoiceViewPage })));
-const ClientPage = lazy(() => import('./pages/Client').then((m) => ({ default: m.ClientPage })));
-const ProjectPage = lazy(() => import('./pages/Project').then((m) => ({ default: m.ProjectPage })));
-const MeetingsPage = lazy(() => import('./pages/Meetings').then((m) => ({ default: m.MeetingsPage })));
-const MeetingReviewPage = lazy(() => import('./pages/Meetings').then((m) => ({ default: m.MeetingReviewPage })));
-const ProposalsPage = lazy(() => import('./pages/Proposals').then((m) => ({ default: m.ProposalsPage })));
-const SettingsPage = lazy(() => import('./pages/Settings').then((m) => ({ default: m.SettingsPage })));
+const AccountPage = lazy(() => loadChunk(() => import('./pages/Account')).then((m) => ({ default: m.AccountPage })));
+const ApprovePage = lazy(() => loadChunk(() => import('./pages/Approve')).then((m) => ({ default: m.ApprovePage })));
+const BillingPage = lazy(() => loadChunk(() => import('./pages/billing/Billing')).then((m) => ({ default: m.BillingPage })));
+const InvoiceFormPage = lazy(() => loadChunk(() => import('./pages/billing/InvoiceForm')).then((m) => ({ default: m.InvoiceFormPage })));
+const InvoiceViewPage = lazy(() => loadChunk(() => import('./pages/billing/InvoiceView')).then((m) => ({ default: m.InvoiceViewPage })));
+const ClientPage = lazy(() => loadChunk(() => import('./pages/Client')).then((m) => ({ default: m.ClientPage })));
+const ProjectPage = lazy(() => loadChunk(() => import('./pages/Project')).then((m) => ({ default: m.ProjectPage })));
+const MeetingsPage = lazy(() => loadChunk(() => import('./pages/Meetings')).then((m) => ({ default: m.MeetingsPage })));
+const MeetingReviewPage = lazy(() => loadChunk(() => import('./pages/Meetings')).then((m) => ({ default: m.MeetingReviewPage })));
+const ProposalsPage = lazy(() => loadChunk(() => import('./pages/Proposals')).then((m) => ({ default: m.ProposalsPage })));
+const SettingsPage = lazy(() => loadChunk(() => import('./pages/Settings')).then((m) => ({ default: m.SettingsPage })));
+
+/**
+ * Si una pantalla falla al dibujarse, se muestra el error con «Reintentar» en lugar de dejar toda la app en blanco.
+ * Se reinicia al cambiar de dirección (key = ruta).
+ */
+class PageBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error) {
+    console.error('Error en la pantalla:', error);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return <ErrorBox message={this.state.error.message || 'Algo falló al abrir esta pantalla.'} onRetry={() => location.reload()} />;
+  }
+}
 
 /** /equipo ahora vive en Configuración. */
 function GoTo({ to }: { to: string }) {
@@ -190,9 +208,11 @@ function App() {
         setTour(true);
       }}
     >
-      <Suspense fallback={<Loading />}>
-        <Routes me={me} path={path} />
-      </Suspense>
+      <PageBoundary key={path}>
+        <Suspense fallback={<Loading />}>
+          <Routes me={me} path={path} />
+        </Suspense>
+      </PageBoundary>
       {tour && (
         <Tour
           me={me}

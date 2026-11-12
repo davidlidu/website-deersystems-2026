@@ -47,6 +47,31 @@ export function useApi<T>(path: string | null) {
   return { ...state, reload: load, setData: (data: T) => setState({ data, error: null, loading: false }) };
 }
 
+/**
+ * Carga una parte de la app que se descarga aparte (una pantalla, el generador de PDF). Al publicar una versión nueva
+ * esos archivos cambian de nombre: una pestaña que quedó abierta pide el viejo, que ya no existe, y la pantalla quedaba
+ * en blanco. En ese caso se recarga la página una vez (trae la versión nueva y abre la misma dirección).
+ */
+export function loadChunk<T>(load: () => Promise<T>): Promise<T> {
+  return load().catch((err: unknown) => {
+    const key = 'ds:chunk-reload';
+    let last = 0;
+    try {
+      last = Number(sessionStorage.getItem(key)) || 0;
+      sessionStorage.setItem(key, String(Date.now()));
+    } catch {
+      /* sin almacenamiento: igual se intenta una vez */
+    }
+    // Si ya se recargó hace poco y sigue fallando, no se entra en un ciclo: se muestra el error.
+    if (Date.now() - last > 30_000) {
+      location.reload();
+      return new Promise<T>(() => {});
+    }
+    console.error(err);
+    throw new Error('No se pudo cargar esta parte del portal. Revisa tu conexión y recarga la página.');
+  });
+}
+
 // ───────── Router mínimo (History API) ─────────
 
 const listeners = new Set<() => void>();
