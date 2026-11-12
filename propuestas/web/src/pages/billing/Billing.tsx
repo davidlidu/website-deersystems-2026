@@ -147,7 +147,7 @@ function ReceiptsTab() {
   const shown = useMemo(() => {
     const s = q.trim().toLowerCase();
     return (data ?? []).filter(
-      (r) => inRange(r.date, range) && (!s || `${r.clientName} ${r.method} ${r.notes ?? ''} ${r.invoiceNumber ?? ''}`.toLowerCase().includes(s)),
+      (r) => inRange(r.date, range) && (!s || `${r.clientName} ${r.method} ${r.notes ?? ''} ${(r.applications ?? []).map((a) => a.number).join(' ')}`.toLowerCase().includes(s)),
     );
   }, [data, q, range]);
   if (loading && !data) return <Loading />;
@@ -249,9 +249,15 @@ function ReceiptsTab() {
               </span>
               <span>
                 {r.method || '—'}
-                {r.invoiceNumber && (
+                {(r.applications ?? []).length > 0 && (
                   <small>
-                    <Link to={`/cuentas-de-cobro/${r.invoiceId}`}>CC {r.invoiceNumber}</Link>
+                    CC{' '}
+                    {r.applications!.map((a, i) => (
+                      <span key={a.invoiceId}>
+                        {i > 0 && ', '}
+                        <Link to={`/cuentas-de-cobro/${a.invoiceId}`}>{a.number}</Link>
+                      </span>
+                    ))}
                   </small>
                 )}
                 {r.paymentId && <small>Cuota del plan de pagos</small>}

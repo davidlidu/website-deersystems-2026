@@ -409,9 +409,9 @@ function clientAccountView(a: db.Account) {
     active: !!a.active,
     lastLoginAt: a.last_login_at,
     primary,
-    allProjects: primary || !!a.all_projects,
-    billing: primary || !!a.billing,
-    projectIds: primary || a.all_projects ? [] : db.accountProjectIds(a.id),
+    allProjects: !!a.all_projects,
+    billing: !!a.billing,
+    projectIds: a.all_projects ? [] : db.accountProjectIds(a.id),
   };
 }
 
@@ -678,13 +678,27 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         db.updateAccount(id, { name });
       }
       if ('allProjects' in body || 'billing' in body || 'projectIds' in body) {
-        // La cuenta principal ve siempre todo: es la del cliente.
-        if (db.getClientAccount(a.client_id)?.id === id) throw new HttpError(400, 'La cuenta principal ve todos los proyectos y los pagos.');
         // Rige desde la siguiente petición: el acceso se revisa en cada una (no hace falta cerrar su sesión).
         db.setAccountAccess(id, readAccess({ allProjects: !!a.all_projects, billing: !!a.billing, projectIds: db.accountProjectIds(id), ...body }, a.client_id));
       }
-      if (typeof body.active === 'boolean') db.updateAccount(id, { active: body.active });
+      if (typeof body.active === 'boolean') {
+        if (!body.active && db.getClientAccount(a.client_id)?.id === id) {
+          const others = db.listClientAccounts(a.client_id).filter((x) => x.id !== id && x.active);
+          if (others.length) throw new HttpError(400, 'Es la persona principal: primero haz principal a otra persona y luego desactívala.');
+        }
+        db.updateAccount(id, { active: body.active });
+      }
       return json(res, 200, clientAccountView(db.getAccount(id)!));
+    }
+
+    // Cambiar la persona principal: el contacto del cliente (a quien le llegan las cuentas de cobro, entre otras).
+    case 'POST client-accounts/:id/primary': {
+      requireOwner(v);
+      const a = db.getAccount(id);
+      if (!a || a.role !== 'client' || !a.client_id) throw new HttpError(404, 'La cuenta no existe.');
+      if (!a.active) throw new HttpError(400, 'Esa persona tiene el acceso desactivado: actívala primero.');
+      db.setPrimaryAccount(a.client_id, id);
+      return json(res, 200, { accounts: db.listClientAccounts(a.client_id).map(clientAccountView) });
     }
 
     case 'POST client-accounts/:id/password': {
@@ -701,7 +715,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       requireOwner(v);
       const a = db.getAccount(id);
       if (!a || a.role !== 'client' || !a.client_id) throw new HttpError(404, 'La cuenta no existe.');
-      if (db.getClientAccount(a.client_id)?.id === id) throw new HttpError(400, 'La cuenta principal no se elimina: desactívala si ya no debe entrar.');
+      if (db.getClientAccount(a.client_id)?.id === id) throw new HttpError(400, 'Es la persona principal: primero haz principal a otra persona y luego quítala.');
       db.deleteAccount(id);
       return json(res, 200, { ok: true });
     }

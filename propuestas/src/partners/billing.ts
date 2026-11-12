@@ -154,6 +154,17 @@ sqlite.exec(`
     created_at TEXT NOT NULL
   );
 `);
+// Un abono que cubre varias cuentas de cobro (p. ej. una transferencia por tres cuentas): cuánto le toca a cada una.
+// Si el abono va a una sola, se usa receipts.invoice_id como siempre y aquí no hay filas.
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS receipt_invoices (
+    receipt_id INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    invoice_id INTEGER NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    amount_cop REAL NOT NULL,
+    PRIMARY KEY (receipt_id, invoice_id)
+  );
+  CREATE INDEX IF NOT EXISTS receipt_invoices_invoice ON receipt_invoices(invoice_id);
+`);
 interface GroupRow {
   ref: string;
   client_id: number;
@@ -347,9 +358,65 @@ export function saveInvoice(input: InvoiceInput, opts: { id?: number; sbId?: str
   return getInvoice(id!)!;
 }
 
-/** Lo abonado a una cuenta de cobro (solo los abonos aplicados a ella). */
+/** Lo abonado a una cuenta de cobro: los abonos aplicados solo a ella y la parte que le tocó de los repartidos. */
 const appliedTo = (invoiceId: number) =>
-  (sqlite.prepare('SELECT COALESCE(SUM(amount_cop), 0) AS n FROM receipts WHERE invoice_id = ?').get(invoiceId) as { n: number }).n;
+  (
+    sqlite
+      .prepare(
+        `SELECT (SELECT COALESCE(SUM(amount_cop), 0) FROM receipts WHERE invoice_id = ?)
+              + (SELECT COALESCE(SUM(amount_cop), 0) FROM receipt_invoices WHERE invoice_id = ?) AS n`,
+      )
+      .get(invoiceId, invoiceId) as { n: number }
+  ).n;
+
+/** Los abonos de una cuenta de cobro, con lo que le tocó a ella de cada uno. */
+function receiptsOfInvoice(invoiceId: number): { row: ReceiptRow; applied: number }[] {
+  const direct = sqlite.prepare('SELECT * FROM receipts WHERE invoice_id = ?').all(invoiceId) as unknown as ReceiptRow[];
+  const shared = sqlite
+    .prepare('SELECT r.*, ri.amount_cop AS applied_cop FROM receipt_invoices ri JOIN receipts r ON r.id = ri.receipt_id WHERE ri.invoice_id = ?')
+    .all(invoiceId) as unknown as (ReceiptRow & { applied_cop: number })[];
+  return [...direct.map((row) => ({ row, applied: row.amount_cop })), ...shared.map(({ applied_cop, ...row }) => ({ row, applied: applied_cop }))].sort(
+    (a, b) => a.row.date.localeCompare(b.row.date) || a.row.id - b.row.id,
+  );
+}
+
+export interface Application {
+  invoiceId: number;
+  number: string;
+  amountCop: number;
+}
+
+/** A qué cuentas de cobro quedó aplicado un abono y cuánto a cada una (de la más antigua a la más reciente). */
+function applicationsOf(r: ReceiptRow): Application[] {
+  if (r.invoice_id) return [{ invoiceId: r.invoice_id, number: getInvoice(r.invoice_id)?.number ?? '', amountCop: r.amount_cop }];
+  return (
+    sqlite
+      .prepare(
+        'SELECT ri.invoice_id, ri.amount_cop, i.number FROM receipt_invoices ri JOIN invoices i ON i.id = ri.invoice_id WHERE ri.receipt_id = ? ORDER BY i.date, i.id',
+      )
+      .all(r.id) as { invoice_id: number; amount_cop: number; number: string }[]
+  ).map((a) => ({ invoiceId: a.invoice_id, number: a.number, amountCop: a.amount_cop }));
+}
+
+/**
+ * Reparte un abono entre varias cuentas de cobro: de la más antigua a la más reciente, cubriendo el saldo de cada una.
+ * La última recibe lo que alcance (y le queda el saldo pendiente); si sobra, queda a favor en la cuenta del cliente.
+ */
+function allocate(receiptId: number, amountCop: number, invoiceIds: number[]): void {
+  sqlite.prepare('DELETE FROM receipt_invoices WHERE receipt_id = ?').run(receiptId);
+  const invoices = invoiceIds
+    .map((id) => getInvoice(id))
+    .filter((i): i is InvoiceRow => !!i)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  const ins = sqlite.prepare('INSERT INTO receipt_invoices (receipt_id, invoice_id, amount_cop) VALUES (?, ?, ?)');
+  let left = amountCop;
+  for (const inv of invoices) {
+    const take = round2(Math.min(left, Math.max(0, inv.total_cop - appliedTo(inv.id))));
+    if (take <= 0) continue;
+    ins.run(receiptId, inv.id, take);
+    left = round2(left - take);
+  }
+}
 
 function invoiceSummary(r: InvoiceRow) {
   const client = db.getClient(r.client_id);
@@ -411,13 +478,14 @@ export function invoiceDetail(r: InvoiceRow) {
       /** A quién se propone enviarla: cuenta o contacto, más los correos adicionales que reciben cuentas de cobro. */
       invoiceEmails: db.invoiceEmails(client.id),
     },
-    receipts: (sqlite.prepare('SELECT * FROM receipts WHERE invoice_id = ? ORDER BY date').all(r.id) as unknown as ReceiptRow[]).map(receiptView),
+    receipts: receiptsOfInvoice(r.id).map(({ row, applied }) => ({ ...receiptView(row), appliedCop: applied })),
   };
 }
 
 // ───────── Abonos ─────────
 
 function receiptView(r: ReceiptRow) {
+  const applications = applicationsOf(r);
   return {
     id: r.id,
     clientId: r.client_id,
@@ -425,6 +493,9 @@ function receiptView(r: ReceiptRow) {
     projectId: r.project_id,
     invoiceId: r.invoice_id,
     invoiceNumber: r.invoice_id ? (getInvoice(r.invoice_id)?.number ?? null) : null,
+    applications,
+    /** Lo que no quedó en ninguna cuenta de cobro (a favor en la cuenta del cliente). */
+    unappliedCop: round2(r.amount_cop - applications.reduce((n, a) => n + a.amountCop, 0)),
     paymentId: r.payment_id,
     amountCop: r.amount_cop,
     currency: r.currency,
@@ -447,7 +518,16 @@ function receiptView(r: ReceiptRow) {
 }
 
 /** Lo que ve el cliente de un abono: sin datos del Gestor. */
-const receiptForClient = (r: ReceiptRow) => ({ id: r.id, date: r.date, amountCop: r.amount_cop, currency: r.currency, amount: r.amount, invoiceId: r.invoice_id, method: r.method });
+const receiptForClient = (r: ReceiptRow) => ({
+  id: r.id,
+  date: r.date,
+  amountCop: r.amount_cop,
+  currency: r.currency,
+  amount: r.amount,
+  invoiceId: r.invoice_id,
+  applications: applicationsOf(r),
+  method: r.method,
+});
 
 const money = (n: number, currency: Currency) => `${currency} ${n.toLocaleString('es-CO', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 
@@ -458,11 +538,12 @@ function incomeDescription(r: ReceiptRow): string {
     ? (sqlite.prepare('SELECT label, percent FROM payments WHERE id = ?').get(r.payment_id) as { label: string; percent: number | null } | undefined)
     : undefined;
   const project = r.project_id ? db.getProject(r.project_id) : undefined;
-  const invoice = r.invoice_id ? getInvoice(r.invoice_id) : undefined;
+  const applied = applicationsOf(r);
   const parts: string[] = [];
   if (payment) parts.push(`${project?.name ?? 'Proyecto'} — ${payment.label}`, ...(payment.percent ? [`${payment.percent}%`] : []));
   else parts.push(project ? `${project.name} — Abono` : 'Abono');
-  if (invoice) parts.push(`cuenta de cobro ${invoice.number}`);
+  if (applied.length === 1) parts.push(`cuenta de cobro ${applied[0].number}`);
+  else if (applied.length > 1) parts.push(`cuentas de cobro ${applied.map((a) => a.number).join(', ')}`);
   if (r.currency === 'USD') parts.push(`${money(r.amount, 'USD')}${r.trm ? ` a TRM ${r.trm.toLocaleString('es-CO')}` : ''}`);
   if (!payment && r.notes) parts.push(r.notes.slice(0, 120));
   return parts.join(' · ');
@@ -628,6 +709,8 @@ export interface ReceiptInput {
   clientId: number;
   projectId: number | null;
   invoiceId: number | null;
+  /** Varias cuentas de cobro: el abono se reparte entre ellas (invoiceId queda vacío). Sin el dato, no se toca el reparto. */
+  invoiceIds?: number[];
   paymentId?: number | null;
   amountCop: number;
   currency: Currency;
@@ -651,6 +734,7 @@ export function saveReceipt(
            method = ?, notes = ?, updated_at = ? WHERE id = ?`,
       )
       .run(input.clientId, input.projectId, input.invoiceId, input.amountCop, input.currency, input.amount, input.trm, input.date, input.method, input.notes, ts, opts.id);
+    if (input.invoiceIds) allocate(opts.id, input.amountCop, input.invoiceId ? [] : input.invoiceIds);
     return getReceipt(opts.id)!;
   }
   const r = sqlite
@@ -681,7 +765,9 @@ export function saveReceipt(
       ts,
       ts,
     );
-  return getReceipt(Number(r.lastInsertRowid))!;
+  const newId = Number(r.lastInsertRowid);
+  if (input.invoiceIds && !input.invoiceId) allocate(newId, input.amountCop, input.invoiceIds);
+  return getReceipt(newId)!;
 }
 
 /** El interruptor «Enviar al Gestor financiero» del abono (sin el dato, se deja como estaba). */
@@ -702,8 +788,22 @@ function readReceipt(body: Record<string, unknown>, current?: ReceiptRow): Recei
   if (!db.getClient(clientId)) throw new HttpError(400, 'Elige el cliente.');
   const projectId = body.projectId === undefined ? (current?.project_id ?? null) : Number(body.projectId) || null;
   if (projectId && db.getProject(projectId)?.client_id !== clientId) throw new HttpError(400, 'El proyecto no es de ese cliente.');
-  const invoiceId = body.invoiceId === undefined ? (current?.invoice_id ?? null) : Number(body.invoiceId) || null;
-  if (invoiceId && getInvoice(invoiceId)?.client_id !== clientId) throw new HttpError(400, 'La cuenta de cobro no es de ese cliente.');
+  // Una cuenta de cobro (invoiceId) o varias (invoiceIds, el abono se reparte). Sin ninguno de los dos, queda como estaba.
+  let invoiceId = body.invoiceId === undefined ? (current?.invoice_id ?? null) : Number(body.invoiceId) || null;
+  let invoiceIds: number[] | undefined;
+  if (Array.isArray(body.invoiceIds)) {
+    const ids = [...new Set((body.invoiceIds as unknown[]).map(Number).filter((n) => n > 0))];
+    invoiceId = ids.length === 1 ? ids[0] : null;
+    invoiceIds = ids.length > 1 ? ids : [];
+  } else if (body.invoiceId !== undefined) invoiceIds = [];
+  else if (current && !current.invoice_id) {
+    // Al editar sin tocar las cuentas: el reparto se recalcula con el monto nuevo.
+    const prev = (sqlite.prepare('SELECT invoice_id FROM receipt_invoices WHERE receipt_id = ?').all(current.id) as { invoice_id: number }[]).map((a) => a.invoice_id);
+    if (prev.length) invoiceIds = prev;
+  }
+  for (const iid of invoiceId ? [invoiceId] : (invoiceIds ?? [])) {
+    if (getInvoice(iid)?.client_id !== clientId) throw new HttpError(400, 'La cuenta de cobro no es de ese cliente.');
+  }
   const currency: Currency = String(body.currency ?? current?.currency ?? 'COP').toUpperCase() === 'USD' ? 'USD' : 'COP';
   const amount = round2(Number(body.amount ?? current?.amount));
   if (!(amount > 0)) throw new HttpError(400, 'El monto debe ser mayor a cero.');
@@ -714,6 +814,7 @@ function readReceipt(body: Record<string, unknown>, current?: ReceiptRow): Recei
     clientId,
     projectId,
     invoiceId,
+    invoiceIds,
     amountCop,
     currency,
     amount,
@@ -967,7 +1068,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       const detail = invoiceDetail(r);
       json(res, 200, {
         ...detail,
-        receipts: v.kind === 'owner' ? detail.receipts : (sqlite.prepare('SELECT * FROM receipts WHERE invoice_id = ?').all(r.id) as unknown as ReceiptRow[]).map(receiptForClient),
+        receipts: v.kind === 'owner' ? detail.receipts : receiptsOfInvoice(r.id).map(({ row, applied }) => ({ ...receiptForClient(row), appliedCop: applied })),
         profile: billingProfile(),
       });
       return true;

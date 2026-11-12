@@ -247,7 +247,7 @@ function ClientStatement({ clientId }: { clientId: number }) {
                     <span className="mono">{formatMoney(r.amountCop)}</span>
                     <span>{r.method}</span>
                     <span>
-                      {r.invoiceNumber ? <small>CC {r.invoiceNumber}</small> : null}
+                      {(r.applications ?? []).length > 0 ? <small>CC {r.applications!.map((a) => a.number).join(', ')}</small> : null}
                       {r.sendToFinance === false && <small className="sync sync--off">No se envía</small>}
                     </span>
                   </button>

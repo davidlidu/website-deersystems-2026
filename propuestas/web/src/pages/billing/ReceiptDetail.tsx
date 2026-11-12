@@ -37,7 +37,18 @@ export function ReceiptDetail({ r, onEdit, onUngroup }: { r: Receipt; onEdit?: (
     [
       'Aplicado a',
       <>
-        {r.invoiceNumber ? <Link to={`/cuentas-de-cobro/${r.invoiceId}`}>Cuenta de cobro {r.invoiceNumber}</Link> : 'La cuenta del cliente'}
+        {(r.applications?.length ?? 0) > 1 ? (
+          r.applications!.map((a) => (
+            <span key={a.invoiceId} className="apply-line">
+              <Link to={`/cuentas-de-cobro/${a.invoiceId}`}>Cuenta de cobro {a.number}</Link> <span className="mono">{formatMoney(a.amountCop)}</span>
+            </span>
+          ))
+        ) : r.invoiceNumber ? (
+          <Link to={`/cuentas-de-cobro/${r.invoiceId}`}>Cuenta de cobro {r.invoiceNumber}</Link>
+        ) : (
+          'La cuenta del cliente'
+        )}
+        {(r.unappliedCop ?? 0) > 0.5 && (r.applications?.length ?? 0) > 0 && <small>{formatMoney(r.unappliedCop!)} quedan a favor en la cuenta del cliente</small>}
         {r.paymentId && <small>Cuota del plan de pagos</small>}
       </>,
     ],

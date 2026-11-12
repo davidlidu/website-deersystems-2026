@@ -420,7 +420,10 @@ export function InvoiceViewPage({ me, id }: { me: Me; id: number }) {
             {inv.receipts.map((r) => (
               <div key={r.id} className="table__row pay-client">
                 <span>{docDate(r.date)}</span>
-                <span className="mono">{formatMoney(r.amountCop)}</span>
+                <span className="mono">
+                  {formatMoney(r.appliedCop ?? r.amountCop)}
+                  {r.appliedCop != null && r.appliedCop < r.amountCop - 0.5 && <small>de un abono de {formatMoney(r.amountCop)}</small>}
+                </span>
                 <span>{r.method}</span>
                 <span>{owner && r.sync === 'error' ? <span className="sync sync--error">⚠ Sin registrar en el Gestor</span> : null}</span>
               </div>

@@ -6394,3 +6394,84 @@ button.table__row {
 .cc-row__hit {
   white-space: normal;
 }
+
+/* Abono repartido entre varias cuentas de cobro */
+.apply {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.apply__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.apply__list li + li {
+  border-top: 1px solid var(--hairline);
+}
+
+.apply__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(120px, auto);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.apply__item input {
+  margin-top: 0;
+}
+
+.apply__what,
+.apply__due,
+.apply__take {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.apply__due,
+.apply__take {
+  text-align: right;
+}
+
+.apply__what small,
+.apply__due small,
+.apply__take small {
+  color: var(--mute);
+  font-size: 0.75rem;
+  font-family: inherit;
+}
+
+.apply__take {
+  color: var(--verde);
+  grid-column: 4;
+}
+
+.apply__take.is-partial {
+  color: var(--cian);
+}
+
+.apply-line {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+@media (max-width: 640px) {
+  .apply__item {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .apply__take {
+    grid-column: 2 / -1;
+    text-align: left;
+  }
+}

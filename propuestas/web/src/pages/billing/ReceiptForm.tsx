@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, formatMoney, today, useApi, type Currency, type InvoiceSummary, type Receipt } from '../../lib';
+import { api, docDate, formatMoney, today, useApi, type Currency, type InvoiceSummary, type Receipt } from '../../lib';
 import { MoneyInput, useAction, useToast } from '../../ui';
 import { Choice } from './Choice';
 
@@ -37,7 +37,7 @@ export function ReceiptForm({
     trm: receipt?.trm ? String(receipt.trm) : '',
     amountCop: receipt ? String(receipt.amountCop) : '',
     method: receipt?.method ?? 'Transferencia',
-    invoiceId: String(receipt?.invoiceId ?? invoiceId ?? ''),
+    invoiceIds: receipt?.applications?.map((a) => a.invoiceId) ?? (receipt?.invoiceId ? [receipt.invoiceId] : invoiceId ? [invoiceId] : []),
     notes: receipt?.notes ?? '',
     sendToFinance: receipt?.sendToFinance ?? true,
     financeDescription: receipt?.financeDescription ?? '',
@@ -59,7 +59,14 @@ export function ReceiptForm({
   }, [usd, f.trm, f.amount, copTouched]);
 
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }));
-  const open = (invoices.data ?? []).filter((i) => i.status !== 'anulada');
+  // Lo que este abono ya tenía en cada cuenta de cobro: al editarlo, ese saldo vuelve a estar disponible.
+  const mine = new Map((receipt?.applications ?? []).map((a) => [a.invoiceId, a.amountCop]));
+  const pendingOf = (i: InvoiceSummary) => Math.max(0, i.totalCop - i.applied + (mine.get(i.id) ?? 0));
+  const open = (invoices.data ?? [])
+    .filter((i) => i.status !== 'anulada' && (pendingOf(i) > 0.5 || f.invoiceIds.includes(i.id)))
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  const toggleInvoice = (id: number, on: boolean) => set({ invoiceIds: on ? [...f.invoiceIds, id] : f.invoiceIds.filter((x) => x !== id) });
+  const plan = distribute(open.filter((i) => f.invoiceIds.includes(i.id)), usd ? Number(f.amountCop) : Number(f.amount), pendingOf);
 
   const submit = () =>
     run(async () => {
@@ -70,7 +77,7 @@ export function ReceiptForm({
         amount: Number(f.amount),
         ...(usd ? { trm: Number(f.trm) || null, amountCop: Number(f.amountCop) || null } : {}),
         method: f.method,
-        invoiceId: Number(f.invoiceId) || null,
+        invoiceIds: f.invoiceIds,
         notes: f.notes,
         sendToFinance: f.sendToFinance,
         // Solo si la cambiaste: vacía vuelve a la descripción automática.
@@ -144,20 +151,55 @@ export function ReceiptForm({
           <span className="field__label">Medio de pago</span>
           <Choice label="Medio de pago" value={f.method} options={METHODS} onChange={(method) => set({ method })} />
         </label>
-        <label className="field">
-          <span className="field__label">Aplicar a cuenta de cobro</span>
-          <span className="input">
-            <select value={f.invoiceId} onChange={(e) => set({ invoiceId: e.target.value })} disabled={!client}>
-              <option value="">Ninguna (queda en la cuenta del cliente)</option>
-              {open.map((i) => (
-                <option key={i.id} value={i.id}>
-                  {i.number} · {formatMoney(i.totalCop)} · {i.date}
-                </option>
-              ))}
-            </select>
-          </span>
-        </label>
       </div>
+      <fieldset className="field apply">
+        <legend className="field__label">Aplicar a cuentas de cobro</legend>
+        {!client ? (
+          <small className="hint">Elige primero el cliente.</small>
+        ) : !open.length ? (
+          <small className="hint">El cliente no tiene cuentas de cobro pendientes: el abono queda en su cuenta.</small>
+        ) : (
+          <>
+            <ul className="apply__list">
+              {open.map((i) => {
+                const p = plan.lines.get(i.id);
+                return (
+                  <li key={i.id}>
+                    <label className="check apply__item">
+                      <input type="checkbox" checked={f.invoiceIds.includes(i.id)} onChange={(e) => toggleInvoice(i.id, e.target.checked)} />
+                      <span className="apply__what">
+                        <strong>{i.number}</strong>
+                        <small>
+                          {docDate(i.date)}
+                          {i.projectName ? ` · ${i.projectName}` : ''}
+                        </small>
+                      </span>
+                      <span className="apply__due mono">
+                        {formatMoney(pendingOf(i))}
+                        <small>{pendingOf(i) < i.totalCop - 0.5 ? `pendiente de ${formatMoney(i.totalCop)}` : 'pendiente'}</small>
+                      </span>
+                      {p && (
+                        <span className={`apply__take mono${p.rest > 0.5 ? ' is-partial' : ''}`}>
+                          {p.take > 0 ? `− ${formatMoney(p.take)}` : 'No alcanza'}
+                          <small>{p.take <= 0 ? 'queda igual' : p.rest > 0.5 ? `queda debiendo ${formatMoney(p.rest)}` : 'queda saldada'}</small>
+                        </span>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+            <small className="hint">
+              {f.invoiceIds.length === 0
+                ? 'Sin marcar ninguna, el abono queda en la cuenta del cliente.'
+                : f.invoiceIds.length === 1
+                  ? 'Todo el abono se aplica a esa cuenta de cobro.'
+                  : 'Se cubren de la más antigua a la más reciente; la última recibe lo que alcance y le queda el saldo pendiente.'}
+              {f.invoiceIds.length > 1 && plan.left > 0.5 && ` Sobran ${formatMoney(plan.left)}: quedan a favor en la cuenta del cliente.`}
+            </small>
+          </>
+        )}
+      </fieldset>
       <label className="field">
         <span className="field__label">Notas · detalle del pago</span>
         <textarea rows={3} maxLength={1000} value={f.notes} onChange={(e) => set({ notes: e.target.value })} placeholder="Anticipo, comprobante 123, banco de origen…" />
@@ -207,4 +249,22 @@ export function ReceiptForm({
       )}
     </div>
   );
+}
+
+/** El mismo reparto que hace el servidor: de la más antigua a la más reciente, cada una hasta su saldo. Con una sola, va todo a ella. */
+function distribute(selected: InvoiceSummary[], amount: number, pendingOf: (i: InvoiceSummary) => number) {
+  const lines = new Map<number, { take: number; rest: number }>();
+  let left = amount > 0 ? amount : 0;
+  if (selected.length === 1) {
+    const due = pendingOf(selected[0]);
+    lines.set(selected[0].id, { take: left, rest: Math.max(0, due - left) });
+    return { lines, left: 0 };
+  }
+  for (const i of selected) {
+    const due = pendingOf(i);
+    const take = Math.min(left, due);
+    lines.set(i.id, { take, rest: due - take });
+    left -= take;
+  }
+  return { lines, left };
 }

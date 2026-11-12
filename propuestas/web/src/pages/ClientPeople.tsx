@@ -52,6 +52,19 @@ export function ClientPeople({
       toast(a.active ? 'Acceso desactivado.' : 'Acceso activado.');
       onChange();
     });
+  const makePrimary = (a: ClientAccount) => {
+    if (
+      !confirm(
+        `¿Hacer a ${a.name || a.email} la persona principal del cliente?\n\nSerá el contacto del cliente: a su correo le llegan las cuentas de cobro y queda primero en la lista. Su acceso no cambia; ajústalo con «Editar acceso» si hace falta.`,
+      )
+    )
+      return;
+    run(async () => {
+      await api('POST', `client-accounts/${a.id}/primary`);
+      toast(`${a.name || a.email} es ahora la persona principal.`);
+      onChange();
+    });
+  };
   const remove = (a: ClientAccount) => {
     if (!confirm(`¿Quitarle el acceso a ${a.name || a.email}?\n\nYa no podrá entrar al portal. Sus comentarios y archivos se conservan.`)) return;
     run(async () => {
@@ -71,7 +84,7 @@ export function ClientPeople({
       </div>
       <p className="hint">
         Útil para agencias con un ejecutivo por proyecto: cada persona entra con su correo y solo ve los proyectos que le asignes. Los avisos, avances y
-        reuniones de un proyecto les llegan a quienes lo ven.
+        reuniones de un proyecto les llegan a quienes lo ven. La persona principal es el contacto del cliente (le llegan las cuentas de cobro).
       </p>
       {secret && (
         <SecretBox
@@ -101,11 +114,14 @@ export function ClientPeople({
               <small>{a.billing ? 'Ve pagos y cuentas de cobro' : 'Sin pagos ni cuentas de cobro'}</small>
             </div>
             <div className="actions actions--tight people__actions">
-              {!a.primary && (
-                <button className="btn btn--outline btn--xs" disabled={busy} onClick={() => setEditing(a)}>
-                  Editar acceso
+              {!a.primary && a.active && (
+                <button className="btn btn--outline btn--xs" disabled={busy} onClick={() => makePrimary(a)}>
+                  Hacer principal
                 </button>
               )}
+              <button className="btn btn--outline btn--xs" disabled={busy} onClick={() => setEditing(a)}>
+                Editar acceso
+              </button>
               <button className="btn btn--outline btn--xs" disabled={busy} onClick={() => password(a)}>
                 Contraseña nueva
               </button>

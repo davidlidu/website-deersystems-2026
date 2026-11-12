@@ -46,6 +46,8 @@ export interface Account {
   created_at: string;
   /** Cuentas de cliente: 1 = ve todos los proyectos del cliente; 0 = solo los de account_projects (p. ej. un ejecutivo de una agencia). */
   all_projects: number;
+  /** 1 = la persona principal del cliente (si ninguna lo está, es la primera que se creó). */
+  is_primary: number;
   /** Cuentas de cliente: ve pagos, cuentas de cobro y estado de cuenta. */
   billing: number;
 }
@@ -232,12 +234,26 @@ export function deleteSetting(key: string): void {
 
 export const getAccount = (id: number) => one<Account>('SELECT * FROM accounts WHERE id = ?', id);
 export const getAccountByEmail = (email: string) => one<Account>('SELECT * FROM accounts WHERE email = ?', email);
-/** La cuenta principal del cliente: la primera que se creó (las demás son ejecutivos o personas adicionales). */
+/**
+ * La cuenta principal del cliente: la que marcaste como principal o, si no, la primera que se creó (las demás son
+ * ejecutivos o personas adicionales). Es el contacto del cliente: a ella le llegan, p. ej., las cuentas de cobro.
+ */
 export const getClientAccount = (clientId: number) =>
-  one<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client' ORDER BY id LIMIT 1", clientId);
+  one<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client' ORDER BY is_primary DESC, id LIMIT 1", clientId);
 /** Todas las personas del cliente que entran al portal, la principal primero. */
 export const listClientAccounts = (clientId: number) =>
-  all<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client' ORDER BY id", clientId);
+  all<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client' ORDER BY is_primary DESC, id", clientId);
+
+/** Cambia la persona principal del cliente. Si el correo del cliente era el de la anterior, pasa a ser el de la nueva. */
+export function setPrimaryAccount(clientId: number, accountId: number): void {
+  transaction(() => {
+    const before = getClientAccount(clientId);
+    const next = getAccount(accountId)!;
+    db.prepare("UPDATE accounts SET is_primary = CASE WHEN id = ? THEN 1 ELSE 0 END WHERE client_id = ? AND role = 'client'").run(accountId, clientId);
+    const client = getClient(clientId);
+    if (client && before && client.email === before.email) db.prepare('UPDATE clients SET email = ? WHERE id = ?').run(next.email, clientId);
+  });
+}
 
 /** Proyectos que ve una cuenta de cliente limitada (si ve todos, no se usa). */
 export const accountProjectIds = (accountId: number) =>
@@ -325,7 +341,7 @@ export function listClients() {
        (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id) AS projects,
        (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id AND p.status = 'activo') AS active_projects,
        a.last_login_at, a.active AS account_active
-     FROM clients c LEFT JOIN accounts a ON a.id = (SELECT MIN(id) FROM accounts WHERE client_id = c.id AND role = 'client')
+     FROM clients c LEFT JOIN accounts a ON a.id = (SELECT id FROM accounts WHERE client_id = c.id AND role = 'client' ORDER BY is_primary DESC, id LIMIT 1)
      ORDER BY c.name`,
   );
 }
@@ -799,6 +815,7 @@ addColumn('projects', 'drive_folder_id', 'TEXT');
 // Varias personas por cliente (p. ej. los ejecutivos de una agencia), cada una con todos sus proyectos o solo algunos.
 addColumn('accounts', 'all_projects', 'INTEGER NOT NULL DEFAULT 1');
 addColumn('accounts', 'billing', 'INTEGER NOT NULL DEFAULT 1');
+addColumn('accounts', 'is_primary', 'INTEGER NOT NULL DEFAULT 0');
 db.exec(`
   CREATE TABLE IF NOT EXISTS account_projects (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,

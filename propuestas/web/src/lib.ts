@@ -501,6 +501,12 @@ export interface ReceiptGroup {
 }
 
 /** Abono (lo que entró). Los datos del Gestor solo llegan al administrador. */
+export interface ReceiptApplication {
+  invoiceId: number;
+  number: string;
+  amountCop: number;
+}
+
 export interface Receipt {
   id: number;
   clientId?: number;
@@ -508,6 +514,12 @@ export interface Receipt {
   projectId?: number | null;
   invoiceId: number | null;
   invoiceNumber?: string | null;
+  /** Cuentas de cobro a las que quedó aplicado y cuánto a cada una (varias si el abono se repartió). */
+  applications?: ReceiptApplication[];
+  /** Lo que no quedó en ninguna cuenta de cobro: a favor en la cuenta del cliente. */
+  unappliedCop?: number;
+  /** En el detalle de una cuenta de cobro: lo que le tocó a ella de este abono. */
+  appliedCop?: number;
   paymentId?: number | null;
   amountCop: number;
   currency: Currency;
