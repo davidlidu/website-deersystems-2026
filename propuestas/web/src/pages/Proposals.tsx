@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { api, ApiError, formatDateTime, formatSize, timeAgo, useApi } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../ui';
 
@@ -15,6 +15,22 @@ export interface ProposalRow {
   size: number;
   updatedAt: string;
   projects: { id: number; name: string; clientId: number; approvedOption: string }[];
+  /** El cliente aprobó desde el enlace y aún no se crea el proyecto. */
+  approvals: ClientApproval[];
+}
+
+export interface ClientApproval {
+  id: number;
+  status: 'generando' | 'listo' | 'error';
+  version: number;
+  name: string;
+  email: string;
+  company: string;
+  phone: string;
+  notes: string;
+  optionName: string;
+  error: string | null;
+  createdAt: string;
 }
 
 interface Version {
@@ -100,7 +116,65 @@ function Versions({ proposal, onRestored }: { proposal: ProposalRow; onRestored:
   );
 }
 
-function ProposalItem({ p, onChange, onRemove }: { p: ProposalRow; onChange: (p: ProposalRow) => void; onRemove: (id: number) => void }) {
+/** Aprobación del cliente desde el enlace: estado del plan con IA y acceso a revisarlo. */
+function ApprovalRow({ p, a, onChange }: { p: ProposalRow; a: ClientApproval; onChange: () => void }) {
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const retry = () =>
+    run(async () => {
+      await api('POST', `proposals/${p.id}/approvals/${a.id}/retry`);
+      onChange();
+    });
+  const discard = () => {
+    if (!confirm(`¿Descartar la aprobación de ${a.name}? No se crea nada y deja de aparecer aquí.`)) return;
+    run(async () => {
+      await api('POST', `proposals/${p.id}/approvals/${a.id}/discard`);
+      toast('Aprobación descartada.');
+      onChange();
+    });
+  };
+  return (
+    <div className={`client-approval client-approval--${a.status}`}>
+      <div>
+        <strong>
+          {a.name} aprobó {timeAgo(a.createdAt)}
+          {a.optionName && ` · ${a.optionName}`}
+        </strong>
+        <small>
+          {a.email}
+          {a.version !== p.version && ` · aprobó la versión ${a.version}`}
+          {' · '}
+          {a.status === 'generando' ? 'Armando el plan con IA…' : a.status === 'listo' ? 'Plan listo para revisar' : `No se pudo armar el plan: ${a.error}`}
+        </small>
+      </div>
+      <div className="actions actions--tight">
+        {a.status === 'error' && (
+          <button className="btn btn--outline btn--sm" disabled={busy} onClick={retry}>
+            Reintentar
+          </button>
+        )}
+        <Link className={`btn btn--sm ${a.status === 'listo' ? 'btn--primary' : 'btn--outline'}`} to={`/propuestas/${p.id}/aprobar?aprobacion=${a.id}`}>
+          Revisar plan
+        </Link>
+        <button className="btn btn--ghost btn--sm" disabled={busy} onClick={discard}>
+          Descartar
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProposalItem({
+  p,
+  onChange,
+  onRemove,
+  onReload,
+}: {
+  p: ProposalRow;
+  onChange: (p: ProposalRow) => void;
+  onRemove: (id: number) => void;
+  onReload: () => void;
+}) {
   const [showVersions, setShowVersions] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const { busy, run } = useAction();
@@ -109,7 +183,10 @@ function ProposalItem({ p, onChange, onRemove }: { p: ProposalRow; onChange: (p:
   const replace = (file: File | undefined) => {
     if (!file) return;
     if (!valid(file)) return toast('Sube un .html o un .zip.', true);
-    const note = prompt(`Nueva versión de /${p.slug} con «${file.name}».\nLa URL no cambia y la versión actual queda en el historial.\n\nNota del cambio (opcional):`, '');
+    const note = prompt(
+      `Nueva versión de /${p.slug} con «${file.name}».\nLa URL no cambia y la versión actual queda en el historial.\n\nNota del cambio (opcional):`,
+      '',
+    );
     if (note === null) return;
     run(async () => {
       onChange(await sendFile<ProposalRow>('PUT', `proposals/${p.id}/file`, file, { note }));
@@ -142,6 +219,7 @@ function ProposalItem({ p, onChange, onRemove }: { p: ProposalRow; onChange: (p:
         <div className="item__title">
           {p.title || p.slug}
           {!p.active && <span className="tag tag--pausado">Pausada</span>}
+          {p.approvals.length > 0 && <span className="tag tag--finalizado">Aprobada por el cliente</span>}
           {p.projects.length > 0 && (
             <span className="tag tag--activo">
               Aprobada
@@ -168,7 +246,7 @@ function ProposalItem({ p, onChange, onRemove }: { p: ProposalRow; onChange: (p:
         {showVersions && <Versions proposal={p} onRestored={onChange} />}
       </div>
       <div className="item__actions">
-        <Link className={`btn btn--sm ${p.projects.length ? 'btn--outline' : 'btn--primary'}`} to={`/propuestas/${p.id}/aprobar`}>
+        <Link className={`btn btn--sm ${p.projects.length || p.approvals.length ? 'btn--outline' : 'btn--primary'}`} to={`/propuestas/${p.id}/aprobar`}>
           {p.projects.length ? 'Aprobar de nuevo' : 'Propuesta aprobada'}
         </Link>
         <button className="btn btn--outline btn--sm" onClick={copy}>
@@ -199,6 +277,13 @@ function ProposalItem({ p, onChange, onRemove }: { p: ProposalRow; onChange: (p:
           }}
         />
       </div>
+      {p.approvals.length > 0 && (
+        <div className="item__approvals">
+          {p.approvals.map((a) => (
+            <ApprovalRow key={a.id} p={p} a={a} onChange={onReload} />
+          ))}
+        </div>
+      )}
     </article>
   );
 }
@@ -211,6 +296,13 @@ export function ProposalsPage() {
   const input = useRef<HTMLInputElement>(null);
   const { busy, run } = useAction();
   const toast = useToast();
+  // Mientras la IA arma el plan de alguna aprobación del cliente, la lista se actualiza cada 5 s.
+  const generating = !!data?.some((p) => p.approvals.some((a) => a.status === 'generando'));
+  useEffect(() => {
+    if (!generating) return;
+    const t = window.setInterval(reload, 5000);
+    return () => window.clearInterval(t);
+  }, [generating, reload]);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
@@ -247,7 +339,14 @@ export function ProposalsPage() {
 
   return (
     <>
-      <PageHead eyebrow="Propuestas" title={<>Publica y <span className="grad">aprueba</span> propuestas</>}>
+      <PageHead
+        eyebrow="Propuestas"
+        title={
+          <>
+            Publica y <span className="grad">aprueba</span> propuestas
+          </>
+        }
+      >
         <p>
           Sube el <span className="mono">.html</span> o un <span className="mono">.zip</span> con imágenes. El enlace queda en{' '}
           <span className="mono">{host}</span> y no cambia aunque subas versiones nuevas; las anteriores quedan en el historial.
@@ -333,6 +432,7 @@ export function ProposalsPage() {
                 p={p}
                 onChange={(updated) => setData(list.map((x) => (x.id === updated.id ? updated : x)))}
                 onRemove={(id) => setData(list.filter((x) => x.id !== id))}
+                onReload={reload}
               />
             ))}
           </div>

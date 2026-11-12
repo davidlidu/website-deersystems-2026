@@ -351,6 +351,24 @@ export function projectUpdate(p: { to: string; projectName: string; body: string
   };
 }
 
+/** Al cliente, apenas aprueba la propuesta desde el enlace: confirmación y qué sigue. */
+export function proposalApproved(p: { to: string; name: string; proposalTitle: string; option: string }): Mail {
+  const first = p.name.split(' ')[0] || p.name;
+  return {
+    to: p.to,
+    subject: `Recibimos tu aprobación · ${p.proposalTitle}`,
+    ...layout({
+      eyebrow: 'Propuesta aprobada',
+      title: `¡Gracias, ${first}!`,
+      paragraphs: [
+        `Recibimos tu aprobación de «${p.proposalTitle}»${p.option ? ` (${p.option})` : ''}.`,
+        'Ya estamos preparando el plan de trabajo. Te escribimos pronto para confirmar la fecha de arranque, el acceso a tu espacio en DeerSystems Partners y los siguientes pasos.',
+      ],
+      footnote: 'Si quieres ajustar algo antes de arrancar, responde este correo y lo revisamos.',
+    }),
+  };
+}
+
 /** Después de la Proposal Call: el mensaje que escribiste (o ajustaste) y el botón a la propuesta. */
 export function proposalAfterCall(p: { to: string; subject: string; title: string; message: string; proposalUrl: string; proposalTitle: string }): Mail {
   return {

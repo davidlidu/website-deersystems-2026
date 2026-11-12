@@ -42,6 +42,7 @@ import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
 import { actor, EMAIL_RE, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
+import { approvalDetail, closeApproval, generatePlan, getApproval, openApprovals } from './approvals.ts';
 import { adjustPlan, detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
 const APP_DIR = fileURLToPath(new URL('../../public/partners/', import.meta.url));
@@ -314,6 +315,9 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
       });
     }
     createPayments(p.id, draft.payments);
+    // Si vino de una aprobación del cliente desde el enlace, queda cerrada con su proyecto.
+    const approvalId = Number(body.approvalId);
+    if (approvalId && getApproval(approvalId)?.proposal_id === proposalId) closeApproval(approvalId, 'convertida', p.id);
     const a = actor(v);
     db.logActivity({ projectId: p.id, actorKind: a.kind, actorName: a.name, type: 'project_created', data: { tasks: position } });
     return { project: p, client: theClient };
@@ -373,6 +377,8 @@ function proposalView(p: Proposal) {
     projects: db
       .projectsForProposal(p.id)
       .map((pr) => ({ id: pr.id, name: pr.name, clientId: pr.client_id, approvedOption: pr.approved_option })),
+    /** Aprobaciones del cliente desde el enlace que aún no se convierten en proyecto. */
+    approvals: openApprovals(p.id),
   };
 }
 
@@ -774,6 +780,25 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         if (err instanceof ai.AiError) throw new HttpError(502, err.message);
         throw err;
       }
+    }
+
+    // ── Aprobaciones del cliente desde el enlace de la propuesta
+    case 'GET proposals/:id/approvals/:id':
+    case 'POST proposals/:id/approvals/:id/retry':
+    case 'POST proposals/:id/approvals/:id/discard': {
+      requireOwner(v);
+      const a = getApproval(Number(parts[3]));
+      if (!a || a.proposal_id !== id) throw new HttpError(404, 'La aprobación no existe.');
+      if (route.endsWith('/retry')) {
+        if (a.status === 'generando') throw new HttpError(409, 'El plan ya se está generando.');
+        void generatePlan(a.id);
+        return json(res, 200, approvalDetail(getApproval(a.id)!));
+      }
+      if (route.endsWith('/discard')) {
+        closeApproval(a.id, 'descartada');
+        return json(res, 200, { ok: true });
+      }
+      return json(res, 200, approvalDetail(a));
     }
 
     case 'POST proposals/:id/plan': {

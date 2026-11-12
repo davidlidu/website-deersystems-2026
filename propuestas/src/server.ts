@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,6 +11,7 @@ import { startShareFixer } from './partners/files.ts';
 import { startScheduler } from './partners/meetings.ts';
 import { startUpdatesScheduler } from './partners/updates.ts';
 import { flushAll } from './partners/notify.ts';
+import { approveScript, handleApprovalPage } from './partners/approvals.ts';
 import { handlePartners } from './partners/routes.ts';
 import * as proposals from './proposals.ts';
 import { resolveFile, UploadError } from './storage.ts';
@@ -152,7 +154,6 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
 
 /** /{slug} y /{slug}/ruta/al/asset. Cualquier otra cosa es un 404 neutro, sin pistas de qué existe. */
 async function handleProposal(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-  if (req.method !== 'GET' && req.method !== 'HEAD') return notFound(req, res);
   let segments: string[];
   try {
     segments = url.pathname.slice(1).split('/').map(decodeURIComponent);
@@ -162,12 +163,27 @@ async function handleProposal(req: IncomingMessage, res: ServerResponse, url: UR
   const proposal = db.getProposalBySlug(segments[0].toLowerCase());
   if (!proposal || !proposal.active) return notFound(req, res);
 
+  // Aprobación desde el enlace: /{slug}/aprobar (formulario y envío).
+  if (segments.length === 2 && segments[1] === 'aprobar') return handleApprovalPage(req, res, proposal);
+  if (req.method !== 'GET' && req.method !== 'HEAD') return notFound(req, res);
+
   // Con assets, las rutas relativas del HTML solo resuelven bien bajo /{slug}/.
   if (segments.length === 1 && proposal.has_assets) return redirect(res, `/${proposal.slug}/${url.search}`);
 
   let rel = segments.slice(1).join('/');
   if (rel === '' || rel.endsWith('/')) rel += 'index.html';
   const file = resolveFile(proposal.id, proposal.version, rel);
+  // La página de la propuesta lleva el botón de aprobar apuntando a /{slug}/aprobar.
+  if (rel === 'index.html' && file && req.method === 'GET') {
+    const html = await readFile(file, 'utf8').catch(() => null);
+    if (html === null) return notFound(req, res);
+    const script = approveScript(proposal.slug);
+    const out = /<\/body>/i.test(html) ? html.replace(/<\/body>(?![\s\S]*<\/body>)/i, `${script}</body>`) : html + script;
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache', 'X-Robots-Tag': 'noindex, nofollow, noarchive' });
+    res.end(out);
+    if (!BOT_UA.test(req.headers['user-agent'] ?? '') && sessionEmail(req) === null) db.countView(proposal.id);
+    return;
+  }
   const sent =
     file !== null &&
     (await sendFile(req, res, file, {

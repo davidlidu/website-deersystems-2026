@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, draftBody, emptyDraft, money, today, useApi, usd, type PaymentDraft, type Side, type TeamMember } from '../lib';
+import { api, draftBody, emptyDraft, formatDateTime, money, today, useApi, useLocation, usd, type PaymentDraft, type Side, type TeamMember } from '../lib';
 import { ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
-import type { ProposalRow } from './Proposals';
+import type { ClientApproval, ProposalRow } from './Proposals';
 import { DraftRow } from './project/Payments';
 import { slotLabel, useSlotCheck } from './project/Schedule';
 
@@ -46,6 +46,12 @@ interface DraftResponse {
   ai: { provider: string; model: string; costUsd: number; latencyMs: number; fallbackReason?: string | null };
   existingClientId: number | null;
 }
+interface ApprovalDetail {
+  approval: ClientApproval;
+  draft: Draft | null;
+  ai: DraftResponse['ai'] | null;
+  existingClientId: number | null;
+}
 interface ClientRow {
   id: number;
   name: string;
@@ -73,7 +79,8 @@ interface Result {
 }
 
 const key = () => Math.random().toString(36).slice(2);
-const PRICE_RE = /(\$\s?\d)|(\b(COP|USD|US\$|EUR|pesos|d[oó]lares)\b)|(\b\d{1,3}(?:[.,]\d{3}){2,}\b)|(\b(anticipo|abono|cuota|IVA|precio|valor total|inversi[oó]n)\b)/i;
+const PRICE_RE =
+  /(\$\s?\d)|(\b(COP|USD|US\$|EUR|pesos|d[oó]lares)\b)|(\b\d{1,3}(?:[.,]\d{3}){2,}\b)|(\b(anticipo|abono|cuota|IVA|precio|valor total|inversi[oó]n)\b)/i;
 
 const emptyTask = (): DraftTask => ({ key: key(), title: '', description: '', side: 'deersystems', assigneeId: null, startDate: null, dueDate: null });
 
@@ -91,7 +98,12 @@ interface AdjustResponse {
   ai: DraftResponse['ai'];
 }
 
-const EXAMPLES = ['Mueve el arranque al próximo lunes', 'Agrega una fase de pruebas antes de la entrega', 'Las reuniones de avance a las 3 p. m.', 'El cliente entrega los accesos la primera semana'];
+const EXAMPLES = [
+  'Mueve el arranque al próximo lunes',
+  'Agrega una fase de pruebas antes de la entrega',
+  'Las reuniones de avance a las 3 p. m.',
+  'El cliente entrega los accesos la primera semana',
+];
 
 /** Cuadro de texto para pedirle a la IA cambios al plan que está en pantalla. */
 function AdjustPlan({ onAdjust, onUndo, canUndo }: { onAdjust: (instruction: string) => Promise<string[]>; onUndo: () => void; canUndo: boolean }) {
@@ -129,7 +141,9 @@ function AdjustPlan({ onAdjust, onUndo, canUndo }: { onAdjust: (instruction: str
           </button>
         )}
       </div>
-      <p className="hint">Dile qué cambiar de las fases, tareas, fechas o reuniones. Puedes ajustar varias veces; nada se guarda hasta que crees el proyecto.</p>
+      <p className="hint">
+        Dile qué cambiar de las fases, tareas, fechas o reuniones. Puedes ajustar varias veces; nada se guarda hasta que crees el proyecto.
+      </p>
       <textarea
         rows={3}
         value={text}
@@ -161,9 +175,7 @@ function AdjustPlan({ onAdjust, onUndo, canUndo }: { onAdjust: (instruction: str
       {changes && !busy && (
         <div className="adjust-plan__changes">
           <strong>Cambios aplicados</strong>
-          <ul className="md-list">
-            {changes.length ? changes.map((c, i) => <li key={i}>{c}</li>) : <li>Plan actualizado.</li>}
-          </ul>
+          <ul className="md-list">{changes.length ? changes.map((c, i) => <li key={i}>{c}</li>) : <li>Plan actualizado.</li>}</ul>
           <small>Revisa arriba las fases, tareas y reuniones. Cuando el plan esté listo, crea el proyecto.</small>
         </div>
       )}
@@ -267,6 +279,12 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const [undo, setUndo] = useState<PlanSnapshot | null>(null);
   const [payments, setPayments] = useState<(PaymentDraft & { key: string })[]>([]);
   const [previewing, setPreviewing] = useState(false);
+  // Aprobación del cliente desde el enlace (?aprobacion=ID): el plan ya se armó en segundo plano.
+  const { query } = useLocation();
+  const approvalId = Number(query.get('aprobacion')) || null;
+  const [clientApproval, setClientApproval] = useState<ClientApproval | null>(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
+  const [retries, setRetries] = useState(0);
 
   const proposal = proposals.data?.find((p) => p.id === proposalId);
 
@@ -274,57 +292,90 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     if (proposal && !project.name) setProject((p) => ({ ...p, name: proposal.title || '' }));
   }, [proposal, project.name]);
 
+  /** Pone en pantalla un plan: recién generado aquí o el que se armó cuando el cliente aprobó desde el enlace. */
+  const applyDraft = ({ draft, ai, existingClientId }: DraftResponse) => {
+    setAiInfo(ai);
+    // Avisos del borrador: valores en el alcance, reuniones movidas por choque de horario…
+    draft.warnings?.forEach((w) => toast(w));
+    setClient({ name: draft.clientName, contactName: draft.contactName, email: draft.clientEmail, phone: draft.clientPhone });
+    if (existingClientId) {
+      setClientMode('existing');
+      setExistingId(existingClientId);
+    }
+    setProject({
+      name: draft.projectName || proposal?.title || '',
+      scope: draft.scope,
+      pricing: draft.pricing,
+      approvedOption: draft.approvedOption,
+      approvalNotes: draft.approvalNotes,
+      startDate: draft.startDate ?? today(),
+      endDate: draft.endDate ?? '',
+    });
+    const newPhases = draft.phases.map((ph) => ({ key: key(), name: ph.name, tasks: ph.tasks.map((t) => ({ ...t, key: key(), assigneeId: null })) }));
+    setPhases(newPhases);
+    setMeetings(
+      (draft.meetings ?? []).map((m) => ({
+        key: key(),
+        title: m.title,
+        phaseKey: newPhases[m.phaseIndex]?.key ?? newPhases[0]?.key ?? '',
+        date: m.date ?? '',
+        time: m.time,
+        durationMinutes: m.durationMinutes,
+        purpose: m.purpose,
+        schedule: true,
+      })),
+    );
+    setPayments(
+      (draft.payments ?? []).map((p) => ({
+        key: key(),
+        label: p.label,
+        percent: p.percent?.toString() ?? '',
+        amount: String(p.amount),
+        currency: p.currency,
+        dueDate: p.dueDate ?? '',
+      })),
+    );
+    setStarted(true);
+  };
+
   const generate = (option: ProposalOption | null) => {
     setGenerating('draft');
     setAiError(null);
     api<DraftResponse>('POST', `proposals/${proposalId}/draft`, { option, notes })
-      .then(({ draft, ai, existingClientId }) => {
-        setAiInfo(ai);
-        // Avisos del borrador: valores en el alcance, reuniones movidas por choque de horario…
-        draft.warnings?.forEach((w) => toast(w));
-        setClient({ name: draft.clientName, contactName: draft.contactName, email: draft.clientEmail, phone: draft.clientPhone });
-        if (existingClientId) {
-          setClientMode('existing');
-          setExistingId(existingClientId);
-        }
-        setProject({
-          name: draft.projectName || proposal?.title || '',
-          scope: draft.scope,
-          pricing: draft.pricing,
-          approvedOption: draft.approvedOption,
-          approvalNotes: draft.approvalNotes,
-          startDate: draft.startDate ?? today(),
-          endDate: draft.endDate ?? '',
-        });
-        const newPhases = draft.phases.map((ph) => ({ key: key(), name: ph.name, tasks: ph.tasks.map((t) => ({ ...t, key: key(), assigneeId: null })) }));
-        setPhases(newPhases);
-        setMeetings(
-          (draft.meetings ?? []).map((m) => ({
-            key: key(),
-            title: m.title,
-            phaseKey: newPhases[m.phaseIndex]?.key ?? newPhases[0]?.key ?? '',
-            date: m.date ?? '',
-            time: m.time,
-            durationMinutes: m.durationMinutes,
-            purpose: m.purpose,
-            schedule: true,
-          })),
-        );
-        setPayments(
-          (draft.payments ?? []).map((p) => ({
-            key: key(),
-            label: p.label,
-            percent: p.percent?.toString() ?? '',
-            amount: String(p.amount),
-            currency: p.currency,
-            dueDate: p.dueDate ?? '',
-          })),
-        );
-        setStarted(true);
-      })
+      .then(applyDraft)
       .catch((err) => setAiError(err.message))
       .finally(() => setGenerating(null));
   };
+
+  useEffect(() => {
+    if (!approvalId) return;
+    let timer: number | undefined;
+    let alive = true;
+    const load = () =>
+      api<ApprovalDetail>('GET', `proposals/${proposalId}/approvals/${approvalId}`)
+        .then((r) => {
+          if (!alive) return;
+          setClientApproval(r.approval);
+          if (r.approval.status === 'listo' && r.draft && r.ai) applyDraft({ draft: r.draft, ai: r.ai, existingClientId: r.existingClientId });
+          else if (r.approval.status === 'generando') timer = window.setTimeout(load, 4000);
+          else if (r.approval.status !== 'error') setApprovalError('Esta aprobación ya se convirtió en proyecto o se descartó.');
+        })
+        .catch((err) => alive && setApprovalError(err.message));
+    load();
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+    // applyDraft cambia en cada render; solo se carga al abrir o al reintentar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approvalId, proposalId, retries]);
+
+  const retryApproval = () =>
+    run(async () => {
+      await api('POST', `proposals/${proposalId}/approvals/${approvalId}/retry`);
+      setClientApproval((a) => (a ? { ...a, status: 'generando', error: null } : a));
+      setRetries((n) => n + 1);
+    });
 
   /** Primero mira si la propuesta trae alternativas; si es una sola oferta, genera el plan de una vez. */
   const analyze = () => {
@@ -343,7 +394,16 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   };
 
   const startBlank = () => {
-    setProject((p) => ({ ...p, approvedOption: chosen !== null && options ? options[chosen].name : '', approvalNotes: notes }));
+    if (clientApproval) {
+      setProject((p) => ({ ...p, approvedOption: clientApproval.optionName, approvalNotes: clientApproval.notes }));
+      setClient((c) => ({
+        ...c,
+        name: c.name || clientApproval.company || clientApproval.name,
+        contactName: clientApproval.name,
+        email: clientApproval.email,
+        phone: clientApproval.phone,
+      }));
+    } else setProject((p) => ({ ...p, approvedOption: chosen !== null && options ? options[chosen].name : '', approvalNotes: notes }));
     setPhases([{ key: key(), name: 'Fase 1', tasks: [emptyTask()] }]);
     setStarted(true);
   };
@@ -355,7 +415,14 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   if (result) {
     return (
       <>
-        <PageHead eyebrow="Propuesta aprobada" title={<>Proyecto <span className="grad">creado</span></>}>
+        <PageHead
+          eyebrow="Propuesta aprobada"
+          title={
+            <>
+              Proyecto <span className="grad">creado</span>
+            </>
+          }
+        >
           <p>
             <strong>{result.project.name}</strong> ya está en el espacio de {result.client.name}.
           </p>
@@ -370,8 +437,8 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           )}
           {result.meetings.scheduled > 0 && (
             <p className="callout">
-              Se agendaron {result.meetings.scheduled} {result.meetings.scheduled === 1 ? 'reunión' : 'reuniones'} de avance en tu Google Calendar; el cliente recibió las
-              invitaciones.
+              Se agendaron {result.meetings.scheduled} {result.meetings.scheduled === 1 ? 'reunión' : 'reuniones'} de avance en tu Google Calendar; el cliente
+              recibió las invitaciones.
             </p>
           )}
           {result.meetings.errors.map((e) => (
@@ -402,8 +469,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const updatePhase = (k: string, patch: Partial<DraftPhase>) => setPhases((ps) => ps.map((p) => (p.key === k ? { ...p, ...patch } : p)));
   const updateTask = (pk: string, tk: string, patch: Partial<DraftTask>) =>
     setPhases((ps) => ps.map((p) => (p.key === pk ? { ...p, tasks: p.tasks.map((t) => (t.key === tk ? { ...t, ...patch } : t)) } : p)));
-  const removeTask = (pk: string, tk: string) =>
-    setPhases((ps) => ps.map((p) => (p.key === pk ? { ...p, tasks: p.tasks.filter((t) => t.key !== tk) } : p)));
+  const removeTask = (pk: string, tk: string) => setPhases((ps) => ps.map((p) => (p.key === pk ? { ...p, tasks: p.tasks.filter((t) => t.key !== tk) } : p)));
   const move = (index: number, dir: -1 | 1) =>
     setPhases((ps) => {
       const next = [...ps];
@@ -416,7 +482,8 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const taskCount = phases.reduce((n, p) => n + p.tasks.filter((t) => t.title.trim()).length, 0);
   const clientTasks = phases.reduce((n, p) => n + p.tasks.filter((t) => t.side === 'cliente' && t.title.trim()).length, 0);
   const priceWarning =
-    PRICE_RE.test(`${project.scope} ${project.approvedOption} ${project.approvalNotes}`) || phases.some((p) => p.tasks.some((t) => PRICE_RE.test(`${t.title} ${t.description}`)));
+    PRICE_RE.test(`${project.scope} ${project.approvedOption} ${project.approvalNotes}`) ||
+    phases.some((p) => p.tasks.some((t) => PRICE_RE.test(`${t.title} ${t.description}`)));
   const activeTeam = (team.data ?? []).filter((m) => m.active);
 
   /** Manda el plan en pantalla y la instrucción; aplica el plan ajustado y guarda el anterior para deshacer. */
@@ -432,7 +499,14 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
         phases: phases.map((p) => ({ name: p.name, tasks: p.tasks.filter((t) => t.title.trim()) })),
         meetings: meetings
           .filter((m) => m.title.trim())
-          .map((m) => ({ ...m, phaseIndex: Math.max(0, phases.findIndex((p) => p.key === m.phaseKey)), date: m.date || null })),
+          .map((m) => ({
+            ...m,
+            phaseIndex: Math.max(
+              0,
+              phases.findIndex((p) => p.key === m.phaseKey),
+            ),
+            date: m.date || null,
+          })),
       },
     });
     // Lo que la IA no conoce (responsable, si se agenda) se conserva por título.
@@ -487,12 +561,16 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
       const validMeetings = meetings.filter((m) => m.title.trim());
       const r = await api<Result>('POST', 'projects', {
         proposalId,
+        approvalId,
         client: clientMode === 'existing' ? { id: existingId, email: accessEmail } : client,
         project,
         phases: sent.map((p) => ({ name: p.name, tasks: p.tasks.filter((t) => t.title.trim()) })),
         meetings: validMeetings.map((m) => ({
           title: m.title,
-          phaseIndex: Math.max(0, sent.findIndex((p) => p.key === m.phaseKey)),
+          phaseIndex: Math.max(
+            0,
+            sent.findIndex((p) => p.key === m.phaseKey),
+          ),
           date: m.date || null,
           time: m.time,
           durationMinutes: m.durationMinutes,
@@ -512,7 +590,14 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
       <div className="crumbs">
         <Link to="/propuestas">Propuestas</Link> / {proposal.title || proposal.slug}
       </div>
-      <PageHead eyebrow="Propuesta aprobada" title={<>Arma el <span className="grad">plan de trabajo</span></>}>
+      <PageHead
+        eyebrow="Propuesta aprobada"
+        title={
+          <>
+            Arma el <span className="grad">plan de trabajo</span>
+          </>
+        }
+      >
         <p>
           La IA lee{' '}
           <a href={proposal.url} target="_blank" rel="noopener">
@@ -525,7 +610,42 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
         )}
       </PageHead>
 
-      {!started && (
+      {clientApproval && (
+        <div className="callout client-approval-info">
+          <strong>
+            {clientApproval.name} aprobó la propuesta el {formatDateTime(clientApproval.createdAt)}
+            {clientApproval.optionName && <> · {clientApproval.optionName}</>}
+          </strong>
+          <span>
+            {[clientApproval.email, clientApproval.company, clientApproval.phone].filter(Boolean).join(' · ')}
+            {clientApproval.version !== proposal.version && ` · aprobó la versión ${clientApproval.version} (hoy va en la ${proposal.version})`}
+          </span>
+          {clientApproval.notes && <span>Comentarios: «{clientApproval.notes}»</span>}
+        </div>
+      )}
+      {approvalError && <ErrorBox message={approvalError} />}
+
+      {approvalId && !started && !approvalError && (
+        <div className="card generate stack">
+          {!clientApproval || clientApproval.status === 'generando' ? (
+            <Loading label="La IA está armando el plan con la opción que aprobó el cliente… puede tardar hasta un minuto." />
+          ) : (
+            <>
+              <ErrorBox message={`No se pudo armar el plan: ${clientApproval.error ?? 'error desconocido'}`} />
+              <div className="actions">
+                <button className="btn btn--primary" disabled={busy} onClick={retryApproval}>
+                  Reintentar con IA
+                </button>
+                <button className="btn btn--outline" onClick={startBlank}>
+                  Empezar en blanco
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {!started && !approvalId && (
         <div className="card generate stack">
           {generating ? (
             <Loading
@@ -572,11 +692,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               </label>
               <div className="actions">
                 {options && options.length > 1 ? (
-                  <button
-                    className="btn btn--primary"
-                    disabled={chosen === null}
-                    onClick={() => generate(chosen === null ? null : options[chosen])}
-                  >
+                  <button className="btn btn--primary" disabled={chosen === null} onClick={() => generate(chosen === null ? null : options[chosen])}>
                     Generar plan con esta opción
                   </button>
                 ) : (
@@ -603,7 +719,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           {project.approvedOption && (
             <p className="callout">
               Plan armado con <strong>{project.approvedOption}</strong>
-              {project.approvalNotes ? ` · ${project.approvalNotes}` : ''}.
+              {project.approvalNotes ? ` · ${project.approvalNotes.replace(/[.\s]+$/, '')}` : ''}.
             </p>
           )}
           {aiInfo && (
@@ -624,11 +740,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               <button className={clientMode === 'new' ? 'is-active' : ''} onClick={() => setClientMode('new')}>
                 Cliente nuevo
               </button>
-              <button
-                className={clientMode === 'existing' ? 'is-active' : ''}
-                onClick={() => setClientMode('existing')}
-                disabled={!clients.data?.length}
-              >
+              <button className={clientMode === 'existing' ? 'is-active' : ''} onClick={() => setClientMode('existing')} disabled={!clients.data?.length}>
                 Cliente existente
               </button>
             </div>
@@ -753,10 +865,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                   <button className="btn btn--outline btn--sm" onClick={() => move(i, 1)} disabled={i === phases.length - 1} aria-label="Bajar fase">
                     ↓
                   </button>
-                  <button
-                    className="btn btn--outline btn--sm btn--danger"
-                    onClick={() => setPhases((ps) => ps.filter((p) => p.key !== ph.key))}
-                  >
+                  <button className="btn btn--outline btn--sm btn--danger" onClick={() => setPhases((ps) => ps.filter((p) => p.key !== ph.key))}>
                     Quitar fase
                   </button>
                 </div>
@@ -842,13 +951,11 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           <section className="card form-section">
             <div className="form-section__head">
               <h2>Reuniones de avance con el cliente</h2>
-              <span className="mono">
-                {meetings.filter((m) => m.schedule && canSchedule && m.date).length} se agendarán
-              </span>
+              <span className="mono">{meetings.filter((m) => m.schedule && canSchedule && m.date).length} se agendarán</span>
             </div>
             <p className="hint">
-              Cada reunión queda como tarea en su fase del cronograma. Las marcadas se agendan en tu Google Calendar con Meet y el cliente
-              recibe la invitación{canSchedule ? '' : ' (para agendarlas, conecta Google con permiso de crear eventos en Configuración)'}.
+              Cada reunión queda como tarea en su fase del cronograma. Las marcadas se agendan en tu Google Calendar con Meet y el cliente recibe la invitación
+              {canSchedule ? '' : ' (para agendarlas, conecta Google con permiso de crear eventos en Configuración)'}.
             </p>
             {meetings.map((m) => {
               const setM = (patch: Partial<DraftMeeting>) => setMeetings((ms) => ms.map((x) => (x.key === m.key ? { ...x, ...patch } : x)));
@@ -856,7 +963,12 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                 <div key={m.key} className="draft-task side-deersystems draft-meeting">
                   <div className="draft-task__row">
                     <label className="check check--chip" title="Agendar en Google Calendar">
-                      <input type="checkbox" checked={m.schedule && canSchedule} disabled={!canSchedule} onChange={(e) => setM({ schedule: e.target.checked })} />
+                      <input
+                        type="checkbox"
+                        checked={m.schedule && canSchedule}
+                        disabled={!canSchedule}
+                        onChange={(e) => setM({ schedule: e.target.checked })}
+                      />
                       📅
                     </label>
                     <span className="input draft-task__title">
@@ -886,11 +998,20 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                         ))}
                       </select>
                     </span>
-                    <button className="btn btn--outline btn--sm btn--danger" onClick={() => setMeetings((ms) => ms.filter((x) => x.key !== m.key))} aria-label="Quitar reunión">
+                    <button
+                      className="btn btn--outline btn--sm btn--danger"
+                      onClick={() => setMeetings((ms) => ms.filter((x) => x.key !== m.key))}
+                      aria-label="Quitar reunión"
+                    >
                       ✕
                     </button>
                   </div>
-                  <textarea rows={1} value={m.purpose} placeholder="Qué se presenta o se valida con el cliente" onChange={(e) => setM({ purpose: e.target.value })} />
+                  <textarea
+                    rows={1}
+                    value={m.purpose}
+                    placeholder="Qué se presenta o se valida con el cliente"
+                    onChange={(e) => setM({ purpose: e.target.value })}
+                  />
                   {(() => {
                     const c = clashes.get(m.key);
                     if (!c?.conflict) return null;
@@ -898,7 +1019,11 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                       <p className="alert slot-status">
                         Horario ocupado: se cruza con «{c.conflict.title}» ({c.conflict.start} – {c.conflict.end}).{' '}
                         {c.suggestion && (
-                          <button type="button" className="btn btn--outline btn--xs" onClick={() => setM({ date: c.suggestion!.date, time: c.suggestion!.time })}>
+                          <button
+                            type="button"
+                            className="btn btn--outline btn--xs"
+                            onClick={() => setM({ date: c.suggestion!.date, time: c.suggestion!.time })}
+                          >
                             Mover a {slotLabel(c.suggestion.date, c.suggestion.time)}
                           </button>
                         )}
@@ -913,7 +1038,16 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               onClick={() =>
                 setMeetings((ms) => [
                   ...ms,
-                  { key: key(), title: 'Reunión de avance con el cliente', phaseKey: phases[phases.length - 1]?.key ?? '', date: '', time: '10:00', durationMinutes: 45, purpose: '', schedule: true },
+                  {
+                    key: key(),
+                    title: 'Reunión de avance con el cliente',
+                    phaseKey: phases[phases.length - 1]?.key ?? '',
+                    date: '',
+                    time: '10:00',
+                    durationMinutes: 45,
+                    purpose: '',
+                    schedule: true,
+                  },
                 ])
               }
             >
@@ -933,8 +1067,8 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               </span>
             </div>
             <p className="hint">
-              El plan de pagos según la propuesta. Queda en la pestaña Pagos del proyecto (lo ven tú y el cliente, nunca el equipo); al marcar uno como
-              pagado se registra en tu Gestor financiero.
+              El plan de pagos según la propuesta. Queda en la pestaña Pagos del proyecto (lo ven tú y el cliente, nunca el equipo); al marcar uno como pagado
+              se registra en tu Gestor financiero.
             </p>
             {payments.map((p) => (
               <DraftRow
@@ -944,10 +1078,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                 onRemove={() => setPayments((ps) => ps.filter((x) => x.key !== p.key))}
               />
             ))}
-            <button
-              className="btn btn--outline btn--sm"
-              onClick={() => setPayments((ps) => [...ps, { ...emptyDraft(ps[0]?.currency), key: key() }])}
-            >
+            <button className="btn btn--outline btn--sm" onClick={() => setPayments((ps) => [...ps, { ...emptyDraft(ps[0]?.currency), key: key() }])}>
               + Pago
             </button>
           </section>
