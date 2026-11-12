@@ -5,7 +5,7 @@ import * as google from '../google.ts';
 import { HttpError, json, readJson } from '../http.ts';
 import { invoiceForClient } from '../mail.ts';
 import type { Viewer } from './auth.ts';
-import { EMAIL_RE, optDate, requireOwner, str } from './common.ts';
+import { EMAIL_RE, optDate, requireOwner, seesMoney, str } from './common.ts';
 import * as db from './db.ts';
 import { onScheduled, readSendAt, scheduleMail } from './scheduled.ts';
 import { deleteIncome, FinanceError, paymentMethodFor, todayBogota, trmFor, upsertIncome } from './finance.ts';
@@ -829,12 +829,73 @@ export const paymentInstructions = () => {
   return { name: p.name, docType: p.docType, docNumber: p.docNumber, bankInfo: p.bankInfo, qr: p.qr };
 };
 
+// ───────── Búsqueda en el contenido ─────────
+
+/** Sin HTML ni Markdown y con espacios simples: «Diseño <b>web</b>» → «Diseño web». */
+const strip = (t: string) =>
+  t
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/[*_`#>|]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+/** Para comparar: minúsculas y sin tildes (mismo largo que el texto, para ubicar el fragmento). */
+const fold = (t: string) => t.normalize('NFC').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const plain = (t: string) => fold(strip(t));
+
+/**
+ * Cuentas de cobro cuyo contenido tiene todas las palabras buscadas (en cualquier orden): descripción de los ítems,
+ * notas, número, cliente y proyecto. Un número (p. ej. «1.258.000») también encuentra ese total o ese valor de ítem.
+ * Devuelve el fragmento donde aparece, para mostrarlo en la lista.
+ */
+export function searchInvoices(q: string): { id: number; snippet: string }[] {
+  const words = plain(q).split(' ').filter((w) => w.length > 1 || /\d/.test(w));
+  if (!words.length) return [];
+  const amount = /^[\d.,$\s]+$/.test(q.trim()) ? Number(q.replace(/[^\d]/g, '')) : 0;
+  const items = new Map<number, { text: string; values: number[] }[]>();
+  for (const it of sqlite.prepare('SELECT invoice_id, description, quantity, unit_price FROM invoice_items ORDER BY invoice_id, position').all() as {
+    invoice_id: number;
+    description: string;
+    quantity: number;
+    unit_price: number;
+  }[]) {
+    const list = items.get(it.invoice_id) ?? [];
+    list.push({ text: strip(it.description).normalize('NFC'), values: [it.unit_price, it.quantity * it.unit_price] });
+    items.set(it.invoice_id, list);
+  }
+  const clients = new Map(db.listClients().map((c) => [c.id, plain(c.name)]));
+  const out: { id: number; snippet: string }[] = [];
+  for (const r of sqlite.prepare('SELECT id, number, client_id, project_id, notes, total, total_cop FROM invoices ORDER BY date DESC, id DESC').all() as {
+    id: number;
+    number: string;
+    client_id: number;
+    project_id: number | null;
+    notes: string;
+    total: number;
+    total_cop: number;
+  }[]) {
+    const its = items.get(r.id) ?? [];
+    const notes = strip(r.notes).normalize('NFC');
+    const hay = [r.number.toLowerCase(), clients.get(r.client_id) ?? '', r.project_id ? plain(db.getProject(r.project_id)?.name ?? '') : '', fold(notes), ...its.map((i) => fold(i.text))].join(' · ');
+    const byAmount = amount > 0 && [r.total, r.total_cop, ...its.flatMap((i) => i.values)].some((n) => Math.round(n) === amount);
+    if (!byAmount && !words.every((w) => hay.includes(w))) continue;
+    // El fragmento: el primer ítem (o las notas) donde aparece la primera palabra.
+    const source = [...its.map((i) => i.text), notes].find((t) => words.some((w) => fold(t).includes(w))) ?? '';
+    const at = Math.max(0, fold(source).indexOf(words.find((w) => fold(source).includes(w)) ?? ''));
+    const from = Math.max(0, at - 40);
+    const snippet = source ? `${from > 0 ? '…' : ''}${source.slice(from, from + 140)}${source.length > from + 140 ? '…' : ''}` : '';
+    out.push({ id: r.id, snippet });
+  }
+  return out;
+}
+
 // ───────── Rutas ─────────
 
 function visibleInvoice(id: number, v: Viewer): InvoiceRow {
   const r = getInvoice(id);
   // El cliente solo ve las suyas y nunca las anuladas; el equipo, ninguna.
-  if (!r || v.kind === 'team' || (v.kind === 'client' && (r.client_id !== v.clientId || r.status === 'anulada'))) {
+  if (!r || !seesMoney(v) || (v.kind === 'client' && (r.client_id !== v.clientId || r.status === 'anulada'))) {
     throw new HttpError(404, 'La cuenta de cobro no existe.');
   }
   return r;
@@ -860,7 +921,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
   switch (route) {
     // ── Cuentas de cobro
     case 'GET invoices': {
-      if (v.kind === 'team') throw new HttpError(403, 'No tienes acceso a la facturación.');
+      if (!seesMoney(v)) throw new HttpError(403, 'No tienes acceso a la facturación.');
       const f = filterBy(url);
       if (v.kind === 'client') {
         f.sql = f.sql ? `${f.sql} AND client_id = ? AND status != 'anulada'` : "WHERE client_id = ? AND status != 'anulada'";
@@ -868,6 +929,13 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       }
       const rows = sqlite.prepare(`SELECT * FROM invoices ${f.sql} ORDER BY date DESC, id DESC`).all(...f.args) as unknown as InvoiceRow[];
       json(res, 200, rows.map(invoiceSummary));
+      return true;
+    }
+
+    // Buscar en el contenido: ítems, notas, montos (además de número, cliente y proyecto, que filtra la lista).
+    case 'GET invoices/search': {
+      requireOwner(v);
+      json(res, 200, searchInvoices(url.searchParams.get('q') ?? ''));
       return true;
     }
 
@@ -1097,7 +1165,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
 
     // ── Estado de cuenta, reportes y perfil
     case 'GET clients/:id/statement': {
-      if (v.kind === 'team' || (v.kind === 'client' && v.clientId !== id)) throw new HttpError(403, 'No tienes acceso a la facturación.');
+      if (!seesMoney(v) || (v.kind === 'client' && v.clientId !== id)) throw new HttpError(403, 'No tienes acceso a la facturación.');
       if (!db.getClient(id)) throw new HttpError(404, 'El cliente no existe.');
       const s = statement(id);
       const owner = v.kind === 'owner';

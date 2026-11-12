@@ -279,7 +279,7 @@ function view(m: Row, v: Viewer) {
           sentTo: parse<string[]>(m.sent_to, []),
           clientContacts: [
             ...(prospectOf(m)?.email ? [{ email: prospectOf(m)!.email, name: prospectOf(m)!.contact, label: 'Contacto del prospecto' }] : []),
-            ...clientContacts(project?.client_id ?? m.client_id),
+            ...clientContacts(project?.client_id ?? m.client_id, project?.id ?? null),
           ].filter((c, i, list) => list.findIndex((x) => x.email === c.email) === i),
           proposal: proposalInfo(m.proposal_id),
           proposalSentAt: m.proposal_sent_at,
@@ -295,7 +295,7 @@ function proposalInfo(id: number | null) {
 }
 
 /** Correos principales del cliente para el resumen: la cuenta del portal y el correo de contacto, si son distintos. */
-function clientContacts(clientId: number | null): { email: string; name: string; label: string }[] {
+function clientContacts(clientId: number | null, projectId: number | null = null): { email: string; name: string; label: string }[] {
   if (!clientId) return [];
   const client = db.getClient(clientId);
   const out: { email: string; name: string; label: string }[] = [];
@@ -304,6 +304,8 @@ function clientContacts(clientId: number | null): { email: string; name: string;
     if (e && !out.some((x) => x.email === e)) out.push({ email: e, name, label });
   };
   add(db.getClientAccount(clientId)?.email, client?.contact_name || client?.name || '', 'Cuenta principal');
+  // Las demás personas del cliente que ven el proyecto (p. ej. el ejecutivo que lo lleva).
+  for (const a of projectId ? db.projectClientAccounts(projectId) : []) add(a.email, a.name, 'Acceso al portal');
   add(client?.email, client?.contact_name || client?.name || '', 'Correo de contacto');
   for (const e of db.extraEmails(client)) add(e.email, '', e.label || 'Otro correo');
   return out;
@@ -330,8 +332,7 @@ function clientByEmail(): Map<string, number> {
   const map = new Map<string, number>();
   for (const c of db.listClients()) {
     if (c.email) map.set(c.email.toLowerCase(), c.id);
-    const a = db.getClientAccount(c.id);
-    if (a) map.set(a.email.toLowerCase(), c.id);
+    for (const a of db.listClientAccounts(c.id)) map.set(a.email.toLowerCase(), c.id);
   }
   return map;
 }
@@ -772,10 +773,10 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
   if (start.getTime() < Date.now() - 5 * 60_000) throw new HttpError(400, 'La fecha ya pasó.');
   const end = new Date(start.getTime() + minutes * 60_000);
   const client = db.getClient(project.client_id)!;
-  const account = db.getClientAccount(client.id);
   const emails = new Set<string>();
-  const clientEmail = account?.email ?? client.email;
-  if (input.includeClient && clientEmail) emails.add(clientEmail.toLowerCase());
+  // El cliente: todas las personas que ven el proyecto (la cuenta principal y su ejecutivo), o su correo de contacto.
+  const people = db.projectClientAccounts(project.id).map((a) => a.email);
+  if (input.includeClient) for (const e of people.length ? people : client.email ? [client.email] : []) emails.add(e.toLowerCase());
   const teamIds = new Set(input.teamIds);
   for (const a of db.listTeam()) if (a.active && teamIds.has(a.id)) emails.add(a.email.toLowerCase());
   for (const g of input.guests) {
@@ -865,9 +866,9 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       requireOwner(v);
       const project = visibleProject(id, v);
       const client = db.getClient(project.client_id)!;
-      const account = db.getClientAccount(client.id);
+      const people = db.projectClientAccounts(project.id).map((a) => a.email);
       json(res, 200, {
-        client: { name: client.contact_name || client.name, company: client.name, email: account?.email ?? client.email },
+        client: { name: client.contact_name || client.name, company: client.name, email: people.length ? people.join(', ') : client.email },
         team: db.listTeam().filter((a) => a.active).map((a) => ({ id: a.id, name: a.name, email: a.email })),
         phases: db.listPhases(project.id).map((p) => ({ id: p.id, name: p.name })),
         canSchedule: google.connectionStatus().connected && google.hasAnyScope('calendar.events'),

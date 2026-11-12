@@ -6,6 +6,7 @@ import { useUngroup } from './billing/GroupBar';
 import { ReceiptDetail } from './billing/ReceiptDetail';
 import { ReceiptForm } from './billing/ReceiptForm';
 import { ProjectCard } from './Home';
+import { ClientPeople, type ClientAccount } from './ClientPeople';
 
 interface ClientDetail {
   id: number;
@@ -21,6 +22,8 @@ interface ClientDetail {
   sb_id: string | null;
   extraEmails: ExtraEmail[];
   account: { email: string; active: boolean; lastLoginAt: string | null } | null;
+  /** Todas las personas que entran al portal (la principal primero). */
+  accounts: ClientAccount[];
   projects: ProjectSummary[];
 }
 
@@ -384,6 +387,7 @@ export function ClientPage({ me, id }: { me: Me; id: number }) {
           <Empty>Este cliente no tiene proyectos.</Empty>
         )}
       </section>
+      {owner && c.account && <ClientPeople clientId={c.id} accounts={c.accounts} projects={c.projects} onChange={reload} />}
       {owner && <ClientStatement clientId={c.id} />}
       {owner && <BillingData key={c.id} c={c} onSaved={reload} />}
     </>

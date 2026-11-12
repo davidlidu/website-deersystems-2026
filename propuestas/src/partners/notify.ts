@@ -152,9 +152,12 @@ export function notify(
     } else if (audience === 'team' && ctx.accountId && ctx.accountId !== actorAccount) {
       const a = db.getAccount(ctx.accountId);
       if (a?.active && a.role === 'team') targets.push({ recipient: { kind: 'account', id: a.id }, email: a.email, name: a.name, client: false });
-    } else if (audience === 'client' && project && ctx.actor?.kind !== 'client') {
-      const a = db.getClientAccount(project.client_id);
-      if (a?.active) targets.push({ recipient: { kind: 'account', id: a.id }, email: a.email, name: a.name, client: true });
+    } else if (audience === 'client' && project) {
+      // Todas las personas del cliente que ven el proyecto (p. ej. el ejecutivo que lo lleva), menos quien lo hizo.
+      for (const a of db.projectClientAccounts(project.id)) {
+        if (a.id === actorAccount) continue;
+        targets.push({ recipient: { kind: 'account', id: a.id }, email: a.email, name: a.name, client: true });
+      }
     }
 
     const body = (ctx.body ?? '').replace(/[*_`#>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 200);
@@ -184,12 +187,10 @@ export function notify(
   }
 }
 
-/** La cuenta del cliente del proyecto si este aviso le llega por correo (lo permites tú y no lo apagó en «Mi cuenta»). */
-export function clientEmailFor(type: EventType, projectId: number): db.Account | null {
-  const project = db.getProject(projectId);
-  const a = project ? db.getClientAccount(project.client_id) : undefined;
-  if (!a?.active || !getSettings().events[type].email) return null;
-  return db.getPersonalPrefs(a.id)[type]?.email === false ? null : a;
+/** Las personas del cliente que ven el proyecto y a las que este aviso les llega por correo (lo permites tú y no lo apagaron en «Mi cuenta»). */
+export function clientEmailsFor(type: EventType, projectId: number): db.Account[] {
+  if (!getSettings().events[type].email) return [];
+  return db.projectClientAccounts(projectId).filter((a) => db.getPersonalPrefs(a.id)[type]?.email !== false);
 }
 
 /** Cómo lo lee cada persona en «Mi cuenta» (el texto de Configuración está escrito para ti). */

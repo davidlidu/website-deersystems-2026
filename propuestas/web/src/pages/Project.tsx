@@ -4,6 +4,7 @@ import {
   formatDate,
   navigate,
   PROJECT_STATUS,
+  seesMoney,
   useApi,
   useLocation,
   type Me,
@@ -87,6 +88,26 @@ function Segmented<T extends string>({ value, options, onChange, label, tour }: 
         </button>
       ))}
     </div>
+  );
+}
+
+/** Descarga el cronograma en PDF (A4 horizontal) con las tareas que se ven, respetando los filtros. */
+function GanttPdfButton({ project, tasks }: { project: ProjectDetail; tasks: Task[] }) {
+  const { busy, run } = useAction();
+  return (
+    <button
+      className="btn btn--outline btn--sm"
+      disabled={busy || !tasks.length}
+      title={tasks.length < project.tasks.length ? 'Se descarga con los filtros aplicados' : 'Descargar el cronograma en PDF'}
+      onClick={() =>
+        run(async () => {
+          const { downloadGanttPdf } = await import('./project/ganttPdf');
+          await downloadGanttPdf(project, tasks, { filtered: tasks.length < project.tasks.length });
+        })
+      }
+    >
+      {busy ? 'Generando…' : 'Descargar PDF'}
+    </button>
   );
 }
 
@@ -216,7 +237,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
 
   // Lo que ya mandó a revisión no cuenta: está en manos de DeerSystems.
   const mine = p.tasks.filter((t) => t.side === 'cliente' && t.status !== 'completada' && t.status !== 'en_revision').length;
-  const hasCommercial = me.role !== 'team' && (p.pricing || p.proposalUrl);
+  const hasCommercial = seesMoney(me) && (p.pricing || p.proposalUrl);
   const openTask = drawer?.taskId ? p.tasks.find((t) => t.id === drawer.taskId) : null;
 
   const tabs: [Tab, string][] = [
@@ -224,8 +245,8 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
     ['plan', 'Plan de trabajo'],
     ['documentacion', 'Documentación'],
     ['alcance', hasCommercial ? 'Alcance y propuesta' : 'Alcance'],
-    // Los pagos son valores: los ves tú y el cliente, nunca el equipo.
-    ...(me.role !== 'team' ? ([['pagos', 'Pagos']] as [Tab, string][]) : []),
+    // Los pagos son valores: los ves tú y el cliente (si esa persona tiene permiso de pagos), nunca el equipo.
+    ...(seesMoney(me) ? ([['pagos', 'Pagos']] as [Tab, string][]) : []),
   ];
 
   return (
@@ -332,11 +353,14 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
                 ['reuniones', 'Calendario de reuniones'],
               ]}
             />
-            {staff && plan !== 'reuniones' && (
-              <button className="btn btn--primary btn--sm" onClick={() => setDrawer({ taskId: null, defaults: {} })}>
-                + Nueva tarea
-              </button>
-            )}
+            <div className="actions actions--tight">
+              {plan === 'cronograma' && <GanttPdfButton project={p} tasks={tasks} />}
+              {staff && plan !== 'reuniones' && (
+                <button className="btn btn--primary btn--sm" onClick={() => setDrawer({ taskId: null, defaults: {} })}>
+                  + Nueva tarea
+                </button>
+              )}
+            </div>
           </div>
           {plan === 'reuniones' ? (
             <div className="narrow-col">
@@ -474,7 +498,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
         </section>
       )}
 
-      {tab === 'pagos' && me.role !== 'team' && (
+      {tab === 'pagos' && seesMoney(me) && (
         <section className="section section--flush">
           <PaymentsPanel me={me} projectId={p.id} clientId={p.clientId} />
         </section>

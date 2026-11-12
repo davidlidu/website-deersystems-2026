@@ -4,7 +4,7 @@ import { db as sqlite } from '../db.ts';
 import { HttpError, json, readJson } from '../http.ts';
 import type { Viewer } from './auth.ts';
 import * as billing from './billing.ts';
-import { optDate, requireOwner, str, visibleProject } from './common.ts';
+import { optDate, requireOwner, seesMoney, str, visibleProject } from './common.ts';
 import * as db from './db.ts';
 import { financeConfigured, todayBogota, trmFor } from './finance.ts';
 
@@ -139,7 +139,7 @@ function view(r: Row, v: Viewer) {
 function visiblePayment(id: number, v: Viewer): Row {
   const r = get(id);
   if (!r) throw new HttpError(404, 'El pago no existe.');
-  if (v.kind === 'team') throw new HttpError(403, 'No tienes acceso a los pagos.');
+  if (!seesMoney(v)) throw new HttpError(403, 'No tienes acceso a los pagos.');
   visibleProject(r.project_id, v);
   return r;
 }
@@ -233,7 +233,7 @@ Usa solo los valores de la opción aprobada.`,
 export async function handlePayments(route: string, id: number, req: IncomingMessage, res: ServerResponse, v: Viewer): Promise<boolean> {
   switch (route) {
     case 'GET projects/:id/payments': {
-      if (v.kind === 'team') throw new HttpError(403, 'No tienes acceso a los pagos.');
+      if (!seesMoney(v)) throw new HttpError(403, 'No tienes acceso a los pagos.');
       visibleProject(id, v);
       json(res, 200, { payments: listFor(id).map((r) => view(r, v)), ...(v.kind === 'owner' ? { finance: financeConfigured() } : {}) });
       return true;

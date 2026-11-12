@@ -42,7 +42,7 @@ import { createPayments, handlePayments } from './payments.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
-import { actor, EMAIL_RE, isStaff, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
+import { actor, clientSees, EMAIL_RE, isStaff, seesMoney, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { approvalDetail, closeApproval, generatePlan, getApproval, openApprovals } from './approvals.ts';
 import { adjustPlan, detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
@@ -56,9 +56,8 @@ function proposalUrl(proposalId: number | null): string | null {
   return p?.active ? `${PUBLIC_URL}/${p.slug}` : null;
 }
 
-/** El equipo nunca recibe precios ni el enlace a la propuesta (que también los tiene). */
+/** El equipo (y la persona del cliente sin permiso de pagos) nunca recibe precios ni el enlace a la propuesta (que también los tiene). */
 function projectSummary(p: db.Project, v: Viewer) {
-  const seesMoney = v.kind !== 'team';
   const client = db.getClient(p.client_id);
   return {
     id: p.id,
@@ -71,7 +70,7 @@ function projectSummary(p: db.Project, v: Viewer) {
     endDate: p.end_date,
     approvedAt: p.approved_at,
     progress: db.progressOf(p.id),
-    ...(seesMoney ? { proposalUrl: proposalUrl(p.proposal_id) } : {}),
+    ...(seesMoney(v) ? { proposalUrl: proposalUrl(p.proposal_id) } : {}),
   };
 }
 
@@ -83,7 +82,7 @@ function projectDetail(p: db.Project, v: Viewer) {
     ...projectSummary(p, v),
     scope: p.scope,
     approvalNotes: p.approval_notes,
-    ...(v.kind !== 'team' ? { pricing: p.pricing } : {}),
+    ...(seesMoney(v) ? { pricing: p.pricing } : {}),
     ...(isStaff(v) ? { autoUpdates: autoUpdatesOn(p.id) } : {}),
     phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })),
     tasks: db.listTasks(p.id).map((t) => taskView(t, v, team, comments, files)),
@@ -399,6 +398,32 @@ async function handleHistory(req: IncomingMessage, res: ServerResponse, url: URL
   if (!ok) throw new HttpError(404, 'Esa versión ya no está disponible.');
 }
 
+// ───────── Personas del cliente ─────────
+
+function clientAccountView(a: db.Account) {
+  const primary = !!a.client_id && db.getClientAccount(a.client_id)?.id === a.id;
+  return {
+    id: a.id,
+    name: a.name,
+    email: a.email,
+    active: !!a.active,
+    lastLoginAt: a.last_login_at,
+    primary,
+    allProjects: primary || !!a.all_projects,
+    billing: primary || !!a.billing,
+    projectIds: primary || a.all_projects ? [] : db.accountProjectIds(a.id),
+  };
+}
+
+/** Qué ve una persona del cliente: todos sus proyectos o solo algunos (que sean de ese cliente), y si ve los pagos. */
+function readAccess(body: Record<string, unknown>, clientId: number): { allProjects: boolean; billing: boolean; projectIds: number[] } {
+  const allProjects = body.allProjects !== false;
+  const own = new Set(db.listProjects(clientId).map((p) => p.id));
+  const projectIds = allProjects ? [] : [...new Set((Array.isArray(body.projectIds) ? body.projectIds : []).map(Number))].filter((p) => own.has(p));
+  if (!allProjects && !projectIds.length) throw new HttpError(400, 'Elige al menos un proyecto, o dale acceso a todos.');
+  return { allProjects, billing: body.billing === true, projectIds };
+}
+
 // ───────── API ─────────
 
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -421,7 +446,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         role: v.kind,
         tourDone: db.tourDone(v.kind === 'owner' ? null : v.account.id),
         ...(v.kind === 'owner' ? { proposalsUrl: `${PUBLIC_URL}/admin` } : {}),
-        ...(v.kind === 'client' ? { client: db.getClient(v.clientId) } : {}),
+        ...(v.kind === 'client' ? { client: db.getClient(v.clientId), billing: v.billing } : {}),
       });
 
     case 'POST me/password': {
@@ -458,7 +483,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
 
     // ── Proyectos (cada rol ve lo suyo)
     case 'GET projects': {
-      const list = v.kind === 'client' ? db.listProjects(v.clientId) : db.listProjects();
+      const list = v.kind === 'client' ? db.listProjects(v.clientId).filter((p) => clientSees(v, p)) : db.listProjects();
       return json(res, 200, list.map((p) => projectSummary(p, v)));
     }
 
@@ -507,6 +532,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         ...client,
         extraEmails: db.extraEmails(client),
         account: account ? { email: account.email, active: !!account.active, lastLoginAt: account.last_login_at } : null,
+        accounts: db.listClientAccounts(id).map(clientAccountView),
         projects: db.listProjects(id).map((p) => projectSummary(p, v)),
       });
     }
@@ -613,6 +639,71 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       db.setPassword(account.id, await hashPassword(password));
       const result = await trySend(mail.newPassword({ to: account.email, name: account.name, password }));
       return json(res, 200, { password, mail: result });
+    }
+
+    // ── Personas del cliente: la cuenta principal y las demás (p. ej. los ejecutivos de una agencia),
+    // cada una con todos los proyectos del cliente o solo los que le asignes, y con o sin pagos.
+    case 'POST clients/:id/accounts': {
+      requireOwner(v);
+      const client = db.getClient(id);
+      if (!client) throw new HttpError(404, 'El cliente no existe.');
+      const body = await readJson(req);
+      const email = str(body.email, 200).toLowerCase();
+      const name = str(body.name, 160);
+      if (!name) throw new HttpError(400, 'Escribe el nombre de la persona.');
+      if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Escribe el correo con el que va a entrar.');
+      const other = db.getClientByEmail(email);
+      if ((other && other.id !== id) || db.getAccountByEmail(email) || email === SUPERADMIN_EMAIL) {
+        throw new HttpError(409, `El correo ${email} ya se usa en otra cuenta.`);
+      }
+      const access = readAccess(body, id);
+      const password = generatePassword();
+      const passwordHash = await hashPassword(password);
+      const account = db.createAccount({ email, name, role: 'client', clientId: id, passwordHash });
+      db.setAccountAccess(account.id, access);
+      const first = access.allProjects ? db.listProjects(id)[0] : db.getProject(access.projectIds[0]);
+      const result =
+        body.notify === false ? { sent: false } : await trySend(mail.welcomeClient({ to: email, name, projectName: first?.name ?? null, password }));
+      return json(res, 201, { account: clientAccountView(db.getAccount(account.id)!), password, mail: result });
+    }
+
+    case 'PATCH client-accounts/:id': {
+      requireOwner(v);
+      const a = db.getAccount(id);
+      if (!a || a.role !== 'client' || !a.client_id) throw new HttpError(404, 'La cuenta no existe.');
+      const body = await readJson(req);
+      if (typeof body.name === 'string') {
+        const name = str(body.name, 160);
+        if (!name) throw new HttpError(400, 'Escribe el nombre de la persona.');
+        db.updateAccount(id, { name });
+      }
+      if ('allProjects' in body || 'billing' in body || 'projectIds' in body) {
+        // La cuenta principal ve siempre todo: es la del cliente.
+        if (db.getClientAccount(a.client_id)?.id === id) throw new HttpError(400, 'La cuenta principal ve todos los proyectos y los pagos.');
+        // Rige desde la siguiente petición: el acceso se revisa en cada una (no hace falta cerrar su sesión).
+        db.setAccountAccess(id, readAccess({ allProjects: !!a.all_projects, billing: !!a.billing, projectIds: db.accountProjectIds(id), ...body }, a.client_id));
+      }
+      if (typeof body.active === 'boolean') db.updateAccount(id, { active: body.active });
+      return json(res, 200, clientAccountView(db.getAccount(id)!));
+    }
+
+    case 'POST client-accounts/:id/password': {
+      requireOwner(v);
+      const a = db.getAccount(id);
+      if (!a || a.role !== 'client') throw new HttpError(404, 'La cuenta no existe.');
+      const password = generatePassword();
+      db.setPassword(a.id, await hashPassword(password));
+      const result = await trySend(mail.newPassword({ to: a.email, name: a.name, password }));
+      return json(res, 200, { password, mail: result });
+    }
+
+    case 'DELETE client-accounts/:id': {
+      requireOwner(v);
+      const a = db.getAccount(id);
+      if (!a || a.role !== 'client' || !a.client_id) throw new HttpError(404, 'La cuenta no existe.');
+      if (db.getClientAccount(a.client_id)?.id === id) throw new HttpError(400, 'La cuenta principal no se elimina: desactívala si ya no debe entrar.');
+      db.deleteAccount(id);
+      return json(res, 200, { ok: true });
     }
 
     // ── Equipo

@@ -119,7 +119,7 @@ function ClientHome({ me }: { me: Me }) {
           <Empty>No tienes proyectos en curso.</Empty>
         )}
       </section>
-      {me.client && <MyAccount clientId={me.client.id} />}
+      {me.client && me.billing !== false && <MyAccount clientId={me.client.id} />}
       {history.length > 0 && (
         <section className="section">
           <div className="section__head">

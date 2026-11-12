@@ -29,10 +29,17 @@ export function actor(v: Viewer) {
   };
 }
 
+/** Un proyecto del cliente que esta persona puede ver (todos, o solo los asignados si es un ejecutivo). */
+export const clientSees = (v: Extract<Viewer, { kind: 'client' }>, p: { id: number; client_id: number }) =>
+  p.client_id === v.clientId && (!v.projects || v.projects.has(p.id));
+
+/** Pagos, cuentas de cobro y estado de cuenta: tú y las personas del cliente que tengan ese permiso (el equipo, nunca). */
+export const seesMoney = (v: Viewer) => v.kind === 'owner' || (v.kind === 'client' && v.billing);
+
 export function visibleProject(id: number, v: Viewer): db.Project {
   const p = db.getProject(id);
   // Para un cliente, un proyecto ajeno es indistinguible de uno que no existe.
-  if (!p || (v.kind === 'client' && p.client_id !== v.clientId)) throw new HttpError(404, 'El proyecto no existe.');
+  if (!p || (v.kind === 'client' && !clientSees(v, p))) throw new HttpError(404, 'El proyecto no existe.');
   return p;
 }
 

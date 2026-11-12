@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomInt, scrypt, timingSafeEqual
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { promisify } from 'node:util';
 import { PARTNERS_SECURE, SESSION_SECRET, SUPERADMIN_EMAIL } from '../config.ts';
-import { getAccount, type Account } from './db.ts';
+import { accountProjectIds, getAccount, type Account } from './db.ts';
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>;
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
@@ -53,7 +53,17 @@ type Payload = { k: 'owner'; email: string; exp: number } | { k: 'acct'; id: num
 export type Viewer =
   | { kind: 'owner'; email: string; name: string }
   | { kind: 'team'; email: string; name: string; account: Account }
-  | { kind: 'client'; email: string; name: string; account: Account; clientId: number };
+  | {
+      kind: 'client';
+      email: string;
+      name: string;
+      account: Account;
+      clientId: number;
+      /** Proyectos que ve: null = todos los del cliente (una persona limitada, p. ej. un ejecutivo, solo los suyos). */
+      projects: Set<number> | null;
+      /** Ve pagos, cuentas de cobro y estado de cuenta. */
+      billing: boolean;
+    };
 
 const hmac = (value: string) => createHmac('sha256', `partners:${SESSION_SECRET}`).update(value).digest('base64url');
 
@@ -116,7 +126,15 @@ export function viewer(req: IncomingMessage): Viewer | null {
   if (!a || !a.active || a.session_version !== p.v) return null;
   if (a.role === 'team') return { kind: 'team', email: a.email, name: a.name, account: a };
   if (a.client_id === null) return null;
-  return { kind: 'client', email: a.email, name: a.name, account: a, clientId: a.client_id };
+  return {
+    kind: 'client',
+    email: a.email,
+    name: a.name,
+    account: a,
+    clientId: a.client_id,
+    projects: a.all_projects ? null : new Set(accountProjectIds(a.id)),
+    billing: !!a.billing,
+  };
 }
 
 // ───────── Límite de intentos ─────────

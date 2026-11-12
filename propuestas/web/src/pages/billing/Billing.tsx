@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api, docDate, emptyRange, formatMoney, inRange, navigate, useApi, useLocation, type DateRange, type InvoiceSummary, type Receipt } from '../../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../../ui';
 import { InvoiceStatus } from './InvoiceStatus';
@@ -12,20 +12,57 @@ import { ReportsTab } from './Reports';
 const TABS = { cuentas: 'Cuentas de cobro', abonos: 'Abonos', reportes: 'Reportes', importar: 'Importar de SmartBilling' } as const;
 type Tab = keyof typeof TABS;
 
+/** Resalta en el fragmento las palabras buscadas (sin importar tildes ni mayúsculas). */
+function highlight(text: string, q: string) {
+  const fold = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const words = fold(q).split(/\s+/).filter((w) => w.length > 1);
+  const f = fold(text);
+  const marks: [number, number][] = [];
+  for (const w of words) for (let i = f.indexOf(w); i >= 0; i = f.indexOf(w, i + w.length)) marks.push([i, i + w.length]);
+  if (!marks.length) return text;
+  marks.sort((a, b) => a[0] - b[0]);
+  const out: ReactNode[] = [];
+  let at = 0;
+  for (const [a, b] of marks) {
+    if (a < at) continue;
+    out.push(text.slice(at, a), <mark key={a}>{text.slice(a, b)}</mark>);
+    at = b;
+  }
+  out.push(text.slice(at));
+  return out;
+}
+
 function InvoicesTab() {
   const { data, error, loading, reload } = useApi<InvoiceSummary[]>('invoices');
   const [q, setQ] = useState('');
   const [status, setStatus] = useState<'todas' | 'emitida' | 'pagada' | 'anulada'>('todas');
   const [range, setRange] = useState<DateRange>(emptyRange);
+  // Búsqueda en el contenido (ítems, notas, montos): la hace el servidor, un momento después de dejar de escribir.
+  const [found, setFound] = useState<{ q: string; hits: Map<number, string> } | null>(null);
+  const term = q.trim();
+  useEffect(() => {
+    if (term.length < 2) return setFound(null);
+    let live = true;
+    const t = setTimeout(() => {
+      api<{ id: number; snippet: string }[]>('GET', `invoices/search?q=${encodeURIComponent(term)}`)
+        .then((r) => live && setFound({ q: term, hits: new Map(r.map((x) => [x.id, x.snippet])) }))
+        .catch(() => live && setFound(null));
+    }, 250);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [term]);
+  const hits = found?.q === term ? found.hits : null;
   const shown = useMemo(() => {
-    const s = q.trim().toLowerCase();
+    const s = term.toLowerCase();
     return (data ?? []).filter(
       (i) =>
         inRange(i.date, range) &&
-        (!s || `${i.number} ${i.clientName} ${i.projectName ?? ''}`.toLowerCase().includes(s)) &&
+        (!s || `${i.number} ${i.clientName} ${i.projectName ?? ''}`.toLowerCase().includes(s) || !!hits?.has(i.id)) &&
         (status === 'todas' || (status === 'anulada' ? i.status === 'anulada' : status === 'pagada' ? i.paid : i.status === 'emitida' && !i.paid)),
     );
-  }, [data, q, status, range]);
+  }, [data, term, hits, status, range]);
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   return (
@@ -38,7 +75,13 @@ function InvoicesTab() {
             </button>
           ))}
           <span className="input input--search input--chip">
-            <input placeholder="Buscar número, cliente o proyecto…" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input
+              type="search"
+              placeholder="Buscar por número, cliente, proyecto, concepto o valor…"
+              aria-label="Buscar cuentas de cobro"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
           </span>
           <DateFilter value={range} onChange={setRange} />
         </div>
@@ -70,6 +113,7 @@ function InvoicesTab() {
               <span>
                 {i.clientName}
                 {i.projectName && <small>{i.projectName}</small>}
+                {hits?.get(i.id) && <small className="cc-row__hit">{highlight(hits.get(i.id)!, term)}</small>}
               </span>
               <span className="mono">{docDate(i.date)}</span>
               <span className="mono">

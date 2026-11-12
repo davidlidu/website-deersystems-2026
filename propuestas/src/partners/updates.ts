@@ -8,7 +8,7 @@ import { projectUpdate } from '../mail.ts';
 import type { Viewer } from './auth.ts';
 import { noteView, requireStaff, visibleProject } from './common.ts';
 import * as db from './db.ts';
-import { clientEmailFor, notify } from './notify.ts';
+import { clientEmailsFor, notify } from './notify.ts';
 
 /**
  * Generador de avances: arma el avance del día con lo que pasó en el proyecto (tareas completadas o enviadas a revisión,
@@ -169,10 +169,11 @@ function updateMail(project: db.Project, to: string, body: string, createdAt: st
 
 /** Le manda al cliente el avance completo por correo y lo deja marcado, para no enviarlo dos veces. */
 export async function emailUpdate(project: db.Project, note: db.Note): Promise<void> {
-  const client = db.getClientAccount(project.client_id);
-  if (!client?.active) throw new HttpError(409, 'El cliente no tiene acceso activo al portal: no hay a qué correo enviarlo.');
+  // A todas las personas del cliente que ven el proyecto (la cuenta principal y el ejecutivo que lo lleva).
+  const people = db.projectClientAccounts(project.id);
+  if (!people.length) throw new HttpError(409, 'El cliente no tiene acceso activo al portal: no hay a qué correo enviarlo.');
   if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
-  await google.sendMail(updateMail(project, client.email, note.body, note.created_at, note.id));
+  await google.sendMail(updateMail(project, people.map((a) => a.email).join(', '), note.body, note.created_at, note.id));
   db.markNoteEmailed(note.id);
 }
 
@@ -183,7 +184,7 @@ export async function emailUpdate(project: db.Project, note: db.Note): Promise<v
  */
 export async function announceUpdate(project: db.Project, note: db.Note, actor: Viewer | null, email?: boolean): Promise<'sent' | 'off' | 'error'> {
   notify('staff_update', { actor, projectId: project.id, title: `Nuevo avance en ${project.name}`, body: note.body, path: `/proyectos/${project.id}?tab=avances`, skipEmail: true });
-  if (!(email ?? !!clientEmailFor('staff_update', project.id))) return 'off';
+  if (!(email ?? clientEmailsFor('staff_update', project.id).length > 0)) return 'off';
   try {
     await emailUpdate(project, note);
     return 'sent';
@@ -248,13 +249,13 @@ export async function handleUpdates(route: string, id: number, req: IncomingMess
     case 'GET projects/:id/updates/mail': {
       requireStaff(v);
       const project = visibleProject(id, v);
-      const client = db.getClientAccount(project.client_id);
-      const ready = !!client?.active && google.connectionStatus().connected;
+      const people = db.projectClientAccounts(project.id);
+      const ready = people.length > 0 && google.connectionStatus().connected;
       json(res, 200, {
-        to: client?.active ? client.email : null,
+        to: people.length ? people.map((a) => a.email).join(', ') : null,
         canSend: ready,
-        defaultOn: ready && !!clientEmailFor('staff_update', project.id),
-        reason: !client?.active ? 'El cliente no tiene acceso activo al portal.' : !ready ? 'Conecta Google en Configuración para enviar correos.' : null,
+        defaultOn: ready && clientEmailsFor('staff_update', project.id).length > 0,
+        reason: !people.length ? 'El cliente no tiene acceso activo al portal.' : !ready ? 'Conecta Google en Configuración para enviar correos.' : null,
       });
       return true;
     }
@@ -267,7 +268,7 @@ export async function handleUpdates(route: string, id: number, req: IncomingMess
       const text = typeof body.body === 'string' ? body.body.trim().slice(0, 10_000) : '';
       if (!text) throw new HttpError(400, 'Escribe el avance para ver el correo.');
       const note = Number(body.noteId) ? db.getNote(Number(body.noteId)) : undefined;
-      const to = db.getClientAccount(project.client_id)?.email ?? 'cliente@empresa.com';
+      const to = db.projectClientAccounts(project.id).map((a) => a.email).join(', ') || 'cliente@empresa.com';
       const m = updateMail(project, to, text, note?.created_at ?? new Date().toISOString(), note?.project_id === project.id ? note.id : undefined);
       json(res, 200, { subject: m.subject, to: m.to, html: m.html });
       return true;

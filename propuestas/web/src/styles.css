@@ -6272,3 +6272,125 @@ button.table__row {
 .scheduled__text .scheduled__error {
   color: var(--coral);
 }
+
+/* ───────── Personas del cliente con acceso al portal ───────── */
+.tag--info {
+  color: var(--cian);
+  border-color: rgba(0, 180, 216, 0.4);
+}
+
+.people {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.people__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 18px;
+  border-top: 1px solid var(--hairline);
+}
+
+.people__item:first-child {
+  border-top: 0;
+}
+
+.people__item.is-off {
+  opacity: 0.6;
+}
+
+.people__who,
+.people__access {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.people__who strong {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.people__who small,
+.people__access small {
+  color: var(--mute);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.people__access span {
+  font-size: 0.88rem;
+}
+
+.people__actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.people__scope {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.people__projects {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+}
+
+.people__projects small {
+  color: var(--mute);
+}
+
+.radio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.radio input {
+  accent-color: var(--verde);
+}
+
+@media (max-width: 760px) {
+  .people__item {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .people__actions {
+    justify-content: flex-start;
+  }
+}
+
+/* Fragmento de la búsqueda en el contenido de una cuenta de cobro. */
+.cc-row__hit {
+  color: var(--mute);
+  font-style: italic;
+}
+
+.cc-row__hit mark {
+  background: rgba(126, 217, 87, 0.22);
+  color: var(--body);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-style: normal;
+}
+
+.cc-row__hit {
+  white-space: normal;
+}

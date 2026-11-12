@@ -96,7 +96,12 @@ export interface Me {
   role: Role;
   proposalsUrl?: string;
   client?: { id: number; name: string };
+  /** Cliente: si ve pagos, precios y cuentas de cobro (una persona adicional, p. ej. un ejecutivo, puede no verlos). */
+  billing?: boolean;
 }
+
+/** Tú y las personas del cliente con permiso de pagos ven valores; el equipo, nunca. */
+export const seesMoney = (me: Me) => me.role === 'owner' || (me.role === 'client' && me.billing !== false);
 
 export type TaskStatus = 'pendiente' | 'en_progreso' | 'en_revision' | 'bloqueada' | 'completada';
 export type Side = 'deersystems' | 'cliente';

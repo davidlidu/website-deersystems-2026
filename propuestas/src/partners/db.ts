@@ -44,6 +44,10 @@ export interface Account {
   session_version: number;
   last_login_at: string | null;
   created_at: string;
+  /** Cuentas de cliente: 1 = ve todos los proyectos del cliente; 0 = solo los de account_projects (p. ej. un ejecutivo de una agencia). */
+  all_projects: number;
+  /** Cuentas de cliente: ve pagos, cuentas de cobro y estado de cuenta. */
+  billing: number;
 }
 
 export interface Project {
@@ -228,8 +232,36 @@ export function deleteSetting(key: string): void {
 
 export const getAccount = (id: number) => one<Account>('SELECT * FROM accounts WHERE id = ?', id);
 export const getAccountByEmail = (email: string) => one<Account>('SELECT * FROM accounts WHERE email = ?', email);
+/** La cuenta principal del cliente: la primera que se creó (las demás son ejecutivos o personas adicionales). */
 export const getClientAccount = (clientId: number) =>
-  one<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client'", clientId);
+  one<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client' ORDER BY id LIMIT 1", clientId);
+/** Todas las personas del cliente que entran al portal, la principal primero. */
+export const listClientAccounts = (clientId: number) =>
+  all<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client' ORDER BY id", clientId);
+
+/** Proyectos que ve una cuenta de cliente limitada (si ve todos, no se usa). */
+export const accountProjectIds = (accountId: number) =>
+  all<{ project_id: number }>('SELECT project_id FROM account_projects WHERE account_id = ? ORDER BY project_id', accountId).map((r) => r.project_id);
+
+export function setAccountAccess(id: number, a: { allProjects: boolean; billing: boolean; projectIds: number[] }): void {
+  transaction(() => {
+    db.prepare('UPDATE accounts SET all_projects = ?, billing = ? WHERE id = ?').run(a.allProjects ? 1 : 0, a.billing ? 1 : 0, id);
+    db.prepare('DELETE FROM account_projects WHERE account_id = ?').run(id);
+    const add = db.prepare('INSERT OR IGNORE INTO account_projects (account_id, project_id) VALUES (?, ?)');
+    for (const p of a.projectIds) add.run(id, p);
+  });
+}
+
+/** ¿Esta cuenta de cliente ve el proyecto? */
+export const accountSeesProject = (a: Account, p: { id: number; client_id: number }) =>
+  a.client_id === p.client_id && (!!a.all_projects || !!one('SELECT 1 FROM account_projects WHERE account_id = ? AND project_id = ?', a.id, p.id));
+
+/** Las personas activas del cliente que ven un proyecto: a quién le llegan sus avisos y correos. */
+export function projectClientAccounts(projectId: number): Account[] {
+  const p = getProject(projectId);
+  if (!p) return [];
+  return listClientAccounts(p.client_id).filter((a) => a.active && accountSeesProject(a, p));
+}
 export const listTeam = () => all<Account>("SELECT * FROM accounts WHERE role = 'team' ORDER BY name, email");
 
 export function createAccount(a: { email: string; name: string; role: Role; clientId: number | null; passwordHash: string }) {
@@ -293,7 +325,7 @@ export function listClients() {
        (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id) AS projects,
        (SELECT COUNT(*) FROM projects p WHERE p.client_id = c.id AND p.status = 'activo') AS active_projects,
        a.last_login_at, a.active AS account_active
-     FROM clients c LEFT JOIN accounts a ON a.client_id = c.id AND a.role = 'client'
+     FROM clients c LEFT JOIN accounts a ON a.id = (SELECT MIN(id) FROM accounts WHERE client_id = c.id AND role = 'client')
      ORDER BY c.name`,
   );
 }
@@ -763,6 +795,17 @@ addColumn('clients', 'sb_id', 'TEXT');
 addColumn('clients', 'extra_emails', "TEXT NOT NULL DEFAULT '[]'");
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS clients_sb_id ON clients(sb_id) WHERE sb_id IS NOT NULL");
 addColumn('projects', 'drive_folder_id', 'TEXT');
+
+// Varias personas por cliente (p. ej. los ejecutivos de una agencia), cada una con todos sus proyectos o solo algunos.
+addColumn('accounts', 'all_projects', 'INTEGER NOT NULL DEFAULT 1');
+addColumn('accounts', 'billing', 'INTEGER NOT NULL DEFAULT 1');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS account_projects (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    PRIMARY KEY (account_id, project_id)
+  );
+`);
 
 /** Destinatario de una notificación: el administrador (sin cuenta) o una cuenta del equipo o cliente. */
 export type Recipient = { kind: 'owner' } | { kind: 'account'; id: number };
