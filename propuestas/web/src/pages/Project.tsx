@@ -91,18 +91,22 @@ function Segmented<T extends string>({ value, options, onChange, label, tour }: 
   );
 }
 
-/** Descarga el cronograma en PDF (A4 horizontal) con las tareas que se ven, respetando los filtros. */
-function GanttPdfButton({ project, tasks }: { project: ProjectDetail; tasks: Task[] }) {
+/** Descarga el plan de trabajo en PDF (marca, tareas por fase y cronograma) con las tareas que se ven, respetando los filtros. */
+function PlanPdfButton({ project, tasks }: { project: ProjectDetail; tasks: Task[] }) {
   const { busy, run } = useAction();
   return (
     <button
       className="btn btn--outline btn--sm"
       disabled={busy || !tasks.length}
-      title={tasks.length < project.tasks.length ? 'Se descarga con los filtros aplicados' : 'Descargar el cronograma en PDF'}
+      title={
+        tasks.length < project.tasks.length
+          ? 'Se descarga con los filtros aplicados'
+          : 'Descargar el plan de trabajo en PDF: tareas por fase y cronograma'
+      }
       onClick={() =>
         run(async () => {
-          const { downloadGanttPdf } = await import('./project/ganttPdf');
-          await downloadGanttPdf(project, tasks, { filtered: tasks.length < project.tasks.length });
+          const { downloadPlanPdf } = await import('./project/ganttPdf');
+          await downloadPlanPdf(project, tasks, { filtered: tasks.length < project.tasks.length });
         })
       }
     >
@@ -354,7 +358,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
               ]}
             />
             <div className="actions actions--tight">
-              {plan === 'cronograma' && <GanttPdfButton project={p} tasks={tasks} />}
+              {plan !== 'reuniones' && <PlanPdfButton project={p} tasks={tasks} />}
               {staff && plan !== 'reuniones' && (
                 <button className="btn btn--primary btn--sm" onClick={() => setDrawer({ taskId: null, defaults: {} })}>
                   + Nueva tarea

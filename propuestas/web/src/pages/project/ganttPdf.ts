@@ -1,9 +1,11 @@
 import { addDays, dayLabel, daysBetween, formatDate, isOverdue, STATUS, today, type ProjectDetail, type Task } from '../../lib';
 
 /**
- * Cronograma en PDF (A4 horizontal), dibujado con jsPDF: texto y barras en vector, nítido al imprimir y liviano.
- * Una fila por tarea, agrupadas por fase, con su inicio, entrega y la barra en la línea de tiempo de todo el proyecto.
- * Si no cabe en una hoja, sigue en las siguientes repitiendo el encabezado de la línea de tiempo.
+ * Plan de trabajo en PDF (A4 horizontal), dibujado con jsPDF: texto y barras en vector, nítido al imprimir y liviano.
+ * 1. Encabezado con la marca de DeerSystems y los datos del proyecto.
+ * 2. Las tareas agrupadas por fase: responsable, estado, inicio y entrega (también las que no tienen fechas).
+ * 3. El cronograma: una fila por tarea con su barra en la línea de tiempo de todo el proyecto.
+ * Cada hoja lleva la franja de la marca arriba y el pie con la página; las tablas repiten su encabezado al cambiar de hoja.
  */
 
 type RGB = [number, number, number];
@@ -26,6 +28,10 @@ const DATE_W = 17;
 const TL_X = M + NAME_W + DATE_W * 2 + 3; // inicio de la línea de tiempo
 const TL_W = W - M - TL_X;
 const ROW = 6.2;
+const AZUL: RGB = [5, 25, 35];
+const BAND = 30; // alto de la franja con la marca en la primera hoja
+const TOP = M + 11; // dónde empieza el contenido en las demás hojas (debajo de la franja delgada)
+const BOTTOM = H - M - 6; // hasta dónde llega el contenido (encima del pie)
 const HEAD_ROWS = 10; // alto del encabezado de la escala (meses + días)
 
 /** Inicio y fin de la barra: si falta una fecha, la tarea dura un día. */
@@ -39,8 +45,32 @@ const barColor = (t: Task): RGB => (t.status === 'completada' ? VERDE : t.status
 const short = (iso: string) => dayLabel(iso, { day: 'numeric', month: 'short' }).replace('.', '');
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export async function downloadGanttPdf(project: ProjectDetail, tasks: Task[], opts: { filtered: boolean }): Promise<void> {
-  const { jsPDF } = await import('jspdf');
+/** El logo (el mismo del portal) en PNG, para ponerlo en el PDF. Sin él, el PDF sale igual con el nombre. */
+async function logoPng(): Promise<string | null> {
+  try {
+    const svg = await (await fetch('/favicon.svg')).text();
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+    try {
+      const img = new Image();
+      await new Promise((ok, ko) => {
+        img.onload = ok;
+        img.onerror = ko;
+        img.src = url;
+      });
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      c.getContext('2d')!.drawImage(img, 0, 0, 256, 256);
+      return c.toDataURL('image/png');
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch {
+    return null;
+  }
+}
+
+export async function downloadPlanPdf(project: ProjectDetail, tasks: Task[], opts: { filtered: boolean }): Promise<void> {
+  const [{ jsPDF }, logo] = await Promise.all([import('jspdf'), logoPng()]);
   const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true });
   const now = today();
   const fill = (c: RGB) => pdf.setFillColor(c[0], c[1], c[2]);
@@ -92,26 +122,203 @@ export async function downloadGanttPdf(project: ProjectDetail, tasks: Task[], op
   }
   const unscheduled = tasks.filter((t) => !span(t));
 
-  // ── Encabezado de la primera hoja
-  const header = () => {
-    font(8, 'bold');
+  const done = tasks.filter((t) => t.status === 'completada').length;
+  const who = (t: Task) => (t.side === 'cliente' ? (t.assigneeName ? `Cliente · ${t.assigneeName}` : 'Cliente') : t.assigneeName || 'DeerSystems');
+
+  /** «DeerSystems» con «Deer» en verde, como en el portal. */
+  const wordmark = (x0: number, y0: number, size: number, rest: RGB) => {
+    font(size, 'bold');
     ink(VERDE);
-    pdf.text('DEERSYSTEMS · CRONOGRAMA', M, M + 3);
+    pdf.text('Deer', x0, y0);
+    ink(rest);
+    pdf.text('Systems', x0 + pdf.getTextWidth('Deer'), y0);
+    return x0 + pdf.getTextWidth('DeerSystems');
+  };
+
+  // ── Primera hoja: franja con la marca y, debajo, el proyecto.
+  const cover = () => {
+    fill(AZUL);
+    pdf.rect(0, 0, W, BAND, 'F');
+    fill(VERDE);
+    pdf.rect(0, BAND, W * 0.55, 0.9, 'F');
+    fill(CIAN);
+    pdf.rect(W * 0.55, BAND, W * 0.45, 0.9, 'F');
+    let tx = M;
+    if (logo) {
+      pdf.addImage(logo, 'PNG', M, 7, 16, 16);
+      tx = M + 20;
+    }
+    wordmark(tx, 15.5, 16, [242, 246, 248]);
+    font(7.5, 'bold');
+    ink(CIAN);
+    pdf.text('PLAN DE TRABAJO', tx, 21.5);
+    font(8);
+    ink([185, 198, 210]);
+    pdf.text(`Generado el ${formatDate(now)}`, W - M, 13, { align: 'right' });
+    if (opts.filtered) pdf.text('Con los filtros aplicados', W - M, 18, { align: 'right' });
+
     font(17, 'bold');
     ink(INK);
-    pdf.text(fit(project.name, W - 2 * M - 70), M, M + 11);
+    pdf.text(fit(project.name, W - 2 * M - 80), M, BAND + 11);
     font(9);
     ink(MUTE);
-    const done = tasks.filter((t) => t.status === 'completada').length;
     const facts = [
       project.clientName,
       project.startDate || project.endDate ? `${project.startDate ? formatDate(project.startDate) : '¿?'} – ${project.endDate ? formatDate(project.endDate) : '¿?'}` : null,
       `${done}/${tasks.length} tareas completadas`,
     ].filter(Boolean);
-    pdf.text(facts.join('   ·   '), M, M + 17);
-    font(8);
-    pdf.text(`Generado el ${formatDate(now)}${opts.filtered ? ' · con los filtros aplicados' : ''}`, W - M, M + 3, { align: 'right' });
-    // Leyenda
+    pdf.text(facts.join('   ·   '), M, BAND + 17);
+    // Avance general
+    const pct = tasks.length ? done / tasks.length : 0;
+    const bw = 70;
+    font(8, 'bold');
+    ink(INK);
+    pdf.text(`${Math.round(pct * 100)}%`, W - M, BAND + 10, { align: 'right' });
+    fill(SOFT);
+    pdf.roundedRect(W - M - bw, BAND + 13.5, bw, 2.6, 1.3, 1.3, 'F');
+    if (pct > 0) {
+      fill(VERDE);
+      pdf.roundedRect(W - M - bw, BAND + 13.5, Math.max(bw * pct, 2.6), 2.6, 1.3, 1.3, 'F');
+    }
+    font(7);
+    ink(MUTE);
+    pdf.text('Avance', W - M - bw, BAND + 10);
+    return BAND + 24;
+  };
+
+  // ── Las demás hojas: franja delgada con el logo, la marca y el proyecto.
+  const bar = () => {
+    if (logo) pdf.addImage(logo, 'PNG', M, M - 4.2, 6, 6);
+    const after = wordmark(M + (logo ? 7.5 : 0), M, 9, INK);
+    font(7, 'bold');
+    ink(MUTE);
+    pdf.text('PLAN DE TRABAJO', after + 3, M);
+    font(7.5);
+    pdf.text(fit(`${project.name} · ${project.clientName}`, 150), W - M, M, { align: 'right' });
+    draw(LINE);
+    pdf.setLineWidth(0.3);
+    pdf.line(M, M + 3, W - M, M + 3);
+  };
+  const newPage = () => {
+    pdf.addPage();
+    bar();
+    return TOP;
+  };
+
+  /** Título de sección: número, nombre y una línea de texto suave a la derecha. */
+  const section = (y: number, n: number, title: string, note: string) => {
+    fill(VERDE);
+    pdf.roundedRect(M, y - 3.6, 5, 5, 1, 1, 'F');
+    font(8, 'bold');
+    ink(AZUL);
+    pdf.text(String(n), M + 2.5, y + 0.1, { align: 'center' });
+    font(12, 'bold');
+    ink(INK);
+    pdf.text(title, M + 7.5, y + 0.6);
+    const tw = pdf.getTextWidth(title);
+    if (note) {
+      font(7.5);
+      ink(MUTE);
+      pdf.text(note, M + 10 + tw, y + 0.4);
+    }
+    return y + 6;
+  };
+
+  // ── 1. Tareas por fase
+  const C = { title: M + 5, who: M + 143, status: M + 191, start: M + 228, end: M + 253 };
+  const tableHead = (y: number) => {
+    font(6.5, 'bold');
+    ink(MUTE);
+    pdf.text('TAREA', M + 1, y + 3.6);
+    pdf.text('RESPONSABLE', C.who, y + 3.6);
+    pdf.text('ESTADO', C.status, y + 3.6);
+    pdf.text('INICIO', C.start, y + 3.6);
+    pdf.text('ENTREGA', C.end, y + 3.6);
+    draw([209, 213, 219]);
+    pdf.setLineWidth(0.25);
+    pdf.line(M, y + 5.4, W - M, y + 5.4);
+    return y + 6;
+  };
+  const byStart = (a: Task, b: Task) => {
+    const sa = span(a)?.[0];
+    const sb = span(b)?.[0];
+    return sa && sb ? sa.localeCompare(sb) : sa ? -1 : sb ? 1 : 0;
+  };
+  const listGroups = [
+    ...project.phases.map((ph) => ({ name: ph.name, tasks: tasks.filter((t) => t.phaseId === ph.id) })),
+    { name: 'Sin fase', tasks: tasks.filter((t) => !t.phaseId || !project.phases.some((ph) => ph.id === t.phaseId)) },
+  ]
+    .filter((g) => g.tasks.length)
+    .map((g) => ({ ...g, tasks: [...g.tasks].sort(byStart) }));
+
+  const taskList = () => {
+    let y = section(cover() + 4, 1, 'Tareas por fase', `${tasks.length} tareas · ${listGroups.length} ${listGroups.length === 1 ? 'fase' : 'fases'}`);
+    y = tableHead(y);
+    const room = (rows: number) => y + rows * ROW <= BOTTOM;
+    for (const g of listGroups) {
+      // La fase no queda sola al final de una hoja: con ella baja al menos su primera tarea.
+      if (!room(2)) y = tableHead(newPage());
+      const spans = g.tasks.map(span).filter((x): x is [string, string] => !!x);
+      const gDone = g.tasks.filter((t) => t.status === 'completada').length;
+      fill(SOFT);
+      pdf.rect(M, y + 0.3, W - 2 * M, ROW - 0.6, 'F');
+      fill(gDone === g.tasks.length ? VERDE : CIAN);
+      pdf.rect(M, y + 0.3, 0.9, ROW - 0.6, 'F');
+      font(8, 'bold');
+      ink(INK);
+      pdf.text(fit(g.name, 120), M + 2.5, y + ROW / 2 + 1.1);
+      font(7);
+      ink(MUTE);
+      pdf.text(`${gDone}/${g.tasks.length} completadas`, C.who, y + ROW / 2 + 1.1);
+      if (spans.length) {
+        pdf.text(short(spans.reduce((a, b) => (a < b[0] ? a : b[0]), spans[0][0])), C.start, y + ROW / 2 + 1.1);
+        pdf.text(short(spans.reduce((a, b) => (a > b[1] ? a : b[1]), spans[0][1])), C.end, y + ROW / 2 + 1.1);
+      }
+      y += ROW;
+      for (const t of g.tasks) {
+        if (!room(1)) y = tableHead(newPage());
+        const mid = y + ROW / 2;
+        const sp = span(t);
+        const late = isOverdue(t);
+        fill(barColor(t));
+        pdf.circle(M + 2.6, mid, 0.9, 'F');
+        font(7.5);
+        ink(t.status === 'completada' ? MUTE : INK);
+        pdf.text(fit(t.title, C.who - C.title - 4), C.title, mid + 1.1);
+        if (t.isMeeting) {
+          const tw = Math.min(pdf.getTextWidth(t.title), C.who - C.title - 4);
+          if (tw < C.who - C.title - 18) {
+            font(6, 'bold');
+            ink(NARANJA);
+            pdf.text('REUNIÓN', C.title + tw + 2, mid + 1);
+          }
+        }
+        font(7);
+        ink(INK);
+        pdf.text(fit(who(t), C.status - C.who - 3), C.who, mid + 1.1);
+        ink(late ? CORAL : t.status === 'completada' ? [63, 140, 40] : t.status === 'bloqueada' ? CORAL : INK);
+        pdf.text(late ? `${STATUS[t.status]} · vencida` : STATUS[t.status], C.status, mid + 1.1);
+        ink(sp ? INK : MUTE);
+        pdf.text(t.startDate ? short(t.startDate) : '—', C.start, mid + 1.1);
+        ink(late ? CORAL : t.dueDate ? INK : MUTE);
+        pdf.text(t.dueDate ? short(t.dueDate) : '—', C.end, mid + 1.1);
+        draw(LINE);
+        pdf.setLineWidth(0.1);
+        pdf.line(M, y + ROW, W - M, y + ROW);
+        y += ROW;
+      }
+      y += 1.5;
+    }
+    if (!tasks.length) {
+      font(9);
+      ink(MUTE);
+      pdf.text('No hay tareas.', M, y + 6);
+    }
+  };
+
+  // ── 2. Cronograma: encabezado de la sección con la leyenda.
+  const ganttTitle = (y: number) => {
+    const next = section(y, 2, 'Cronograma', unscheduled.length ? `${unscheduled.length} sin fechas: están en la lista de tareas` : '');
     const legend: [RGB, string][] = [
       [CIAN, 'DeerSystems'],
       [ORO, 'Cliente'],
@@ -119,18 +326,18 @@ export async function downloadGanttPdf(project: ProjectDetail, tasks: Task[], op
       [CORAL, 'Bloqueada'],
       [NARANJA, 'Reunión'],
     ];
+    font(7.5);
     let lx = W - M;
     for (const [c, label] of [...legend].reverse()) {
-      const tw = pdf.getTextWidth(label);
-      lx -= tw;
+      lx -= pdf.getTextWidth(label);
       ink(MUTE);
-      pdf.text(label, lx, M + 17);
+      pdf.text(label, lx, y + 0.4);
       lx -= 4.5;
       fill(c);
-      pdf.roundedRect(lx, M + 14.6, 3.2, 3.2, 0.6, 0.6, 'F');
+      pdf.roundedRect(lx, y - 2, 3.2, 3.2, 0.6, 0.6, 'F');
       lx -= 4;
     }
-    return M + 23;
+    return next;
   };
 
   // ── Escala: meses arriba, semanas (o días) abajo, con los fines de semana sombreados.
@@ -200,22 +407,25 @@ export async function downloadGanttPdf(project: ProjectDetail, tasks: Task[], op
   };
 
   // ── Páginas
+  taskList();
   const pages: { top: number; rows: Row[] }[] = [];
-  let top = header();
-  let room = Math.floor((H - M - 8 - (top + HEAD_ROWS)) / ROW);
+  // El título de la sección va en la primera hoja del cronograma (se dibuja al crearla); deja 10 mm.
+  let top = TOP + 10;
+  let room = Math.floor((BOTTOM - (top + HEAD_ROWS)) / ROW);
   for (let i = 0; i < rows.length; ) {
     // Una fase no queda sola al final de una hoja.
     let take = Math.min(room, rows.length - i);
     if (take < rows.length - i && rows[i + take - 1].kind === 'phase') take--;
     pages.push({ top, rows: rows.slice(i, i + take) });
     i += take;
-    top = M + 4;
-    room = Math.floor((H - M - 8 - (top + HEAD_ROWS)) / ROW);
+    top = TOP;
+    room = Math.floor((BOTTOM - (top + HEAD_ROWS)) / ROW);
   }
   if (!pages.length) pages.push({ top, rows: [] });
 
   pages.forEach((page, p) => {
-    if (p > 0) pdf.addPage();
+    newPage();
+    if (p === 0) ganttTitle(TOP + 4);
     const bodyTop = page.top + HEAD_ROWS;
     const bottom = bodyTop + page.rows.length * ROW;
     scale(page.top, Math.max(bottom, bodyTop + ROW));
@@ -255,14 +465,14 @@ export async function downloadGanttPdf(project: ProjectDetail, tasks: Task[], op
         font(7.5);
         ink(t.status === 'completada' ? MUTE : INK);
         const who = t.side === 'cliente' ? 'Cliente' : t.assigneeName || '';
-        const meta = `${STATUS[t.status]}${who ? ` · ${who}` : ''}`;
+        const meta = isOverdue(t) ? `Vencida · ${who || STATUS[t.status]}` : `${STATUS[t.status]}${who ? ` · ${who}` : ''}`;
         font(6);
         const metaW = Math.min(pdf.getTextWidth(meta), 28);
         font(7.5);
         pdf.text(fit(t.title, NAME_W - 9 - metaW), M + 5, mid + 1.1);
         font(6);
         ink(isOverdue(t) ? CORAL : MUTE);
-        pdf.text(fit(isOverdue(t) ? `Vencida · ${who || STATUS[t.status]}` : meta, 28), M + NAME_W - 3, mid + 1.1, { align: 'right' });
+        pdf.text(fit(meta, 28), M + NAME_W - 3, mid + 1.1, { align: 'right' });
         font(7);
         ink(INK);
         pdf.text(short(s), M + NAME_W, mid + 1.1);
@@ -297,34 +507,15 @@ export async function downloadGanttPdf(project: ProjectDetail, tasks: Task[], op
     }
   });
 
-  // ── Tareas sin fechas, al final.
-  if (unscheduled.length) {
-    const last = pages[pages.length - 1];
-    let y = last.top + HEAD_ROWS + last.rows.length * ROW + 9;
-    const line = (text: string, size: number, style: 'normal' | 'bold', color: RGB) => {
-      if (y > H - M - 8) {
-        pdf.addPage();
-        y = M + 6;
-      }
-      font(size, style);
-      ink(color);
-      pdf.text(fit(text, W - 2 * M), M, y);
-      y += size * 0.5;
-    };
-    line(`Sin fechas (${unscheduled.length})`, 8.5, 'bold', INK);
-    y += 1;
-    for (const t of unscheduled) line(`•  ${t.title}  —  ${STATUS[t.status]}${t.side === 'cliente' ? ' · Cliente' : t.assigneeName ? ` · ${t.assigneeName}` : ''}`, 7.5, 'normal', MUTE);
-  }
-
   // ── Pie en todas las hojas
   const count = pdf.getNumberOfPages();
   for (let i = 1; i <= count; i++) {
     pdf.setPage(i);
     font(7);
     ink(MUTE);
-    pdf.text(fit(`${project.name} · ${project.clientName}`, 200), M, H - 6);
+    pdf.text('DeerSystems · deersystems.net', M, H - 6);
     pdf.text(`Página ${i} de ${count}`, W - M, H - 6, { align: 'right' });
   }
 
-  pdf.save(`Cronograma ${project.name}.pdf`.replace(/[\\/:*?"<>|]+/g, '-'));
+  pdf.save(`Plan de trabajo ${project.name}.pdf`.replace(/[\\/:*?"<>|]+/g, '-'));
 }
