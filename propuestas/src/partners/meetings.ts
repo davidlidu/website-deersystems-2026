@@ -804,6 +804,18 @@ export interface ScheduleInput {
  * Crea la reunión con Meet en tu Calendar (Google envía las invitaciones) y la deja asignada al proyecto.
  * La usan el formulario de agendar y la aprobación de propuestas (reuniones de avance).
  */
+/**
+ * El título de la reunión empieza por a quién es, para reconocerla de un vistazo en Calendar: el cliente
+ * («Las Negras · Reunión de avance 2») o, si el cliente tiene varios proyectos (p. ej. una agencia), el proyecto.
+ */
+export function meetingTitle(project: db.Project, client: db.Client, raw: string): string {
+  const many = db.listProjects(client.id).length > 1;
+  const who = ((many ? project.name : client.name || project.name) || project.name).trim();
+  const title = raw.trim() || 'Reunión';
+  if (!who || title.toLowerCase().includes(who.toLowerCase())) return title.slice(0, 200);
+  return `${who} · ${title}`.slice(0, 200);
+}
+
 export async function scheduleMeeting(project: db.Project, input: ScheduleInput, v: Viewer): Promise<Row> {
   if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para agendar reuniones.');
   if (!google.hasAnyScope('calendar.events')) throw new HttpError(403, 'Falta el permiso para crear eventos: vuelve a conectar Google en Configuración.');
@@ -829,7 +841,7 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
   if (!emails.size) throw new HttpError(400, 'Invita al menos a una persona.');
   if (input.phaseId && db.getPhase(input.phaseId)?.project_id !== project.id) throw new HttpError(400, 'La fase no es de este proyecto.');
   await assertFree(start, end);
-  const title = input.title.trim().slice(0, 200) || `Reunión · ${project.name}`;
+  const title = meetingTitle(project, client, input.title);
   const agenda = input.agenda.trim().slice(0, 4000);
 
   let event: google.CalendarEvent;
