@@ -378,6 +378,8 @@ export interface Plan {
   endDate: string | null;
   phases: Draft['phases'];
   meetings: DraftMeeting[];
+  /** Plan de pagos en pantalla: la IA también lo ajusta («agrega un pago del 50 % al entregar la Fase 1»). */
+  payments: PaymentInput[];
 }
 
 /**
@@ -385,13 +387,14 @@ export interface Plan {
  * "agrega una fase de SEO", "el cliente entrega los logos la primera semana").
  * Devuelve el plan completo ajustado y la lista de cambios para mostrarla.
  */
-export async function adjustPlan(p: { plan: Plan; instruction: string; projectName: string; scope: string }) {
+export async function adjustPlan(p: { plan: Plan; instruction: string; projectName: string; scope: string; pricing?: string }) {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
   const current = {
     startDate: p.plan.startDate,
     endDate: p.plan.endDate,
     phases: p.plan.phases,
     meetings: p.plan.meetings.map(({ phaseIndex, ...m }) => ({ ...m, phase: p.plan.phases[phaseIndex]?.name ?? '' })),
+    payments: p.plan.payments,
   };
   const { data, completion } = await completeJson<Record<string, unknown>>({
     profile: 'propuestas',
@@ -404,7 +407,7 @@ ALCANCE APROBADO (contexto):
 """
 ${p.scope.slice(0, 12_000)}
 """
-
+${p.pricing?.trim() ? `\nVALORES Y FORMA DE PAGO APROBADOS (contexto para los pagos):\n"""\n${p.pricing.slice(0, 6000)}\n"""\n` : ''}
 PLAN ACTUAL (JSON):
 ${JSON.stringify(current)}
 
@@ -419,6 +422,7 @@ Devuelve el plan COMPLETO ya ajustado, con la misma forma:
   "endDate": "YYYY-MM-DD",
   "phases": [{ "name": "...", "tasks": [{ "title": "...", "description": "...", "side": "deersystems | cliente", "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD" }] }],
   "meetings": [{ "title": "...", "phase": "nombre exacto de una fase", "date": "YYYY-MM-DD", "time": "HH:MM", "durationMinutes": 45, "purpose": "..." }],
+  "payments": [{ "label": "tipo de abono, p. ej. Anticipo, Pago contra entrega de la Fase 1", "percent": 50, "amount": 1000, "currency": "USD | COP", "dueDate": "YYYY-MM-DD" }],
   "changes": ["cambio hecho, en una frase corta", "..."]
 }
 
@@ -426,7 +430,8 @@ Reglas:
 - Cambia SOLO lo que se pide y lo que sea consecuencia directa (por ejemplo, correr las fechas siguientes si se mueve una fase). Todo lo demás queda igual, con el mismo texto.
 - Fechas en días hábiles (lunes a viernes), coherentes entre sí: el inicio de una tarea no puede ser después de su entrega, y "endDate" es la entrega más tardía.
 - "side" es "cliente" cuando la tarea depende del cliente (accesos, contenidos, aprobaciones, pagos); lo demás es "deersystems".
-- No incluyas precios ni valores en tareas.
+- No incluyas precios ni valores en tareas. Los valores van SOLO en "payments".
+- "payments" es el plan de pagos COMPLETO: devuelve los pagos actuales sin cambios si no se pide nada sobre pagos. Si se pide agregar o cambiar pagos, calcula "amount" con los valores aprobados (p. ej. 50 % de la fase) y pon "dueDate" en la fecha de la entrega o del hito que corresponda. Si no hay valores para calcular el monto, no inventes uno: deja el plan de pagos igual y explícalo en "changes".
 - "changes": entre 1 y 8 frases que expliquen qué cambiaste. Si la instrucción no se puede aplicar, deja el plan igual y explícalo en "changes".`,
   });
   const draft = normalizeDraft(data);
@@ -438,6 +443,13 @@ Reglas:
     .filter(Boolean)
     .slice(0, 8);
   changes.push(...(await placeMeetings(draft.meetings)));
-  const plan: Plan = { startDate: draft.startDate, endDate: draft.endDate, phases: draft.phases, meetings: draft.meetings };
+  // Si el modelo omite "payments", el plan de pagos queda como estaba.
+  const plan: Plan = {
+    startDate: draft.startDate,
+    endDate: draft.endDate,
+    phases: draft.phases,
+    meetings: draft.meetings,
+    payments: Array.isArray(data.payments) ? draft.payments : p.plan.payments,
+  };
   return { plan, changes, warnings: draft.warnings, ai: aiInfo(completion) };
 }

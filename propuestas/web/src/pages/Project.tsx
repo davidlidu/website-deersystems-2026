@@ -23,6 +23,7 @@ import { ProjectMeetings } from './project/Meetings';
 import { NotesPanel } from './project/Notes';
 import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
 import { PaymentsPanel } from './project/Payments';
+import { PlanAdjustButton } from './project/PlanAdjust';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
 import { UpdatesPanel } from './project/Updates';
 
@@ -89,6 +90,25 @@ function Segmented<T extends string>({ value, options, onChange, label, tour }: 
         </button>
       ))}
     </div>
+  );
+}
+
+/** Ícono de cada vista de tareas: lista, tablero (columnas) y calendario. */
+function ViewIcon({ view }: { view: View }) {
+  const paths: Partial<Record<View, ReactNode>> = {
+    lista: <path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01" />,
+    tablero: <path d="M4 4h4.5v16H4zM10 4h4.5v10H10zM16 4h4v13h-4z" />,
+    calendario: (
+      <>
+        <rect x="3.5" y="5" width="17" height="15" rx="2" />
+        <path d="M3.5 10h17M8 3v4M16 3v4" />
+      </>
+    ),
+  };
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths[view]}
+    </svg>
   );
 }
 
@@ -359,6 +379,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
               ]}
             />
             <div className="actions actions--tight">
+              {me.role === 'owner' && plan !== 'reuniones' && <PlanAdjustButton projectId={p.id} onApplied={reload} />}
               {plan !== 'reuniones' && <PlanPdfButton project={p} tasks={tasks} />}
               {staff && plan !== 'reuniones' && (
                 <button className="btn btn--primary btn--sm" onClick={() => setDrawer({ taskId: null, defaults: {} })}>
@@ -373,16 +394,21 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
             </div>
           ) : (
             <>
-              <div className="filters" data-tour="project-filters">
+              <div className="filters filters--plan" data-tour="project-filters">
                 {plan === 'tareas' && (
-                  <div className="segmented segmented--sm" role="tablist" aria-label="Vista" data-tour="project-views">
-                    {TASK_VIEWS.map((v) => (
-                      <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'is-active' : ''} onClick={() => chooseView(v)}>
-                        {VIEWS[v]}
-                      </button>
-                    ))}
-                  </div>
+                  <>
+                    <div className="viewswitch" role="tablist" aria-label="Ver como" data-tour="project-views">
+                      {TASK_VIEWS.map((v) => (
+                        <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'is-active' : ''} onClick={() => chooseView(v)}>
+                          <ViewIcon view={v} />
+                          {VIEWS[v]}
+                        </button>
+                      ))}
+                    </div>
+                    <span className="filters__sep" aria-hidden="true" />
+                  </>
                 )}
+                <span className="filters__label">Filtrar</span>
                 {(['todas', 'deersystems', 'cliente'] as const).map((f) => (
                   <button key={f} className={`chip${sideFilter === f ? ' is-active' : ''}`} onClick={() => setSideFilter(f)}>
                     {{ todas: 'Todas', deersystems: 'DeerSystems', cliente: me.role === 'client' ? 'Mías' : 'Cliente' }[f]}

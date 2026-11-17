@@ -203,6 +203,48 @@ function syncPlanTask(id: number, phaseChanged: boolean): void {
   if (happened !== (task.status === 'completada')) db.setTaskStatus(task.id, happened ? 'completada' : 'pendiente');
 }
 
+/** La reunión agendada (con evento en Calendar) que representa una tarea del cronograma, si la hay. */
+export function meetingOfTask(taskId: number): { id: number; title: string; startAt: string; endAt: string; scheduled: boolean } | null {
+  const m = sqlite.prepare('SELECT * FROM meetings WHERE plan_task_id = ?').get(taskId) as unknown as Row | undefined;
+  if (!m) return null;
+  return { id: m.id, title: m.title, startAt: m.start_at, endAt: m.end_at, scheduled: m.status === 'programada' && !!m.event_id };
+}
+
+/**
+ * Mueve una reunión agendada a otra fecha y hora (misma duración e invitados): actualiza el evento de Calendar,
+ * avisa a los invitados y la tarea del cronograma la sigue. Lo usa el ajuste del plan con IA.
+ */
+export async function moveMeeting(meetingId: number, date: string, time: string, title: string | null, v: Viewer): Promise<void> {
+  const m = get(meetingId);
+  if (!m) throw new HttpError(404, 'La reunión no existe.');
+  if (m.status !== 'programada') throw new HttpError(409, 'Solo se pueden mover reuniones que aún no ocurren.');
+  const start = new Date(`${date}T${time}:00-05:00`);
+  if (Number.isNaN(start.getTime())) throw new HttpError(400, 'Fecha u hora no válida.');
+  if (start.getTime() < Date.now() - 5 * 60_000) throw new HttpError(400, 'La fecha ya pasó.');
+  const end = new Date(start.getTime() + (new Date(m.end_at).getTime() - new Date(m.start_at).getTime()));
+  await assertFree(start, end, m.id);
+  const newTitle = title?.trim().slice(0, 200) || m.title;
+  let event: google.CalendarEvent | null = null;
+  if (m.event_id) {
+    if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para mover reuniones.');
+    try {
+      event = await google.updateCalendarEvent(
+        m.event_id,
+        { summary: newTitle, startIso: start.toISOString(), endIso: end.toISOString(), attendees: parse<Attendee[]>(m.attendees, []).map((a) => a.email) },
+        true,
+      );
+    } catch (err) {
+      throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+    }
+  }
+  update(m.id, { title: newTitle, start_at: start.toISOString(), end_at: end.toISOString(), ...(event?.htmlLink ? { calendar_url: event.htmlLink } : {}) });
+  if (m.project_id) {
+    const a = actor(v);
+    const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+    db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: 'meeting_updated', data: { title: newTitle, when } });
+  }
+}
+
 /** Quita la reunión y su tarea del cronograma. */
 function remove(m: Row): void {
   if (m.plan_task_id) db.deleteTask(m.plan_task_id);

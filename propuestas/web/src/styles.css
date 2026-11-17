@@ -6475,3 +6475,130 @@ button.table__row {
     text-align: left;
   }
 }
+
+/* ── Plan de trabajo: vista (cómo se ve) separada de los filtros (qué se ve) */
+
+.filters--plan {
+  gap: 8px 10px;
+}
+
+.viewswitch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.viewswitch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--mute);
+  font: 600 0.78rem var(--font-body);
+  cursor: pointer;
+}
+
+.viewswitch button:hover {
+  color: var(--ink);
+}
+
+.viewswitch button.is-active {
+  background: var(--verde);
+  color: var(--canvas);
+}
+
+.filters__sep {
+  align-self: stretch;
+  width: 1px;
+  margin: 2px 4px;
+  background: var(--hairline-strong);
+}
+
+.filters__label {
+  font: 500 0.66rem var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+@media (max-width: 640px) {
+  .filters__sep {
+    display: none;
+  }
+  .viewswitch {
+    width: 100%;
+  }
+  .viewswitch button {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+/* ── Plan de trabajo: ajustar con IA */
+
+.plan-adjust {
+  display: grid;
+  gap: 12px;
+}
+
+.plan-adjust__list {
+  display: grid;
+  gap: 6px;
+  max-height: 46dvh;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.plan-adjust__list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.plan-adjust__list li > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.plan-adjust__list small {
+  color: var(--body);
+}
+
+.plan-adjust__tag {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  font: 500 0.66rem var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.plan-adjust__tag--reunion {
+  border-color: rgba(251, 146, 60, 0.5);
+  color: #fdba74;
+}
+
+.plan-adjust__tag--new {
+  border-color: rgba(126, 217, 87, 0.5);
+  color: var(--verde);
+}
+
+.plan-adjust__tag--del {
+  border-color: rgba(248, 113, 113, 0.5);
+  color: var(--rojo, #f87171);
+}

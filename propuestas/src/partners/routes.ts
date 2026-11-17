@@ -35,6 +35,7 @@ import { handleFiles } from './files.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import { handleBilling } from './billing.ts';
 import { handleScheduled } from './scheduled.ts';
+import { handlePlanAdjust } from './planAdjust.ts';
 import { handleFinance } from './finance.ts';
 import { handleImport } from './import-smartbilling.ts';
 import { handleOnlinePayments, handleWompiWebhook } from './online-payments.ts';
@@ -1030,10 +1031,11 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
           res,
           200,
           await adjustPlan({
-            plan: { startDate: draft.startDate, endDate: draft.endDate, phases: draft.phases, meetings: draft.meetings },
+            plan: { startDate: draft.startDate, endDate: draft.endDate, phases: draft.phases, meetings: draft.meetings, payments: draft.payments },
             instruction,
             projectName: str(body.projectName, 120),
             scope: str(body.scope, 30_000),
+            pricing: str(body.pricing, 12_000),
           }),
         );
       } catch (err) {
@@ -1185,6 +1187,7 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
     }
   }
   if (await handleWork(route, id, req, res, v)) return;
+  if (await handlePlanAdjust(route, id, req, res, v)) return;
   if (await handleUpdates(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;

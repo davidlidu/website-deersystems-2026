@@ -90,11 +90,12 @@ const emptyTask = (): DraftTask => ({ key: key(), title: '', description: '', si
 interface PlanSnapshot {
   phases: DraftPhase[];
   meetings: DraftMeeting[];
+  payments: (PaymentDraft & { key: string })[];
   startDate: string;
   endDate: string;
 }
 interface AdjustResponse {
-  plan: { startDate: string | null; endDate: string | null; phases: Draft['phases']; meetings: Draft['meetings'] };
+  plan: { startDate: string | null; endDate: string | null; phases: Draft['phases']; meetings: Draft['meetings']; payments: Draft['payments'] };
   changes: string[];
   warnings: string[];
   ai: DraftResponse['ai'];
@@ -144,7 +145,7 @@ function AdjustPlan({ onAdjust, onUndo, canUndo }: { onAdjust: (instruction: str
         )}
       </div>
       <p className="hint">
-        Dile qué cambiar de las fases, tareas, fechas o reuniones. Puedes ajustar varias veces; nada se guarda hasta que crees el proyecto.
+        Dile qué cambiar de las fases, tareas, fechas, reuniones o pagos. Puedes ajustar varias veces; nada se guarda hasta que crees el proyecto.
       </p>
       <textarea
         rows={3}
@@ -508,11 +509,12 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
 
   /** Manda el plan en pantalla y la instrucción; aplica el plan ajustado y guarda el anterior para deshacer. */
   const adjust = async (instruction: string) => {
-    const snapshot: PlanSnapshot = { phases, meetings, startDate: project.startDate, endDate: project.endDate };
+    const snapshot: PlanSnapshot = { phases, meetings, payments, startDate: project.startDate, endDate: project.endDate };
     const r = await api<AdjustResponse>('POST', `proposals/${proposalId}/plan`, {
       instruction,
       projectName: project.name,
       scope: project.scope,
+      pricing: project.pricing,
       plan: {
         startDate: project.startDate || null,
         endDate: project.endDate || null,
@@ -527,6 +529,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
             ),
             date: m.date || null,
           })),
+        payments: payments.filter((p) => p.label.trim() && Number(p.amount) > 0).map(draftBody),
       },
     });
     // Lo que la IA no conoce (responsable, si se agenda) se conserva por título.
@@ -551,6 +554,16 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
         schedule: scheduled.get(norm(m.title)) ?? true,
       })),
     );
+    setPayments(
+      (r.plan.payments ?? []).map((p) => ({
+        key: key(),
+        label: p.label,
+        percent: p.percent?.toString() ?? '',
+        amount: String(p.amount),
+        currency: p.currency,
+        dueDate: p.dueDate ?? '',
+      })),
+    );
     setProject((p) => ({ ...p, startDate: r.plan.startDate ?? p.startDate, endDate: r.plan.endDate ?? p.endDate }));
     setUndo(snapshot);
     setAiInfo(r.ai);
@@ -562,6 +575,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     if (!undo) return;
     setPhases(undo.phases);
     setMeetings(undo.meetings);
+    setPayments(undo.payments);
     setProject((p) => ({ ...p, startDate: undo.startDate, endDate: undo.endDate }));
     setUndo(null);
     toast('Se restauró el plan anterior.');
