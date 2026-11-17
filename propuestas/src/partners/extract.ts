@@ -81,13 +81,21 @@ Responde SOLO con un objeto JSON válido, en español, sin comentarios ni texto 
 
 /** Lo que eligió el cliente cuando la propuesta trae alternativas (Opción A / B, planes, paquetes). */
 export interface Approval {
-  option: { name: string; summary: string } | null;
+  /** `multiple`: aprobó varias opciones que se suman (fases o módulos); `summary` trae una por línea. */
+  option: { name: string; summary: string; multiple?: boolean } | null;
   notes: string;
 }
 
 function approvalBlock(a: Approval): string {
   const lines: string[] = [];
-  if (a.option) {
+  if (a.option?.multiple) {
+    lines.push(
+      `- Aprobó VARIAS opciones a la vez; se suman (son fases o módulos, no alternativas):\n${a.option.summary
+        .split('\n')
+        .map((l) => `  · ${l}`)
+        .join('\n')}\n  Incluye TODAS estas opciones en el alcance, las fases, las tareas y los valores, en el orden de la propuesta. Ignora por completo las opciones que no aparecen en esta lista.`,
+    );
+  } else if (a.option) {
     lines.push(
       `- Opción aprobada: "${a.option.name}"${a.option.summary ? ` (${a.option.summary})` : ''}. Usa SOLO esta opción para el alcance, los valores, las fases y las tareas. Ignora por completo las demás opciones, como si no existieran.`,
     );
