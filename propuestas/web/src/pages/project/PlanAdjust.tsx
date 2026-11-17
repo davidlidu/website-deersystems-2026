@@ -19,7 +19,7 @@ interface Snapshot {
 interface Suggestion {
   ops: unknown;
   preview: {
-    updates: { id: number; title: string; kind: 'tarea' | 'reunion'; calendar: boolean; before: Snapshot; after: Snapshot; descriptionChanged: boolean }[];
+    updates: { id: number; title: string; kind: 'tarea' | 'reunion'; calendar: boolean; before: Snapshot; after: Snapshot; descriptionChanged: boolean; note: string | null; clash: boolean }[];
     creates: { title: string; phase: string; kind: 'tarea' | 'reunion'; side: Side; startDate: string | null; dueDate: string | null }[];
     deletes: { id: number; title: string; kind: 'tarea' | 'reunion' }[];
   };
@@ -186,7 +186,7 @@ function PlanAdjustDialog({ projectId, onClose, onApplied }: { projectId: number
                 ) : (
                   <ul className="plan-adjust__list">
                     {s.preview.updates.map((u) => (
-                      <li key={`u${u.id}`}>
+                      <li key={`u${u.id}`} className={u.clash ? 'is-clash' : undefined}>
                         <span className={`plan-adjust__tag plan-adjust__tag--${u.kind}`}>{u.kind === 'reunion' ? 'Reunión' : 'Tarea'}</span>
                         <span>
                           <strong>{u.title}</strong>
@@ -194,6 +194,7 @@ function PlanAdjustDialog({ projectId, onClose, onApplied }: { projectId: number
                             {diff(u.before, u.after).join(' · ') || (u.descriptionChanged ? 'descripción actualizada' : 'sin cambios visibles')}
                             {u.calendar && ' · se mueve en Calendar'}
                           </small>
+                          {u.note && <small className="plan-adjust__note">{u.clash ? '⚠' : '↻'} {u.note}</small>}
                         </span>
                       </li>
                     ))}

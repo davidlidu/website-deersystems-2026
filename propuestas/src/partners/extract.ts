@@ -23,6 +23,8 @@ export interface DraftMeeting {
   time: string;
   durationMinutes: number;
   purpose: string;
+  /** Si el sistema la movió porque el horario propuesto se cruzaba con otra reunión: qué pasó, para mostrarlo junto a ella. */
+  moved?: string;
 }
 
 export interface Draft {
@@ -368,7 +370,8 @@ export async function extractDraft(proposal: Proposal, approval: Approval = { op
     throw new AiError(`El modelo ${completion.model} no devolvió tareas. Vuelve a intentarlo o prueba otro modelo.`);
   }
   // Las reuniones propuestas no pueden caer en horarios que ya tienes ocupados.
-  draft.warnings.push(...(await placeMeetings(draft.meetings)));
+  // Las reuniones movidas por choque de horario llevan su aviso en `moved`: se muestra junto a cada una.
+  await placeMeetings(draft.meetings);
   return { draft, ai: aiInfo(completion) };
 }
 

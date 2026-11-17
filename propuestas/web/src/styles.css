@@ -6602,3 +6602,53 @@ button.table__row {
   border-color: rgba(248, 113, 113, 0.5);
   color: var(--rojo, #f87171);
 }
+
+/* ── Reuniones tentativas: cruzadas en rojo, movidas en naranja */
+
+.draft-meeting.is-clash {
+  border-color: var(--coral);
+  border-left-color: var(--coral);
+  background: rgba(239, 71, 111, 0.08);
+}
+
+.draft-meeting.is-clash input[type='date'],
+.draft-meeting.is-clash input[type='time'] {
+  color: var(--coral);
+}
+
+.draft-meeting.is-clash .slot-status {
+  border-color: var(--coral);
+  background: rgba(239, 71, 111, 0.1);
+  color: #ffb3c4;
+}
+
+.draft-meeting.is-moved {
+  border-left-color: var(--naranja);
+}
+
+.slot-status--moved {
+  padding: 6px 10px;
+  border-left: 3px solid var(--naranja);
+  border-radius: var(--r-sm);
+  background: rgba(251, 133, 0, 0.08);
+  font-size: 0.8rem;
+  color: #fdba74;
+}
+
+.callout--warn {
+  border-color: rgba(251, 133, 0, 0.45);
+  background: rgba(251, 133, 0, 0.08);
+}
+
+.plan-adjust__list li.is-clash {
+  border-color: var(--coral);
+  background: rgba(239, 71, 111, 0.08);
+}
+
+.plan-adjust__list .plan-adjust__note {
+  color: #fdba74;
+}
+
+.plan-adjust__list li.is-clash .plan-adjust__note {
+  color: #ffb3c4;
+}

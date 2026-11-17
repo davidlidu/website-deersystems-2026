@@ -39,15 +39,16 @@ const label = (ms: number) =>
 const hour = (ms: number) => new Date(ms).toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: 'numeric', minute: '2-digit' });
 
 /** Lo ocupado entre dos instantes. `excludeMeetingId`: la reunión que se está editando no choca consigo misma. */
-export async function busyBetween(from: number, to: number, excludeMeetingId?: number | null): Promise<Busy[]> {
+export async function busyBetween(from: number, to: number, exclude?: number | number[] | null): Promise<Busy[]> {
+  const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
   const rows = sqlite
     .prepare("SELECT id, event_id, title, start_at, end_at FROM meetings WHERE status = 'programada' AND start_at < ? AND end_at > ?")
     .all(new Date(to).toISOString(), new Date(from).toISOString()) as { id: number; event_id: string | null; title: string; start_at: string; end_at: string }[];
-  const skipEvent = excludeMeetingId ? rows.find((r) => r.id === excludeMeetingId)?.event_id : null;
+  const skipEvents = new Set(rows.filter((r) => excluded.has(r.id) && r.event_id).map((r) => r.event_id));
   const seen = new Set<string>();
   const out: Busy[] = [];
   for (const r of rows) {
-    if (r.id === excludeMeetingId) continue;
+    if (excluded.has(r.id)) continue;
     if (r.event_id) seen.add(r.event_id);
     out.push({ start: Date.parse(r.start_at), end: Date.parse(r.end_at), title: r.title });
   }
@@ -57,7 +58,7 @@ export async function busyBetween(from: number, to: number, excludeMeetingId?: n
         // Fuera: cancelados, de día completo, marcados como "disponible" y los que rechazaste.
         if (e.status === 'cancelled' || !e.start?.dateTime || !e.end?.dateTime || e.transparency === 'transparent') continue;
         if (e.attendees?.some((a) => a.self && a.responseStatus === 'declined')) continue;
-        if (e.id === skipEvent || seen.has(e.id)) continue;
+        if (skipEvents.has(e.id) || seen.has(e.id)) continue;
         out.push({ start: Date.parse(e.start.dateTime), end: Date.parse(e.end.dateTime), title: e.summary || 'Ocupado' });
       }
     } catch (err) {
@@ -99,7 +100,7 @@ export interface SlotCheck {
  * Revisa varios horarios de una vez (p. ej. las reuniones del plan): cada uno contra el calendario y contra los
  * anteriores de la lista. También devuelve lo ocupado en cada fecha pedida, para mostrarlo en el formulario.
  */
-export async function checkSlots(slots: Slot[], excludeMeetingId?: number | null): Promise<{ slots: SlotCheck[]; days: Record<string, { start: string; end: string; title: string }[]> }> {
+export async function checkSlots(slots: Slot[], excludeMeetingId?: number | number[] | null): Promise<{ slots: SlotCheck[]; days: Record<string, { start: string; end: string; title: string }[]> }> {
   const valid = slots.filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s.date) && /^\d{2}:\d{2}$/.test(s.time));
   if (!valid.length) return { slots: slots.map(() => ({ conflict: null, suggestion: null })), days: {} };
   const starts = valid.map((s) => at(s.date, s.time));
@@ -153,8 +154,10 @@ export async function placeMeetings(meetings: DraftMeeting[]): Promise<string[]>
   dated.forEach((m, i) => {
     const s = slots[i];
     if (!s.conflict || !s.suggestion) return;
+    const before = label(at(m.date!, m.time));
     m.date = s.suggestion.date;
     m.time = s.suggestion.time;
+    m.moved = `Se movió del ${before} porque se cruzaba con «${s.conflict.title}» (${s.conflict.start} – ${s.conflict.end}).`;
     changes.push(`«${m.title}» se movió al ${label(at(m.date, m.time))}: el horario propuesto se cruzaba con «${s.conflict.title}».`);
   });
   return changes;

@@ -32,7 +32,7 @@ interface Draft {
   approvedOption: string;
   approvalNotes: string;
   phases: { name: string; tasks: Omit<DraftTask, 'key' | 'assigneeId'>[] }[];
-  meetings: { title: string; phaseIndex: number; date: string | null; time: string; durationMinutes: number; purpose: string }[];
+  meetings: { title: string; phaseIndex: number; date: string | null; time: string; durationMinutes: number; purpose: string; moved?: string }[];
   payments: { label: string; percent: number | null; amount: number; currency: 'USD' | 'COP'; dueDate: string | null }[];
   warnings: string[];
 }
@@ -68,6 +68,8 @@ interface DraftMeeting {
   durationMinutes: number;
   purpose: string;
   schedule: boolean;
+  /** El sistema la movió de horario porque se cruzaba con otra reunión. */
+  moved?: string;
 }
 
 interface Result {
@@ -336,6 +338,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
         durationMinutes: m.durationMinutes,
         purpose: m.purpose,
         schedule: true,
+        moved: m.moved,
       })),
     );
     setPayments(
@@ -552,6 +555,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
         durationMinutes: m.durationMinutes,
         purpose: m.purpose,
         schedule: scheduled.get(norm(m.title)) ?? true,
+        moved: m.moved,
       })),
     );
     setPayments(
@@ -1035,10 +1039,32 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               Cada reunión queda como tarea en su fase del cronograma. Las marcadas se agendan en tu Google Calendar con Meet y el cliente recibe la invitación
               {canSchedule ? '' : ' (para agendarlas, conecta Google con permiso de crear eventos en Configuración)'}.
             </p>
+            {(() => {
+              const crossing = [...clashes.values()].filter(Boolean).length;
+              const moved = meetings.filter((m) => m.moved && !clashes.get(m.key)).length;
+              if (crossing)
+                return (
+                  <p className="alert">
+                    {crossing === 1 ? '1 reunión se cruza' : `${crossing} reuniones se cruzan`} con otras de tu agenda o de este plan: están marcadas en rojo.
+                    Muévelas al horario libre que se sugiere antes de crear el proyecto.
+                  </p>
+                );
+              if (moved)
+                return (
+                  <p className="callout callout--warn">
+                    {moved === 1 ? '1 reunión se movió' : `${moved} reuniones se movieron`} al siguiente horario libre porque el horario propuesto se cruzaba con
+                    otra reunión. Ninguna queda cruzada; revisa que el nuevo horario te sirva.
+                  </p>
+                );
+              return null;
+            })()}
             {meetings.map((m) => {
-              const setM = (patch: Partial<DraftMeeting>) => setMeetings((ms) => ms.map((x) => (x.key === m.key ? { ...x, ...patch } : x)));
+              // Si cambias la fecha o la hora a mano, el aviso de «se movió» ya no aplica.
+              const setM = (patch: Partial<DraftMeeting>) =>
+                setMeetings((ms) => ms.map((x) => (x.key === m.key ? { ...x, ...patch, ...('date' in patch || 'time' in patch ? { moved: undefined } : {}) } : x)));
+              const clash = clashes.get(m.key)?.conflict;
               return (
-                <div key={m.key} className="draft-task side-deersystems draft-meeting">
+                <div key={m.key} className={`draft-task side-deersystems draft-meeting${clash ? ' is-clash' : m.moved ? ' is-moved' : ''}`}>
                   <div className="draft-task__row">
                     <label className="check check--chip" title="Agendar en Google Calendar">
                       <input
@@ -1090,6 +1116,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                     placeholder="Qué se presenta o se valida con el cliente"
                     onChange={(e) => setM({ purpose: e.target.value })}
                   />
+                  {m.moved && !clash && <p className="slot-status slot-status--moved">↻ {m.moved}</p>}
                   {(() => {
                     const c = clashes.get(m.key);
                     if (!c?.conflict) return null;

@@ -4,6 +4,7 @@ import { HttpError, json, readJson } from '../http.ts';
 import type { Viewer } from './auth.ts';
 import { actor, requireOwner, str } from './common.ts';
 import * as db from './db.ts';
+import { checkSlots } from './availability.ts';
 import { meetingOfTask, moveMeeting } from './meetings.ts';
 
 /**
@@ -134,8 +135,48 @@ export function normalizeOps(projectId: number, raw: Record<string, unknown>): {
   return { ops: { updates, creates, deletes }, skipped };
 }
 
+/** Aviso de horario por tarea: se movió al siguiente libre (`clash: false`) o sigue cruzada (`clash: true`). */
+type Notes = Map<number, { text: string; clash: boolean }>;
+
+/**
+ * Las reuniones agendadas que el ajuste mueve no pueden cruzarse con tu agenda ni entre sí: si chocan, pasan al
+ * siguiente horario libre y queda dicho; si no hay uno libre, quedan marcadas para que las resuelvas.
+ */
+async function placeMoves(ops: PlanOps): Promise<Notes> {
+  const notes: Notes = new Map();
+  const moves = ops.updates
+    .map((u) => {
+      const t = db.getTask(u.id)!;
+      const m = t.kind === 'reunion' ? meetingOfTask(t.id) : null;
+      if (!m?.scheduled || (u.dueDate === undefined && u.startDate === undefined && !u.time)) return null;
+      const date = u.dueDate ?? u.startDate ?? t.due_date;
+      if (!date) return null;
+      const minutes = Math.round((Date.parse(m.endAt) - Date.parse(m.startAt)) / 60_000);
+      return { u, meetingId: m.id, date, time: u.time ?? bogotaTime(m.startAt), minutes };
+    })
+    .filter((x): x is NonNullable<typeof x> => !!x);
+  if (!moves.length) return notes;
+  // Cada reunión que se mueve no choca con su propio horario anterior.
+  const { slots } = await checkSlots(
+    moves.map((x) => ({ date: x.date, time: x.time, durationMinutes: x.minutes })),
+    moves.map((x) => x.meetingId),
+  );
+  moves.forEach((x, i) => {
+    const s = slots[i];
+    if (!s?.conflict) return;
+    const why = `se cruzaba con «${s.conflict.title}» (${s.conflict.start} – ${s.conflict.end})`;
+    if (s.suggestion) {
+      x.u.startDate = s.suggestion.date;
+      x.u.dueDate = s.suggestion.date;
+      x.u.time = s.suggestion.time;
+      notes.set(x.u.id, { text: `Pasó al siguiente horario libre: ${why}.`, clash: false });
+    } else notes.set(x.u.id, { text: `Se cruza con «${s.conflict.title}» y no hay un horario libre cercano: muévela a mano.`, clash: true });
+  });
+  return notes;
+}
+
 /** Para mostrar antes de aplicar: qué cambia en cada tarea, en palabras. */
-export function preview(projectId: number, ops: PlanOps) {
+export function preview(projectId: number, ops: PlanOps, notes: Notes = new Map()) {
   const tasks = new Map(db.listTasks(projectId).map((t) => [t.id, t]));
   const phases = new Map(db.listPhases(projectId).map((p) => [p.id, p.name]));
   return {
@@ -164,6 +205,8 @@ export function preview(projectId: number, ops: PlanOps) {
           side: u.side ?? t.side,
         },
         descriptionChanged: u.description !== undefined,
+        note: notes.get(u.id)?.text ?? null,
+        clash: notes.get(u.id)?.clash ?? false,
       };
     }),
     creates: ops.creates.map((c) => ({ ...c, phase: c.phaseId ? (phases.get(c.phaseId) ?? '') : c.phaseName })),
@@ -226,13 +269,14 @@ Reglas:
     maxOutputTokens: 8192,
   });
   const { ops, skipped } = normalizeOps(project.id, data);
+  const notes = await placeMoves(ops);
   const changes = (Array.isArray(data.changes) ? data.changes : [])
     .map((c) => str(c, 300))
     .filter(Boolean)
     .slice(0, 8);
   return {
     ops,
-    preview: preview(project.id, ops),
+    preview: preview(project.id, ops, notes),
     changes,
     warnings: skipped,
     ai: { provider: completion.provider, model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs },
@@ -295,14 +339,24 @@ async function apply(project: db.Project, raw: Record<string, unknown>, instruct
       applied++;
     }
   });
-  for (const mv of moves) {
-    try {
-      await moveMeeting(mv.meetingId, mv.date, mv.time, mv.title, v);
-      applied++;
-    } catch (err) {
-      errors.push(`No se movió la reunión «${mv.label}»: ${(err as Error).message}`);
+  // Si una reunión va al horario que deja otra que también se mueve, la primera vuelta puede chocar:
+  // se reintenta mientras alguna avance, y lo que siga sin poder moverse se informa.
+  let pending = moves;
+  let failed: { mv: (typeof moves)[number]; message: string }[] = [];
+  while (pending.length) {
+    failed = [];
+    for (const mv of pending) {
+      try {
+        await moveMeeting(mv.meetingId, mv.date, mv.time, mv.title, v);
+        applied++;
+      } catch (err) {
+        failed.push({ mv, message: (err as Error).message });
+      }
     }
+    if (failed.length === pending.length) break;
+    pending = failed.map((f) => f.mv);
   }
+  for (const f of failed) errors.push(`No se movió la reunión «${f.mv.label}»: ${f.message}`);
   // La entrega estimada sigue a la tarea más tardía si el ajuste la corre.
   const latest = db
     .listTasks(project.id)
