@@ -76,6 +76,8 @@ interface Result {
   password: string | null;
   mail: { sent: boolean; error?: string };
   meetings: { scheduled: number; errors: string[] };
+  /** Al sumar a un proyecto existente: cuántas tareas se agregaron. */
+  added?: number;
 }
 
 const key = () => Math.random().toString(36).slice(2);
@@ -287,6 +289,16 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const [retries, setRetries] = useState(0);
 
   const proposal = proposals.data?.find((p) => p.id === proposalId);
+  // Si la propuesta ya tiene proyecto (el cliente aprobó otra fase después), lo aprobado se suma a ese proyecto.
+  const [target, setTarget] = useState<number | null>(null);
+  const targetSet = useRef(false);
+  useEffect(() => {
+    if (targetSet.current || !proposal) return;
+    targetSet.current = true;
+    const last = proposal.projects[proposal.projects.length - 1];
+    if (last && approvalId) setTarget(last.id);
+  }, [proposal, approvalId]);
+  const targetProject = proposal?.projects.find((p) => p.id === target) ?? null;
 
   useEffect(() => {
     if (proposal && !project.name) setProject((p) => ({ ...p, name: proposal.title || '' }));
@@ -419,12 +431,20 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           eyebrow="Propuesta aprobada"
           title={
             <>
-              Proyecto <span className="grad">creado</span>
+              Proyecto <span className="grad">{result.added !== undefined ? 'actualizado' : 'creado'}</span>
             </>
           }
         >
           <p>
-            <strong>{result.project.name}</strong> ya está en el espacio de {result.client.name}.
+            {result.added !== undefined ? (
+              <>
+                {result.added === 1 ? 'Se sumó 1 tarea' : `Se sumaron ${result.added} tareas`}, sus reuniones y sus pagos a <strong>{result.project.name}</strong>. El cliente lo ve en su portal.
+              </>
+            ) : (
+              <>
+                <strong>{result.project.name}</strong> ya está en el espacio de {result.client.name}.
+              </>
+            )}
           </p>
         </PageHead>
         <div className="stack">
@@ -548,9 +568,11 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   };
 
   const submit = () => {
-    if (!project.name.trim()) return toast('Falta el nombre del proyecto.', true);
-    if (clientMode === 'existing' && !existingId) return toast('Elige el cliente.', true);
-    if (clientMode === 'new' && (!client.name.trim() || !client.email.trim())) return toast('Falta el nombre o el correo del cliente.', true);
+    if (!targetProject) {
+      if (!project.name.trim()) return toast('Falta el nombre del proyecto.', true);
+      if (clientMode === 'existing' && !existingId) return toast('Elige el cliente.', true);
+      if (clientMode === 'new' && (!client.name.trim() || !client.email.trim())) return toast('Falta el nombre o el correo del cliente.', true);
+    }
     if (!taskCount) return toast('Agrega al menos una tarea.', true);
     const badPayment = payments.find((p) => (p.label.trim() || p.amount) && !(p.label.trim() && Number(p.amount) > 0));
     if (badPayment) return toast('Cada pago necesita el tipo de abono y un monto mayor a cero.', true);
@@ -562,6 +584,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
       const r = await api<Result>('POST', 'projects', {
         proposalId,
         approvalId,
+        projectId: targetProject?.id ?? null,
         client: clientMode === 'existing' ? { id: existingId, email: accessEmail } : client,
         project,
         phases: sent.map((p) => ({ name: p.name, tasks: p.tasks.filter((t) => t.title.trim()) })),
@@ -606,7 +629,9 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           y sugiere alcance, fases, tareas y fechas. Revisa todo antes de crear el proyecto: nada se guarda hasta que confirmes.
         </p>
         {proposal.projects.length > 0 && (
-          <p className="callout">Esta propuesta ya generó {proposal.projects.map((p) => p.name).join(', ')}. Si sigues, se crea otro proyecto.</p>
+          <p className="callout">
+            Esta propuesta ya generó {proposal.projects.map((p) => p.name).join(', ')}. Puedes sumar lo nuevo a ese proyecto o crear otro.
+          </p>
         )}
       </PageHead>
 
@@ -734,6 +759,42 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
             </p>
           )}
 
+          {proposal.projects.length > 0 && (
+            <section className="card form-section">
+              <h2>Dónde queda</h2>
+              <div className="segmented">
+                <button className={target ? 'is-active' : ''} onClick={() => setTarget(proposal.projects[proposal.projects.length - 1].id)}>
+                  Sumar a un proyecto existente
+                </button>
+                <button className={!target ? 'is-active' : ''} onClick={() => setTarget(null)}>
+                  Crear proyecto nuevo
+                </button>
+              </div>
+              {target ? (
+                <>
+                  <label className="field">
+                    <span className="field__label">Proyecto</span>
+                    <span className="input">
+                      <select value={target} onChange={(e) => setTarget(Number(e.target.value))}>
+                        {proposal.projects.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                            {p.approvedOption ? ` · ${p.approvedOption}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </span>
+                  </label>
+                  <p className="hint">
+                    Las fases y tareas de abajo se agregan al final de su cronograma, y las reuniones y los pagos se suman a los que ya tiene. El cliente y su acceso
+                    no cambian.
+                  </p>
+                </>
+              ) : null}
+            </section>
+          )}
+
+          {!targetProject && (
           <section className="card form-section">
             <h2>Cliente</h2>
             <div className="segmented">
@@ -796,16 +857,19 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               </div>
             )}
           </section>
+          )}
 
           <section className="card form-section">
             <h2>Proyecto</h2>
             <div className="form-grid">
-              <label className="field field--wide">
-                <span className="field__label">Nombre *</span>
-                <span className="input">
-                  <input value={project.name} onChange={(e) => setProject({ ...project, name: e.target.value })} />
-                </span>
-              </label>
+              {!targetProject && (
+                <label className="field field--wide">
+                  <span className="field__label">Nombre *</span>
+                  <span className="input">
+                    <input value={project.name} onChange={(e) => setProject({ ...project, name: e.target.value })} />
+                  </span>
+                </label>
+              )}
               <label className="field">
                 <span className="field__label">Opción aprobada (si la propuesta tenía varias)</span>
                 <span className="input">
@@ -1086,6 +1150,13 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           <AdjustPlan onAdjust={adjust} onUndo={undoAdjust} canUndo={!!undo} />
 
           <section className="card form-section confirm">
+            {targetProject ? (
+              <p className="hint">
+                Se suma a <strong>{targetProject.name}</strong>. Al cliente le llegan las novedades por los avisos del proyecto, y las reuniones marcadas se
+                agendan en tu Calendar con invitación.
+              </p>
+            ) : (
+            <>
             <label className="check">
               <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} disabled={!google.data?.connected} />
               <span>
@@ -1116,8 +1187,10 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                 <Link to="/configuracion">Configuración</Link>.
               </p>
             )}
+            </>
+            )}
             <button className="btn btn--primary" onClick={submit} disabled={busy}>
-              {busy ? 'Creando…' : 'Crear proyecto'}
+              {busy ? (targetProject ? 'Agregando…' : 'Creando…') : targetProject ? `Agregar a ${targetProject.name}` : 'Crear proyecto'}
             </button>
           </section>
         </div>

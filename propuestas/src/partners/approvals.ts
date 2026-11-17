@@ -245,27 +245,53 @@ export function paymentsOf(data: GeneratedData | null, optionId: string): Paymen
   return out.length ? out : null;
 }
 
+/** Opciones que el cliente ya aprobó en esta propuesta (las descartadas no cuentan), con la fecha de la primera vez. */
+function alreadyApproved(proposalId: number): Map<string, string> {
+  const rows = sqlite
+    .prepare("SELECT option_id, created_at FROM proposal_approvals WHERE proposal_id = ? AND status != 'descartada' AND option_id != '' ORDER BY id")
+    .all(proposalId) as { option_id: string; created_at: string }[];
+  const out = new Map<string, string>();
+  for (const r of rows) for (const id of r.option_id.split(',')) if (!out.has(id)) out.set(id, r.created_at);
+  return out;
+}
+
+const dateEs = (iso: string) =>
+  new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Bogota' });
+
 // ───────── Página pública: /{slug}/aprobar ─────────
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-function page(p: Proposal, data: GeneratedData | null, options: PublicOption[], multi: boolean): string {
+function page(p: Proposal, data: GeneratedData | null, options: PublicOption[], multi: boolean, approved: Map<string, string>): string {
   const title = data?.meta?.titulo || p.title || 'Propuesta DeerSystems';
   const nro = data?.meta?.nro ? `Propuesta N.º DS-${data.meta.nro}` : 'Propuesta';
   const company = data?.meta?.cliente ?? '';
   const currency = data?.meta?.aprobacion?.moneda === 'USD' ? 'USD' : 'COP';
+  const pending = options.filter((o) => !approved.has(o.id));
+  const someDone = pending.length < options.length;
   const opts = multi
     ? `<fieldset class="opts" data-currency="${currency}"><legend>¿Qué apruebas?</legend>
-        <p class="muted legend-hint">Puedes aprobar una, varias o la propuesta completa.</p>
-        <label class="opt opt--all"><input type="checkbox" id="all">
-          <span><strong>Propuesta completa</strong><small>Todas las opciones (${options.length})</small>${
-            options.every((o) => o.amount !== null) ? `<em data-total-all></em>` : ''
-          }</span></label>
+        <p class="muted legend-hint">${
+          someDone ? 'Ya aprobaste parte de la propuesta. Elige lo que quieres sumar ahora: una, varias o todo lo pendiente.' : 'Puedes aprobar una, varias o la propuesta completa.'
+        }</p>
+        ${
+          pending.length > 1
+            ? `<label class="opt opt--all"><input type="checkbox" id="all">
+          <span><strong>${someDone ? 'Todo lo pendiente' : 'Propuesta completa'}</strong><small>${
+            someDone ? `Las ${pending.length} opciones que faltan` : `Todas las opciones (${options.length})`
+          }</small>${pending.every((o) => o.amount !== null) ? `<em data-total-all></em>` : ''}</span></label>`
+            : ''
+        }
         ${options
-          .map(
-            (o) => `<label class="opt"><input type="checkbox" name="options" value="${esc(o.id)}"${o.amount !== null ? ` data-amount="${o.amount}"` : ''}>
-          <span><strong>${esc(o.name)}</strong>${o.summary ? `<small>${esc(o.summary)}</small>` : ''}${o.price ? `<em>${esc(o.price)}</em>` : ''}</span></label>`,
-          )
+          .map((o) => {
+            const at = approved.get(o.id);
+            const body = `<span><strong>${esc(o.name)}</strong>${o.summary ? `<small>${esc(o.summary)}</small>` : ''}${
+              at ? `<small class="ok">✓ Aprobada el ${esc(dateEs(at))}</small>` : o.price ? `<em>${esc(o.price)}</em>` : ''
+            }</span>`;
+            return at
+              ? `<label class="opt is-done"><input type="checkbox" checked disabled>${body}</label>`
+              : `<label class="opt"><input type="checkbox" name="options" value="${esc(o.id)}"${o.amount !== null ? ` data-amount="${o.amount}"` : ''}>${body}</label>`;
+          })
           .join('')}
         <p class="total" id="total" hidden></p></fieldset>`
     : options.length
@@ -300,6 +326,7 @@ fieldset.opts{border:0;padding:0;margin:0;display:grid;gap:10px}legend{font:600 
 .opt{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--hairline);border-radius:12px;background:var(--surface);cursor:pointer}
 .opt:has(input:checked){border-color:var(--verde)}.opt input{margin-top:4px;accent-color:var(--verde)}
 .opt span{display:grid;gap:2px}.opt strong{color:var(--ink)}.opt small{color:var(--mute);font-size:13px}.opt em{font:500 13px/1.4 'JetBrains Mono',monospace;color:var(--verde);font-style:normal}
+.opt.is-done{cursor:default;opacity:.75}.opt .ok{color:var(--verde)}
 .opt--all{border-style:dashed}.opt--all:has(input:checked){border-style:solid;background:rgba(126,217,87,.08)}
 .legend-hint{margin:-6px 0 2px}.total{margin:4px 0 0;font:600 15px/1.4 'Space Grotesk',sans-serif;color:var(--ink)}.total em{font:500 14px/1.4 'JetBrains Mono',monospace;color:var(--verde);font-style:normal}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px}.check input{margin-top:4px;accent-color:var(--verde)}
@@ -310,7 +337,13 @@ button:disabled{opacity:.6;cursor:wait}
 .done h1{color:var(--verde)}
 </style></head><body><main>
 <a class="brand" href="${esc(HOME_URL)}"><b>Deer</b>Systems</a>
-<section class="card" id="form-card">
+${
+  multi && !pending.length
+    ? `<section class="card done"><p class="eyebrow">${esc(nro)}</p><h1>Ya aprobaste toda la propuesta</h1>
+  <p>Todas las opciones de «${esc(title)}» están aprobadas. Si quieres ajustar algo, escríbenos a <a href="mailto:ceo@deersystems.net">ceo@deersystems.net</a>.</p>
+  <p><a href="./">Volver a la propuesta</a></p></section>`
+    : ''
+}<section class="card" id="form-card"${multi && !pending.length ? ' hidden' : ''}>
   <p class="eyebrow">${esc(nro)}</p>
   <h1>Aprobar la propuesta</h1>
   <p>${esc(title)}. Al aprobarla confirmas el alcance, la inversión y la forma de pago tal como aparecen en <a href="./">la propuesta</a>. Con eso preparamos el plan de trabajo y te contactamos para agendar el arranque.</p>
@@ -343,7 +376,7 @@ button:disabled{opacity:.6;cursor:wait}
   var f=document.getElementById('f'),err=document.getElementById('err'),btn=f.querySelector('button');
   function fail(m){err.textContent=m;err.hidden=false;}
   var all=document.getElementById('all'),boxes=[].slice.call(f.querySelectorAll('input[name=options]')),total=document.getElementById('total');
-  if(all){
+  if(boxes.length){
     var cur=f.querySelector('fieldset').getAttribute('data-currency');
     var money=function(n){return '$'+n.toLocaleString('es-CO',{maximumFractionDigits:2})+' '+cur;};
     var priced=boxes.every(function(b){return b.hasAttribute('data-amount');});
@@ -351,19 +384,19 @@ button:disabled{opacity:.6;cursor:wait}
     var ta=f.querySelector('[data-total-all]');if(ta)ta.textContent=money(sum(boxes));
     var sync=function(){
       var on=boxes.filter(function(b){return b.checked;});
-      all.checked=on.length===boxes.length;all.indeterminate=on.length>0&&on.length<boxes.length;
-      btn.textContent=on.length===boxes.length?'Aprobar la propuesta completa':on.length>1?'Aprobar '+on.length+' opciones':'Aprobar propuesta';
+      if(all){all.checked=on.length===boxes.length;all.indeterminate=on.length>0&&on.length<boxes.length;}
+      btn.textContent=on.length===boxes.length&&!document.querySelector('.opt.is-done')?'Aprobar la propuesta completa':on.length>1?'Aprobar '+on.length+' opciones':'Aprobar propuesta';
       if(!on.length||!priced){total.hidden=true;return;}
       total.innerHTML='';total.appendChild(document.createTextNode((on.length===1?'1 opción':on.length+' opciones')+' · total '));
       var em=document.createElement('em');em.textContent=money(sum(on));total.appendChild(em);total.hidden=false;
     };
-    all.addEventListener('change',function(){boxes.forEach(function(b){b.checked=all.checked;});sync();});
+    if(all)all.addEventListener('change',function(){boxes.forEach(function(b){b.checked=all.checked;});sync();});
     boxes.forEach(function(b){b.addEventListener('change',sync);});
   }
   f.addEventListener('submit',function(e){
     e.preventDefault();err.hidden=true;
     var d=new FormData(f),o={};d.forEach(function(v,k){if(k!=='options')o[k]=v;});o.accept=!!f.accept.checked;
-    if(all){o.options=boxes.filter(function(b){return b.checked;}).map(function(b){return b.value;});if(!o.options.length)return fail('Elige al menos una opción, o la propuesta completa.');}
+    if(boxes.length){o.options=boxes.filter(function(b){return b.checked;}).map(function(b){return b.value;});if(!o.options.length)return fail('Elige al menos una opción, o la propuesta completa.');}
     if(f.querySelector('input[name=option]')&&!o.option)return fail('Elige la opción que apruebas.');
     if(!String(o.name||'').trim())return fail('Escribe tu nombre.');
     if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(o.email||'').trim()))return fail('Escribe un correo válido.');
@@ -406,7 +439,7 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
       'X-Robots-Tag': 'noindex, nofollow',
       'X-Frame-Options': 'DENY',
     });
-    return void res.end(req.method === 'HEAD' ? undefined : page(proposal, data, options, multi));
+    return void res.end(req.method === 'HEAD' ? undefined : page(proposal, data, options, multi, alreadyApproved(proposal.id)));
   }
   if (req.method !== 'POST') throw new HttpError(405, 'Método no permitido.');
 
@@ -426,14 +459,26 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
   const chosen = options.filter((o) => wanted.has(o.id));
   if (options.length && (!chosen.length || (!multi && chosen.length > 1)))
     throw new HttpError(400, multi ? 'Elige al menos una opción, o la propuesta completa.' : 'Elige la opción que apruebas.');
+  if (multi) {
+    const done = alreadyApproved(proposal.id);
+    const repeated = chosen.filter((o) => done.has(o.id));
+    if (repeated.length)
+      throw new HttpError(
+        409,
+        `${repeated.map(shortName).join(', ')} ya ${repeated.length > 1 ? 'están aprobadas' : 'está aprobada'}. Recarga la página para ver lo que falta.`,
+      );
+  }
   const option = chosen.length ? combined(chosen, options) : undefined;
   // Solo cuentan los envíos válidos: un error al llenar el formulario no bloquea al cliente.
   rateLimit(ip);
 
-  // Doble clic o reenvío: si ya aprobó en las últimas 24 h y sigue abierta, no se repite.
+  // Doble clic o reenvío: si ya aprobó lo mismo en las últimas 24 h y sigue abierta, no se repite.
+  // Otra opción (p. ej. la fase siguiente) sí entra como aprobación nueva.
   const dup = sqlite
-    .prepare("SELECT id FROM proposal_approvals WHERE proposal_id = ? AND email = ? AND status IN ('generando', 'listo', 'error') AND created_at > ?")
-    .get(proposal.id, email, new Date(Date.now() - 86_400_000).toISOString());
+    .prepare(
+      "SELECT id FROM proposal_approvals WHERE proposal_id = ? AND email = ? AND option_id = ? AND status IN ('generando', 'listo', 'error') AND created_at > ?",
+    )
+    .get(proposal.id, email, option?.id ?? '', new Date(Date.now() - 86_400_000).toISOString());
   if (dup) return json(res, 200, { ok: true });
 
   const t = now();
@@ -482,6 +527,15 @@ async function confirmToClient(to: string, name: string, title: string, option: 
   }
 }
 
+/** Si antes aprobó otras partes de la misma propuesta, la IA arma solo lo nuevo, como continuación. */
+function earlierNote(a: ApprovalRow): string {
+  const prev = sqlite
+    .prepare("SELECT option_name FROM proposal_approvals WHERE proposal_id = ? AND id < ? AND status != 'descartada' AND option_name != '' ORDER BY id")
+    .all(a.proposal_id, a.id) as { option_name: string }[];
+  if (!prev.length) return '';
+  return `Ya había aprobado antes ${prev.map((r) => `«${r.option_name}»`).join(', ')}, que ya está en marcha: este plan es SOLO para lo que aprueba ahora y se suma al proyecto existente. No repitas fases, tareas, reuniones de arranque ni pagos de lo anterior.`;
+}
+
 /** Arma el plan con IA (fases, tareas, reuniones) y le pone el plan de pagos exacto de la propuesta. */
 export async function generatePlan(id: number): Promise<void> {
   const a = getApproval(id);
@@ -493,7 +547,7 @@ export async function generatePlan(id: number): Promise<void> {
   try {
     const { draft, ai } = await extractDraft(approved, {
       option: a.option_name ? { name: a.option_name, summary: a.option_summary, multiple: a.option_id.includes(',') } : null,
-      notes: a.notes ? `Comentarios del cliente al aprobar: ${a.notes}` : '',
+      notes: [a.notes ? `Comentarios del cliente al aprobar: ${a.notes}` : '', earlierNote(a)].filter(Boolean).join('\n'),
     });
     draft.approvalNotes = a.notes;
     const exact = paymentsOf(await generatedData(approved), a.option_id);

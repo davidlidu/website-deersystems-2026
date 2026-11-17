@@ -206,6 +206,8 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, url: URL): 
 async function approve(body: Record<string, unknown>, v: Viewer) {
   const proposalId = Number(body.proposalId) || null;
   if (proposalId && !getProposal(proposalId)) throw new HttpError(404, 'La propuesta no existe.');
+  // Aprobó otra parte (p. ej. otra fase) de una propuesta que ya tiene proyecto: se suma a ese proyecto.
+  if (Number(body.projectId)) return addToProject(Number(body.projectId), body, v);
 
   const project = (body.project ?? {}) as Record<string, unknown>;
   const name = str(project.name, 120);
@@ -357,6 +359,113 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
     mail: mailResult,
     meetings,
   };
+}
+
+/**
+ * Suma lo aprobado después (otra fase u opción) a un proyecto que ya existe: sus fases y tareas van al final del
+ * cronograma, sus reuniones y su plan de pagos se agregan, y el proyecto registra la opción en «aprobado».
+ * No toca el cliente ni su acceso; al cliente le llegan las novedades por los avisos del proyecto.
+ */
+async function addToProject(projectId: number, body: Record<string, unknown>, v: Viewer) {
+  const existing = db.getProject(projectId);
+  if (!existing) throw new HttpError(404, 'El proyecto no existe.');
+  const proposalId = Number(body.proposalId) || null;
+  const project = (body.project ?? {}) as Record<string, unknown>;
+  const draft = normalizeDraft({
+    phases: body.phases,
+    scope: project.scope,
+    pricing: project.pricing,
+    approvedOption: project.approvedOption,
+    approvalNotes: project.approvalNotes,
+    meetings: body.meetings,
+    payments: body.payments,
+  });
+  const rawMeetings = Array.isArray(body.meetings) ? (body.meetings as { schedule?: unknown }[]) : [];
+  if (!draft.phases.some((p) => p.tasks.length)) throw new HttpError(400, 'Lo que agregas necesita al menos una tarea.');
+  const teamIds = new Set(db.listTeam().map((a) => a.id));
+  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown }[] }[]) : [];
+
+  const joined = (a: string, b: string, sep: string) => (!b.trim() ? a : !a.trim() ? b : a.includes(b) ? a : `${a}${sep}${b}`);
+  const added = db.transaction(() => {
+    let phasePos = db.nextPhasePosition(projectId);
+    let position = db.nextTaskPosition(projectId);
+    let tasks = 0;
+    const phaseIds: number[] = [];
+    for (const [i, ph] of draft.phases.entries()) {
+      const phase = db.createPhase(projectId, ph.name, phasePos++);
+      phaseIds.push(phase.id);
+      for (const [j, t] of ph.tasks.entries()) {
+        const assignee = Number(rawPhases[i]?.tasks?.[j]?.assigneeId);
+        db.createTask({
+          projectId,
+          phaseId: phase.id,
+          title: t.title,
+          description: t.description,
+          side: t.side,
+          assigneeId: t.side === 'deersystems' && teamIds.has(assignee) ? assignee : null,
+          startDate: t.startDate,
+          dueDate: t.dueDate,
+          position: position++,
+          source: 'propuesta',
+        });
+        tasks++;
+      }
+    }
+    for (const m of draft.meetings) {
+      db.createTask({
+        projectId,
+        phaseId: phaseIds[m.phaseIndex] ?? null,
+        title: m.title,
+        description: m.purpose,
+        side: 'deersystems',
+        assigneeId: null,
+        startDate: m.date,
+        dueDate: m.date,
+        position: position++,
+        source: 'propuesta',
+        kind: 'reunion',
+      });
+    }
+    createPayments(projectId, draft.payments);
+    const end = optDate(project.endDate) ?? null;
+    db.updateProject(projectId, {
+      approved_option: joined(existing.approved_option, draft.approvedOption, ' + ').slice(0, 400),
+      approval_notes: joined(existing.approval_notes, draft.approvalNotes, '\n\n'),
+      scope: joined(existing.scope, draft.scope, '\n\n'),
+      pricing: joined(existing.pricing, draft.pricing, '\n\n'),
+      end_date: end && (!existing.end_date || end > existing.end_date) ? end : undefined,
+      status: existing.status === 'finalizado' ? 'activo' : undefined,
+    });
+    const approvalId = Number(body.approvalId);
+    if (approvalId && getApproval(approvalId)?.proposal_id === proposalId) closeApproval(approvalId, 'convertida', projectId);
+    const a = actor(v);
+    db.logActivity({
+      projectId,
+      actorKind: a.kind,
+      actorName: a.name,
+      type: 'project_extended',
+      data: { option: draft.approvedOption, phases: draft.phases.map((p) => p.name), tasks },
+    });
+    return { tasks };
+  });
+
+  const updated = db.getProject(projectId)!;
+  const meetings = { scheduled: 0, errors: [] as string[] };
+  for (const [i, m] of draft.meetings.entries()) {
+    if (rawMeetings[i]?.schedule !== true) continue;
+    try {
+      await scheduleMeeting(
+        updated,
+        { title: m.title, date: m.date, time: m.time, durationMinutes: m.durationMinutes, agenda: m.purpose, includeClient: true, teamIds: [], guests: [] },
+        v,
+      );
+      meetings.scheduled++;
+    } catch (err) {
+      meetings.errors.push(`«${m.title}»: ${(err as Error).message}`);
+    }
+  }
+  const client = db.getClient(updated.client_id)!;
+  return { project: projectSummary(updated, v), client, password: null, mail: { sent: false }, meetings, added: added.tasks };
 }
 
 // ───────── Propuestas ─────────
