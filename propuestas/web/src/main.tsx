@@ -17,6 +17,7 @@ const ProjectPage = lazy(() => loadChunk(() => import('./pages/Project')).then((
 const MeetingsPage = lazy(() => loadChunk(() => import('./pages/Meetings')).then((m) => ({ default: m.MeetingsPage })));
 const MeetingReviewPage = lazy(() => loadChunk(() => import('./pages/Meetings')).then((m) => ({ default: m.MeetingReviewPage })));
 const ProposalsPage = lazy(() => loadChunk(() => import('./pages/Proposals')).then((m) => ({ default: m.ProposalsPage })));
+const CalendarPage = lazy(() => loadChunk(() => import('./pages/Calendar')).then((m) => ({ default: m.CalendarPage })));
 const SettingsPage = lazy(() => loadChunk(() => import('./pages/Settings')).then((m) => ({ default: m.SettingsPage })));
 
 /**
@@ -61,9 +62,13 @@ function Wordmark() {
 function Nav({ me, path }: { me: Me; path: string }) {
   const items: [string, string][] =
     me.role === 'client'
-      ? [['/', 'Mis proyectos']]
+      ? [
+          ['/', 'Mis proyectos'],
+          ['/calendario', 'Calendario'],
+        ]
       : [
           ['/', 'Clientes'],
+          ['/calendario', 'Calendario'],
           ...(me.role === 'owner'
             ? ([
                 ['/propuestas', 'Propuestas'],
@@ -132,6 +137,7 @@ function Shell({ me, children, path, onTour }: { me: Me; children: React.ReactNo
 function Routes({ me, path }: { me: Me; path: string }) {
   let m: Record<string, string> | null;
   if (path === '/') return <HomePage me={me} />;
+  if (path === '/calendario') return <CalendarPage me={me} />;
   if ((m = match('/proyectos/:id', path))) return <ProjectPage me={me} id={Number(m.id)} />;
   if (path === '/cuenta' && me.role !== 'owner') return <AccountPage me={me} />;
   // La cuenta de cobro la ven tú y el cliente (las suyas); el servidor no se la entrega al equipo.

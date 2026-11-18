@@ -24,6 +24,7 @@ import { NotesPanel } from './project/Notes';
 import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
 import { PaymentsPanel } from './project/Payments';
 import { PlanAdjustButton } from './project/PlanAdjust';
+import { ProjectSummary } from './project/Summary';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
 import { UpdatesPanel } from './project/Updates';
 
@@ -340,6 +341,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
         ))}
       </div>
 
+      {tab === 'avances' && !log && <ProjectSummary project={p} onOpenTask={(taskId) => (go(PLACES.tareas), setDrawer({ taskId }))} />}
       {tab === 'avances' && (
         <section className="section section--flush updates-col">
           {log ? (

@@ -597,6 +597,18 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       return json(res, 200, list.map((p) => projectSummary(p, v)));
     }
 
+    // Calendario general: lo que hay que entregar en todos los proyectos que ve esta persona.
+    case 'GET deliveries': {
+      const list = (v.kind === 'client' ? db.listProjects(v.clientId).filter((p) => clientSees(v, p)) : db.listProjects()).filter(
+        (p) => url.searchParams.get('all') === '1' || p.status !== 'finalizado',
+      );
+      const team = teamNames();
+      return json(res, 200, {
+        projects: list.map((p) => ({ ...projectSummary(p, v), phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })) })),
+        tasks: list.flatMap((p) => db.listTasks(p.id).map((t) => ({ ...taskView(t, v, team), projectId: p.id }))),
+      });
+    }
+
     case 'GET projects/:id':
       return json(res, 200, projectDetail(visibleProject(id, v), v));
 
