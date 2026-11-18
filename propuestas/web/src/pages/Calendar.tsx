@@ -1,10 +1,31 @@
 import { useMemo, useState } from 'react';
-import { addDays, addMonths, dayLabel, formatDate, isOverdue, monthGrid, navigate, startOfMonth, STATUS, today, useApi, type Me, type ProjectSummary, type Task } from '../lib';
-import { Empty, ErrorBox, Link, Loading, PageHead } from '../ui';
+import {
+  addDays,
+  addMonths,
+  api,
+  dayLabel,
+  formatDate,
+  isOverdue,
+  monthGrid,
+  startOfMonth,
+  STATUS,
+  today,
+  useApi,
+  type Me,
+  type Progress,
+  type ProjectDetail,
+  type ProjectSummary,
+  type Task,
+  type TaskStatus,
+  type TeamMember,
+} from '../lib';
+import { Empty, ErrorBox, Link, Loading, PageHead, useAction } from '../ui';
+import { TaskDrawer } from './project/TaskDrawer';
 
 /**
  * Calendario general: lo que hay que entregar en todos los proyectos, en un solo lugar. Por mes (cada proyecto con
- * su color) o como agenda (atrasado, esta semana, las siguientes). Al hacer clic se abre la tarea en su proyecto.
+ * su color) o como agenda (atrasado, esta semana, las siguientes). La tarea se abre aquí mismo en un panel, para revisar
+ * varias de distintos proyectos sin salir del calendario.
  */
 
 type Delivery = Task & { projectId: number };
@@ -22,7 +43,11 @@ const monday = (iso: string) => addDays(iso, -((new Date(`${iso}T12:00:00`).getD
 
 export function CalendarPage({ me }: { me: Me }) {
   const [all, setAll] = useState(false);
-  const { data, error, loading } = useApi<Data>(`deliveries${all ? '?all=1' : ''}`);
+  const { data, error, loading, setData } = useApi<Data>(`deliveries${all ? '?all=1' : ''}`);
+  const team = useApi<TeamMember[]>(me.role !== 'client' ? 'team' : null);
+  const [focus, setFocus] = useState<'todo' | 'atrasadas' | 'semana'>('todo');
+  const [openId, setOpenId] = useState<number | null>(null);
+  const { run } = useAction();
   const [view, setView] = useState<'mes' | 'agenda'>(() => (window.matchMedia?.('(max-width: 720px)').matches ? 'agenda' : 'mes'));
   const [project, setProject] = useState<number | 'todos'>('todos');
   const [side, setSide] = useState<'todas' | 'deersystems' | 'cliente'>('todas');
@@ -43,19 +68,48 @@ export function CalendarPage({ me }: { me: Me }) {
       ),
     [data, project, side, meetings, hideDone],
   );
+  const week = monday(today());
+  const inWeek = (t: Task) => {
+    const d = dayOf(t);
+    return !!d && d >= today() && d < addDays(week, 7) && t.status !== 'completada';
+  };
+  const shown = focus === 'atrasadas' ? tasks.filter(isOverdue) : focus === 'semana' ? tasks.filter(inWeek) : tasks;
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} />;
   if (!data) return null;
 
   const overdue = tasks.filter(isOverdue).length;
-  const week = monday(today());
-  const thisWeek = tasks.filter((t) => {
-    const d = dayOf(t);
-    return d && d >= today() && d < addDays(week, 7);
-  }).length;
+  const thisWeek = tasks.filter(inWeek).length;
+  // Lo más importante de la semana: lo atrasado primero, luego lo que vence antes; las entregas pesan más que las reuniones.
+  const key = [...tasks.filter((t) => isOverdue(t) || inWeek(t))]
+    .sort(
+      (a, b) =>
+        Number(isOverdue(b)) - Number(isOverdue(a)) ||
+        Number(a.isMeeting) - Number(b.isMeeting) ||
+        (dayOf(a) ?? '').localeCompare(dayOf(b) ?? ''),
+    )
+    .slice(0, 6);
 
-  const open = (t: Delivery) => navigate(`/proyectos/${t.projectId}?tab=plan&tarea=${t.id}`);
+  const open = (t: Delivery) => setOpenId(t.id);
+  const openTask = openId ? data.tasks.find((t) => t.id === openId) : undefined;
+  const openProject = openTask ? projects.get(openTask.projectId) : undefined;
+  // El panel de la tarea trabaja con el proyecto: sus fases y su avance bastan para editarla aquí.
+  const detail: ProjectDetail | null =
+    openTask && openProject
+      ? { ...openProject, scope: '', approvalNotes: '', tasks: data.tasks.filter((t) => t.projectId === openProject.id) }
+      : null;
+  const patch = (task: Task, progress?: Progress) =>
+    setData({
+      ...data,
+      projects: data.projects.map((p) => (p.id === openTask?.projectId && progress ? { ...p, progress } : p)),
+      tasks: data.tasks.map((t) => (t.id === task.id ? { ...task, projectId: t.projectId } : t)),
+    });
+  const setStatus = (task: Task, status: TaskStatus) =>
+    run(async () => {
+      const r = await api<{ task: Task; progress: Progress }>('PATCH', `tasks/${task.id}`, { status });
+      patch(r.task, r.progress);
+    });
   const chip = (t: Delivery, withProject = true) => {
     const p = projects.get(t.projectId);
     return (
@@ -77,30 +131,83 @@ export function CalendarPage({ me }: { me: Me }) {
 
   return (
     <>
-      <PageHead
-        eyebrow={me.role === 'client' ? 'Tus proyectos' : 'Todos los proyectos'}
-        title={
-          <>
-            Calendario de <span className="grad">entregas</span>
-          </>
-        }
-      >
-        <p>Qué se entrega y cuándo en cada proyecto. Haz clic en una entrega para abrirla en su proyecto.</p>
-      </PageHead>
+      <div className="gcal-hero">
+        <div>
+          <PageHead
+            eyebrow={me.role === 'client' ? 'Tus proyectos' : 'Todos los proyectos'}
+            title={
+              <>
+                Calendario de <span className="grad">entregas</span>
+              </>
+            }
+          >
+            <p>Qué se entrega y cuándo en cada proyecto. Haz clic en una entrega para verla y actualizarla aquí mismo.</p>
+          </PageHead>
 
-      <div className="gcal-stats">
-        <div className={`gcal-stat${overdue ? ' is-bad' : ''}`}>
-          <strong>{overdue}</strong>
-          <span>atrasadas</span>
+          <div className="gcal-stats" role="group" aria-label="Ver solo">
+            <button
+              className={`gcal-stat${overdue ? ' is-bad' : ''}${focus === 'atrasadas' ? ' is-active' : ''}`}
+              aria-pressed={focus === 'atrasadas'}
+              onClick={() => setFocus(focus === 'atrasadas' ? 'todo' : 'atrasadas')}
+              title="Ver solo las atrasadas"
+            >
+              <strong>{overdue}</strong>
+              <span>atrasadas</span>
+            </button>
+            <button
+              className={`gcal-stat${focus === 'semana' ? ' is-active' : ''}`}
+              aria-pressed={focus === 'semana'}
+              onClick={() => setFocus(focus === 'semana' ? 'todo' : 'semana')}
+              title="Ver solo lo de esta semana"
+            >
+              <strong>{thisWeek}</strong>
+              <span>para esta semana</span>
+            </button>
+            <div className="gcal-stat is-static">
+              <strong>{data.projects.length}</strong>
+              <span>{all ? 'proyectos' : 'proyectos en curso'}</span>
+            </div>
+          </div>
+          {focus !== 'todo' && (
+            <p className="hint">
+              Viendo solo {focus === 'atrasadas' ? 'las atrasadas' : 'lo de esta semana'} ·{' '}
+              <button className="linklike" onClick={() => setFocus('todo')}>
+                ver todo
+              </button>
+            </p>
+          )}
         </div>
-        <div className="gcal-stat">
-          <strong>{thisWeek}</strong>
-          <span>para esta semana</span>
-        </div>
-        <div className="gcal-stat">
-          <strong>{data.projects.length}</strong>
-          <span>{all ? 'proyectos' : 'proyectos en curso'}</span>
-        </div>
+
+        <aside className="card gcal-top" aria-label="Lo más importante de esta semana">
+          <p className="eyebrow">Lo más importante esta semana</p>
+          {key.length ? (
+            <ul>
+              {key.map((t) => {
+                const p = projects.get(t.projectId);
+                const d = dayOf(t);
+                return (
+                  <li key={t.id} style={{ '--pc': color.get(t.projectId) } as React.CSSProperties}>
+                    <button onClick={() => open(t)}>
+                      <span className="gcal-top__title">
+                        {t.isMeeting && '◷ '}
+                        {t.title}
+                      </span>
+                      <span className="gcal-top__meta">
+                        <span className="gcal-dot" />
+                        {me.role === 'client' ? p?.name : p?.clientName || p?.name}
+                      </span>
+                    </button>
+                    <span className={`gcal-top__when${isOverdue(t) ? ' is-late' : ''}`}>
+                      {isOverdue(t) ? 'Atrasada' : d === today() ? 'Hoy' : d ? dayLabel(d, { weekday: 'short', day: 'numeric' }) : ''}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="hint">Nada atrasado ni pendiente para esta semana.</p>
+          )}
+        </aside>
       </div>
 
       <div className="filters filters--plan">
@@ -167,9 +274,34 @@ export function CalendarPage({ me }: { me: Me }) {
       {!data.projects.length ? (
         <Empty>No hay proyectos en curso. Cuando haya proyectos activos, sus entregas aparecen aquí.</Empty>
       ) : view === 'mes' ? (
-        <MonthGrid month={month} setMonth={setMonth} tasks={tasks} chip={chip} />
+        <MonthGrid month={month} setMonth={setMonth} tasks={shown} chip={chip} />
       ) : (
-        <Agenda tasks={tasks} chip={chip} projects={projects} color={color} />
+        <Agenda tasks={shown} chip={chip} projects={projects} color={color} />
+      )}
+
+      {openTask && detail && (
+        <TaskDrawer
+          key={openTask.id}
+          me={me}
+          project={detail}
+          team={team.data ?? []}
+          task={openTask}
+          onClose={() => setOpenId(null)}
+          onSaved={(task, progress) => patch(task, progress)}
+          onDeleted={(taskId, progress) => {
+            setOpenId(null);
+            setData({
+              ...data,
+              projects: data.projects.map((p) => (p.id === openTask.projectId ? { ...p, progress } : p)),
+              tasks: data.tasks.filter((t) => t.id !== taskId),
+            });
+          }}
+          onStatus={setStatus}
+          context={{
+            label: me.role === 'client' ? detail.name : `${detail.clientName} · ${detail.name}`,
+            href: `/proyectos/${detail.id}?tarea=${openTask.id}`,
+          }}
+        />
       )}
     </>
   );

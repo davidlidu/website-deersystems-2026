@@ -5,6 +5,7 @@ import { InvoiceStatus } from './billing/InvoiceStatus';
 import { useUngroup } from './billing/GroupBar';
 import { ReceiptDetail } from './billing/ReceiptDetail';
 import { ReceiptForm } from './billing/ReceiptForm';
+import { CatchUpBanner, useCatchUp } from './billing/CatchUp';
 import { ProjectCard } from './Home';
 import { ClientPeople, type ClientAccount } from './ClientPeople';
 
@@ -157,6 +158,31 @@ function ClientStatement({ clientId }: { clientId: number }) {
   const [openId, setOpenId] = useState<number | null>(null);
   const [editing, setEditing] = useState<Receipt | null>(null);
   const { ungroup } = useUngroup(() => reload());
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const catchUp = useCatchUp();
+  const settle = (i: Statement['invoices'][number]) => {
+    const date = prompt(
+      `Marcar pagada la cuenta de cobro ${i.number} (${formatMoney(i.totalCop - (i.applied ?? 0))} pendientes).\n\nFecha del pago (AAAA-MM-DD):`,
+      i.date.slice(0, 10),
+    );
+    if (date === null) return;
+    run(async () => {
+      await api('POST', `invoices/${i.id}/settle`, { date });
+      toast(catchUp.data?.enabled ? `Cuenta ${i.number} al día (no se envió al Gestor).` : `Cuenta ${i.number} marcada pagada.`);
+      reload();
+    });
+  };
+  const remove = (r: Receipt) => {
+    if (!confirm(`¿Eliminar el abono de ${formatMoney(r.amountCop)} del ${docDate(r.date)}? La cuenta de cobro vuelve a quedar con ese saldo y también se borra el ingreso de tu Gestor financiero.`)) return;
+    run(async () => {
+      await api('DELETE', `receipts/${r.id}`);
+      setOpenId(null);
+      if (editing?.id === r.id) setEditing(null);
+      toast('Abono eliminado.');
+      reload();
+    });
+  };
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const s = data!;
@@ -208,23 +234,37 @@ function ClientStatement({ clientId }: { clientId: number }) {
           }}
         />
       )}
+      <CatchUpBanner mode={catchUp.data} />
       <div className="statement">
         <div>
           <h3 className="subhead">Cuentas de cobro</h3>
           {s.invoices.length ? (
             <div className="table card">
-              {s.invoices.map((i) => (
-                <Link key={i.id} to={`/cuentas-de-cobro/${i.id}`} className={`table__row pay-client${i.status === 'anulada' ? ' is-void' : ''}`}>
-                  <span className="mono">
-                    <strong>{i.number}</strong>
-                  </span>
-                  <span className="mono">{docDate(i.date)}</span>
-                  <span className="mono">{formatMoney(i.totalCop)}</span>
-                  <span>
-                    <InvoiceStatus i={i} />
-                  </span>
-                </Link>
-              ))}
+              {s.invoices.map((i) =>
+                catchUp.data?.enabled && i.status !== 'anulada' && !i.paid ? (
+                  <div key={i.id} className="table__row pay-client pay-client--settle">
+                    <Link to={`/cuentas-de-cobro/${i.id}`} className="mono">
+                      <strong>{i.number}</strong>
+                    </Link>
+                    <span className="mono">{docDate(i.date)}</span>
+                    <span className="mono">{formatMoney(i.totalCop)}</span>
+                    <button className="btn btn--outline btn--xs" disabled={busy} onClick={() => settle(i)} title="Registra un abono por lo pendiente, sin enviarlo al Gestor">
+                      Marcar pagada
+                    </button>
+                  </div>
+                ) : (
+                  <Link key={i.id} to={`/cuentas-de-cobro/${i.id}`} className={`table__row pay-client${i.status === 'anulada' ? ' is-void' : ''}`}>
+                    <span className="mono">
+                      <strong>{i.number}</strong>
+                    </span>
+                    <span className="mono">{docDate(i.date)}</span>
+                    <span className="mono">{formatMoney(i.totalCop)}</span>
+                    <span>
+                      <InvoiceStatus i={i} />
+                    </span>
+                  </Link>
+                ),
+              )}
             </div>
           ) : (
             <Empty>Sin cuentas de cobro.</Empty>
@@ -248,13 +288,18 @@ function ClientStatement({ clientId }: { clientId: number }) {
                     <span>{r.method}</span>
                     <span>
                       {(r.applications ?? []).length > 0 ? <small>CC {r.applications!.map((a) => a.number).join(', ')}</small> : null}
-                      {r.sendToFinance === false && <small className="sync sync--off">No se envía</small>}
+                      {r.catchUp ? (
+                        <small className="sync sync--off">Puesta al día</small>
+                      ) : (
+                        r.sendToFinance === false && <small className="sync sync--off">No se envía</small>
+                      )}
                     </span>
                   </button>
                   {openId === r.id && (
                     <ReceiptDetail
                       r={r}
                       onUngroup={ungroup}
+                      onDelete={r.paymentId ? undefined : () => remove(r)}
                       onEdit={
                         r.paymentId
                           ? undefined

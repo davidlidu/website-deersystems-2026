@@ -526,8 +526,30 @@ export function MeetingReviewPage({ id }: { id: number }) {
           />
         ) : (
           <>
-            <Empty>La reunión aún no ocurre. Cuando termine, se buscará la transcripción de Meet automáticamente.</Empty>
+            {m.tentative ? (
+              <p className="callout callout--warn">
+                Horario reservado, por confirmar con el cliente{m.pendingAttendees?.length ? ` (${m.pendingAttendees.join(', ')})` : ''}: todavía no ha recibido la
+                invitación.
+              </p>
+            ) : (
+              <Empty>La reunión aún no ocurre. Cuando termine, se buscará la transcripción de Meet automáticamente.</Empty>
+            )}
             <div className="actions actions--tight">
+              {m.tentative && (
+                <button
+                  className="btn btn--primary btn--sm"
+                  disabled={busy}
+                  onClick={() =>
+                    run(async () => {
+                      const u = await api<Meeting>('POST', `meetings/${m.id}/confirm`);
+                      setData({ ...u, transcript: m.transcript });
+                      toast('Reunión confirmada: el cliente recibió la invitación.');
+                    })
+                  }
+                >
+                  Confirmar e invitar al cliente
+                </button>
+              )}
               <button className="btn btn--outline btn--sm" onClick={() => setEditingMeeting(true)}>
                 Editar fecha, hora o invitados
               </button>

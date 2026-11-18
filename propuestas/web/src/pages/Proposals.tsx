@@ -214,14 +214,14 @@ function ProposalItem({
   const copy = () => navigator.clipboard.writeText(p.url).then(() => toast('Enlace copiado.'));
 
   return (
-    <article className={`item card${p.active ? '' : ' is-paused'}`}>
+    <article className={`item item--proposal card${p.active ? '' : ' is-paused'}`}>
       <div>
         <div className="item__title">
-          {p.title || p.slug}
+          <span className="item__name">{p.title || p.slug}</span>
           {!p.active && <span className="tag tag--pausado">Pausada</span>}
           {p.approvals.length > 0 && <span className="tag tag--finalizado">Aprobada por el cliente</span>}
           {p.projects.length > 0 && (
-            <span className="tag tag--activo">
+            <span className="tag tag--activo tag--long">
               Aprobada
               {[...new Set(p.projects.map((pr) => pr.approvedOption).filter(Boolean))].map((o) => ` · ${o}`)}
             </span>

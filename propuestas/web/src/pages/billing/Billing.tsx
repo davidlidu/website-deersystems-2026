@@ -8,6 +8,7 @@ import { GroupBar, useUngroup } from './GroupBar';
 import { ReceiptDetail } from './ReceiptDetail';
 import { ReceiptForm } from './ReceiptForm';
 import { ReportsTab } from './Reports';
+import { CatchUpBanner, useCatchUp } from './CatchUp';
 
 const TABS = { cuentas: 'Cuentas de cobro', abonos: 'Abonos', reportes: 'Reportes', importar: 'Importar de SmartBilling' } as const;
 type Tab = keyof typeof TABS;
@@ -263,7 +264,9 @@ function ReceiptsTab() {
                 {r.paymentId && <small>Cuota del plan de pagos</small>}
               </span>
               <span>
-                {r.sendToFinance === false && r.sync !== 'error' ? (
+                {r.catchUp ? (
+                  <span className="sync sync--off" title="Registrado en modo «Poner al día»: no fue al Gestor financiero">Puesta al día</span>
+                ) : r.sendToFinance === false && r.sync !== 'error' ? (
                   <span className="sync sync--off" title="Este abono no se envía al Gestor financiero">No se envía</span>
                 ) : r.sync === 'ok' ? (
                   <span className="sync sync--ok" title={r.group ? `Entrada unida de ${r.group.members.length} pagos` : undefined}>
@@ -308,7 +311,7 @@ function ReceiptsTab() {
                 </button>
               </span>
             </div>
-            {openId === r.id && <ReceiptDetail r={r} onUngroup={ungroup} onEdit={r.paymentId ? undefined : () => { setEditing(r); setTimeout(() => document.querySelector('.receipt-form')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); }} />}
+            {openId === r.id && <ReceiptDetail r={r} onUngroup={ungroup} onDelete={r.paymentId ? undefined : () => remove(r)} onEdit={r.paymentId ? undefined : () => { setEditing(r); setTimeout(() => document.querySelector('.receipt-form')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 50); }} />}
             </Fragment>
           ))}
         </div>
@@ -322,6 +325,7 @@ function ReceiptsTab() {
 /** Facturación: cuentas de cobro, abonos, reportes e importación (solo administrador). */
 export function BillingPage() {
   const { query } = useLocation();
+  const catchUp = useCatchUp();
   const t = query.get('tab') as Tab | null;
   const tab: Tab = t && t in TABS ? t : 'cuentas';
   return (
@@ -329,6 +333,7 @@ export function BillingPage() {
       <PageHead eyebrow="Facturación" title={<>Cuentas de cobro <span className="grad">y abonos</span></>}>
         <p>Lo que antes vivía en SmartBilling. Cada abono queda como ingreso en tu Gestor financiero.</p>
       </PageHead>
+      <CatchUpBanner mode={catchUp.data} />
       <div className="tabs" role="tablist">
         {(Object.keys(TABS) as Tab[]).map((k) => (
           <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'is-active' : ''} onClick={() => navigate(`/facturacion?tab=${k}`, true)}>

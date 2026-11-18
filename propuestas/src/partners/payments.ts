@@ -171,7 +171,9 @@ async function syncPaid(r: Row, opts: { sync?: boolean } = {}): Promise<Row> {
     },
     current ? { id: current.id } : { financeRef: `deersystems-pago-${r.id}` },
   );
-  if (opts.sync !== false) await billing.syncReceipt(saved);
+  // Cuota nueva pagada en modo «Poner al día»: deja la cuenta al día sin llevar el ingreso al Gestor.
+  if (!current) billing.applyCatchUp(saved.id);
+  if (opts.sync !== false) await billing.syncReceipt(billing.getReceipt(saved.id) ?? saved);
   return get(r.id)!;
 }
 

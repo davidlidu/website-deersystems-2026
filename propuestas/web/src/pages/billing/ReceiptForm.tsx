@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, docDate, formatMoney, today, useApi, type Currency, type InvoiceSummary, type Receipt } from '../../lib';
 import { MoneyInput, useAction, useToast } from '../../ui';
 import { Choice } from './Choice';
+import { useCatchUp } from './CatchUp';
 
 const METHODS = ['Transferencia', 'QR', 'Nequi', 'Daviplata', 'PSE', 'Efectivo', 'Consignación'];
 
@@ -30,6 +31,7 @@ export function ReceiptForm({
   const clients = useApi<ClientOption[]>(clientId || receipt ? null : 'clients');
   const [client, setClient] = useState<number>(receipt?.clientId ?? clientId ?? 0);
   const invoices = useApi<InvoiceSummary[]>(client ? `invoices?clientId=${client}` : null);
+  const catchUp = useCatchUp();
   const [f, setF] = useState({
     date: receipt?.date ?? today(),
     currency: (receipt?.currency ?? 'COP') as Currency,
@@ -217,6 +219,11 @@ export function ReceiptForm({
           </span>
         </label>
       )}
+      {!receipt && catchUp.data?.enabled ? (
+        <p className="callout callout--warn">
+          Modo «Poner al día» encendido: este abono pone al día la cuenta de cobro pero no se envía al Gestor financiero.
+        </p>
+      ) : (
       <label className="auto-switch auto-switch--left">
         <span className="switch">
           <input type="checkbox" role="switch" checked={f.sendToFinance} onChange={(e) => set({ sendToFinance: e.target.checked })} />
@@ -233,6 +240,7 @@ export function ReceiptForm({
           </small>
         </span>
       </label>
+      )}
       <div className="actions actions--tight">
         <button className="btn btn--primary btn--sm" disabled={busy || !client || !(Number(f.amount) > 0)} onClick={submit}>
           {busy ? 'Guardando…' : receipt ? 'Guardar' : 'Registrar abono'}

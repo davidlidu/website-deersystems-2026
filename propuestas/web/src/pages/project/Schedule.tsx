@@ -132,11 +132,16 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
         agenda: fd.get('agenda'),
         includeClient: fd.get('includeClient') === 'on',
         phaseId: Number(fd.get('phase')) || null,
+        tentative: fd.get('tentative') === 'on',
         team: [...team],
         guests: String(fd.get('guests') ?? '')
           .split(/[,;\s]+/)
           .filter((x) => x.includes('@')),
       });
+      if (m.tentative) {
+        toast('Horario reservado en tu Calendar como «Por confirmar». Cuando el cliente confirme, pulsa «Confirmar e invitar».');
+        return onDone(m);
+      }
       toast(
         m.phaseId
           ? 'Reunión agendada y añadida al cronograma. Google Calendar envió las invitaciones con el enlace de Meet.'
@@ -207,6 +212,9 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
         <legend className="field__label">Invitados</legend>
         <label className="check">
           <input type="checkbox" name="includeClient" defaultChecked /> {c.client.name} · {c.client.email} <span className="tag">Cliente</span>
+        </label>
+        <label className="check check--sub">
+          <input type="checkbox" name="tentative" /> Solo reservar el horario: al cliente se le envía la invitación cuando confirmes que le sirve
         </label>
         {c.team.map((m) => (
           <label key={m.id} className="check">

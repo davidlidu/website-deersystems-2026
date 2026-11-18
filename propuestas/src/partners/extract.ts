@@ -73,9 +73,20 @@ export function htmlToText(html: string): string {
 }
 
 /** Montos, monedas o formas de pago: no deberían aparecer en el alcance que ve el equipo. */
-const PRICE_RE = /(\$\s?\d)|(\b(COP|USD|US\$|EUR|pesos|d[oó]lares)\b)|(\b\d{1,3}(?:[.,]\d{3}){2,}\b)|(\b(anticipo|abono|cuota|IVA|precio|valor total|inversi[oó]n)\b)/i;
+// Solo cifras de dinero: «$1.200.000», «450 USD», «30% de anticipo». Palabras sueltas como «pagos» o «USD» sin monto no cuentan
+// (el alcance puede decir «los servicios de terceros se pagan a sus proveedores» sin revelar valores).
+const PRICE_RE = /(\$\s?\d)|(\b(COP|USD|US\$|EUR)\s?\d)|(\d[\d.,]*\s?(COP|USD|US\$|EUR|pesos|d[oó]lares|millones)\b)|(\b\d{1,3}(?:\.\d{3}){2,}\b)|(\b\d{1,3}\s?%\s+(de\s+)?(anticipo|al aprobar|contra entrega))/i;
 
 export const mentionsPrice = (text: string) => PRICE_RE.test(text);
+/** El fragmento que suena a valor, para decir en el aviso qué revisar. */
+export function priceExcerpt(text: string): string | null {
+  const m = PRICE_RE.exec(text);
+  if (!m) return null;
+  const from = Math.max(0, text.lastIndexOf('\n', m.index) + 1, m.index - 40);
+  const nl = text.indexOf('\n', m.index);
+  const to = Math.min(nl === -1 ? text.length : nl, m.index + m[0].length + 40);
+  return `${from > 0 ? '…' : ''}${text.slice(from, to).trim()}${to < text.length ? '…' : ''}`;
+}
 
 const SYSTEM = `Eres el asistente de operaciones de DeerSystems, una empresa colombiana de desarrollo de software, automatización e IA.
 Recibes el texto de una propuesta comercial que el cliente ya aprobó y la conviertes en el plan de trabajo del proyecto.
@@ -215,9 +226,8 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
       .slice(0, 24),
     warnings: [],
   };
-  if (mentionsPrice(draft.scope)) {
-    draft.warnings.push('El alcance parece mencionar valores o pagos. Revísalo: tu equipo puede verlo.');
-  }
+  const excerpt = priceExcerpt(draft.scope);
+  if (excerpt) draft.warnings.push(`El alcance menciona un valor («${excerpt}»). Quítalo: tu equipo puede verlo.`);
   const tasks = phases.flatMap((p) => p.tasks);
   if (tasks.some((t) => mentionsPrice(`${t.title} ${t.description}`))) {
     draft.warnings.push('Alguna tarea menciona valores o pagos. Revísala: tu equipo puede verla.');

@@ -6,7 +6,7 @@ import { Link } from '../../ui';
  * Detalle de un abono (al abrirlo en una lista): notas del pago arriba, los datos en columnas y, abajo,
  * cómo quedó en el Gestor financiero, con el botón para editarlo (lo que se cambie se actualiza allá).
  */
-export function ReceiptDetail({ r, onEdit, onUngroup }: { r: Receipt; onEdit?: () => void; onUngroup?: (ref: string) => void }) {
+export function ReceiptDetail({ r, onEdit, onUngroup, onDelete }: { r: Receipt; onEdit?: () => void; onUngroup?: (ref: string) => void; onDelete?: () => void }) {
   const off = r.sendToFinance === false && r.sync !== 'error';
   const status = off ? (
     <span className="sync sync--off">No se envía al Gestor</span>
@@ -115,9 +115,16 @@ export function ReceiptDetail({ r, onEdit, onUngroup }: { r: Receipt; onEdit?: (
           )}
         </div>
         {onEdit ? (
-          <button className="btn btn--outline btn--sm" onClick={onEdit}>
-            ✎ Editar abono
-          </button>
+          <span className="actions actions--tight">
+            <button className="btn btn--outline btn--sm" onClick={onEdit}>
+              ✎ Editar abono
+            </button>
+            {onDelete && (
+              <button className="btn btn--outline btn--sm btn--danger" onClick={onDelete}>
+                ✕ Eliminar abono
+              </button>
+            )}
+          </span>
         ) : (
           r.paymentId && <span className="hint">Se edita desde la pestaña Pagos del proyecto.</span>
         )}

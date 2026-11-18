@@ -14,7 +14,7 @@ import {
   type TaskStatus,
   type TeamMember,
 } from '../../lib';
-import { Markdown, StatusPill, useAction, useToast } from '../../ui';
+import { Link, Markdown, StatusPill, useAction, useToast } from '../../ui';
 import { ActivityFeed } from './Activity';
 import { FilesPanel } from './Files';
 import { NotesPanel } from './Notes';
@@ -59,6 +59,7 @@ export function TaskDrawer({
   onSaved,
   onDeleted,
   onStatus,
+  context,
 }: {
   me: Me;
   project: ProjectDetail;
@@ -69,6 +70,8 @@ export function TaskDrawer({
   onSaved: (task: Task, progress: Progress, isNew: boolean) => void;
   onDeleted: (id: number, progress: Progress) => void;
   onStatus: (task: Task, status: TaskStatus) => void;
+  /** Fuera del proyecto (calendario general): de qué proyecto es, con enlace para abrirlo. */
+  context?: { label: string; href: string };
 }) {
   const isNew = !task;
   const staff = me.role !== 'client';
@@ -134,7 +137,16 @@ export function TaskDrawer({
       <button className="drawer__backdrop" aria-label="Cerrar" onClick={onClose} />
       <aside className="drawer__panel">
         <div className="drawer__head">
-          <span className="eyebrow">{isNew ? 'Nueva tarea' : phaseName}</span>
+          {context ? (
+            <span className="drawer__context">
+              <span className="eyebrow">{`${context.label} · ${phaseName}`}</span>
+              <Link className="drawer__project-link" to={context.href}>
+                Abrir en el proyecto →
+              </Link>
+            </span>
+          ) : (
+            <span className="eyebrow">{isNew ? 'Nueva tarea' : phaseName}</span>
+          )}
           <button className="drawer__close" onClick={onClose} aria-label="Cerrar">
             ✕
           </button>

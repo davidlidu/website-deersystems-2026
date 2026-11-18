@@ -219,10 +219,15 @@ export function ProjectMeetings({
                   }}
                 />
               ) : (
-                <article key={m.id} className="meeting card">
+                <article key={m.id} className={`meeting card${m.tentative ? ' is-tentative' : ''}`}>
                   <div>
                     <strong>{m.title}</strong>
                     <span className="mono">{formatMeetingTime(m.startAt)}</span>
+                    {m.tentative && (
+                      <span className="tag tag--warn" title={m.pendingAttendees?.length ? `Al confirmar se invita a ${m.pendingAttendees.join(', ')}` : undefined}>
+                        Por confirmar con el cliente
+                      </span>
+                    )}
                     {!owner && phaseName(m) && <span className="tag">{phaseName(m)}</span>}
                   </div>
                   <div className="actions actions--tight">
@@ -235,6 +240,22 @@ export function ProjectMeetings({
                       >
                         Unirse a Meet
                       </a>
+                    )}
+                    {owner && m.tentative && (
+                      <button
+                        className="btn btn--primary btn--sm"
+                        disabled={busy}
+                        title="El cliente ya confirmó: se le envía la invitación de Calendar con Meet"
+                        onClick={() => {
+                          if (!confirm(`¿El cliente confirmó «${m.title}» (${formatMeetingTime(m.startAt)})?\n\nSe le envía la invitación de Google Calendar${m.pendingAttendees?.length ? ` a ${m.pendingAttendees.join(', ')}` : ''}.`)) return;
+                          run(async () => {
+                            replace(await api<Meeting>("POST", `meetings/${m.id}/confirm`));
+                            toast("Reunión confirmada: el cliente recibió la invitación.");
+                          });
+                        }}
+                      >
+                        Confirmar e invitar
+                      </button>
                     )}
                     {owner && (
                       <PhaseSelect

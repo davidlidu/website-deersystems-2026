@@ -75,6 +75,10 @@ interface Row {
   approved_at: string | null;
   approved_by: string | null;
   sent_to: string;
+  /** Reservada en tu Calendar pero sin invitar al cliente: se confirma con él y luego se envía la invitación. */
+  tentative: number;
+  /** Correos del cliente que se invitarán al confirmarla (JSON). */
+  pending_attendees: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -123,7 +127,13 @@ if (!(sqlite.prepare('PRAGMA table_info(meetings)').all() as { name: string }[])
   add('proposal_sent_at', 'TEXT');
   add('proposal_sent_to', 'TEXT');
   add('plan_task_id', 'INTEGER');
+  add('tentative', 'INTEGER NOT NULL DEFAULT 0');
+  add('pending_attendees', 'TEXT');
 }
+
+/** En Calendar, la reserva se distingue por el título hasta que el cliente confirma. */
+const TENTATIVE_PREFIX = 'Por confirmar · ';
+const calendarSummary = (m: Pick<Row, 'tentative'>, title: string) => (m.tentative ? `${TENTATIVE_PREFIX}${title}` : title);
 
 interface Prospect {
   company: string;
@@ -230,7 +240,7 @@ export async function moveMeeting(meetingId: number, date: string, time: string,
     try {
       event = await google.updateCalendarEvent(
         m.event_id,
-        { summary: newTitle, startIso: start.toISOString(), endIso: end.toISOString(), attendees: parse<Attendee[]>(m.attendees, []).map((a) => a.email) },
+        { summary: calendarSummary(m, newTitle), startIso: start.toISOString(), endIso: end.toISOString(), attendees: parse<Attendee[]>(m.attendees, []).map((a) => a.email) },
         true,
       );
     } catch (err) {
@@ -299,6 +309,7 @@ function view(m: Row, v: Viewer) {
     endAt: m.end_at,
     meetUrl: m.meet_url,
     status: m.status,
+    tentative: !!m.tentative,
     attendees: parse<Attendee[]>(m.attendees, []),
     // Lo aprobado lo ven todos; el borrador y la transcripción, solo tú.
     ...(approved || owner
@@ -312,6 +323,7 @@ function view(m: Row, v: Viewer) {
     ...(owner
       ? {
           calendarUrl: m.calendar_url,
+          pendingAttendees: parse<string[]>(m.pending_attendees, []),
           proposedTasks: parse<ProposedTask[]>(m.proposed_tasks, []),
           hasTranscript: !!m.transcript,
           transcriptSource: m.transcript_source,
@@ -798,6 +810,8 @@ export interface ScheduleInput {
   guests: string[];
   /** Fase del proyecto: la reunión queda en ella y aparece en el cronograma. */
   phaseId?: number | null;
+  /** Solo reservar el horario: el cliente no recibe la invitación hasta que confirmes la reunión. */
+  tentative?: boolean;
 }
 
 /**
@@ -843,15 +857,26 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
   await assertFree(start, end);
   const title = meetingTitle(project, client, input.title);
   const agenda = input.agenda.trim().slice(0, 4000);
+  // Reserva: en Calendar solo queda tu equipo; el cliente se invita al confirmar.
+  const clientEmails = new Set(clientByEmail().keys());
+  const pending = input.tentative ? [...emails].filter((e) => clientEmails.has(e) || !staffEmails().has(e)) : [];
+  const invited = [...emails].filter((e) => !pending.includes(e));
 
   let event: google.CalendarEvent;
   try {
     event = await google.createCalendarEvent({
-      summary: title,
-      description: [agenda, `Proyecto: ${project.name}`, `Sigue el proyecto en ${PARTNERS_URL}`].filter(Boolean).join('\n\n'),
+      summary: calendarSummary({ tentative: input.tentative ? 1 : 0 }, title),
+      description: [
+        input.tentative ? `Reservada: por confirmar con ${pending.join(', ')}. Confírmala en Partners para enviarle la invitación.` : '',
+        agenda,
+        `Proyecto: ${project.name}`,
+        `Sigue el proyecto en ${PARTNERS_URL}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
       startIso: start.toISOString(),
       endIso: end.toISOString(),
-      attendees: [...emails],
+      attendees: invited,
       privateProps: { dsPartners: '1', dsProject: String(project.id) },
     });
   } catch (err) {
@@ -872,7 +897,7 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
     meet_url: event.hangoutLink ?? null,
     calendar_url: event.htmlLink ?? null,
     attendees: JSON.stringify(
-      [...emails].map((email) => ({ email, name: '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' })),
+      invited.map((email) => ({ email, name: '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' })),
     ),
     status: 'programada',
     });
@@ -882,8 +907,13 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
     throw err;
   }
   if (input.phaseId) update(m.id, { phase_id: input.phaseId });
+  if (input.tentative) update(m.id, { tentative: 1, pending_attendees: JSON.stringify(pending) });
   const a = actor(v);
   const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+  if (input.tentative) {
+    db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'meeting_reserved', data: { title, when } });
+    return get(m.id)!;
+  }
   db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'meeting_scheduled', data: { title, when } });
   notify('meeting_scheduled', { actor: v, projectId: project.id, title: `Reunión agendada: «${title}»`, body: when, path: `/proyectos/${project.id}?tab=reuniones` });
   return get(m.id)!;
@@ -1077,6 +1107,7 @@ ${context}
         teamIds: (Array.isArray(body.team) ? body.team : []).map(Number),
         guests: (Array.isArray(body.guests) ? body.guests : []).map((g) => str(g, 200)),
         phaseId: Number(body.phaseId) || null,
+        tentative: body.tentative === true,
       }, v);
       json(res, 201, view(m, v));
       return true;
@@ -1113,7 +1144,7 @@ ${context}
         try {
           event = await google.updateCalendarEvent(
             m.event_id,
-            { summary: title, startIso: start.toISOString(), endIso: end.toISOString(), attendees: [...emails] },
+            { summary: calendarSummary(m, title), startIso: start.toISOString(), endIso: end.toISOString(), attendees: [...emails] },
             notifyGuests,
           );
         } catch (err) {
@@ -1145,6 +1176,45 @@ ${context}
       return true;
     }
 
+    // La reserva pasa a reunión: se invita al cliente (Google le envía la invitación) con la fecha y hora de ese momento.
+    case 'POST meetings/:id/confirm': {
+      requireOwner(v);
+      const m = visible(id, v);
+      if (m.status !== 'programada') throw new HttpError(409, 'Solo se pueden confirmar reuniones que aún no ocurren.');
+      if (!m.tentative) throw new HttpError(409, 'Esta reunión ya está confirmada.');
+      const current = parse<Attendee[]>(m.attendees, []);
+      const extra = parse<string[]>(m.pending_attendees, []).filter((e) => !current.some((a) => a.email === e));
+      const emails = [...current.map((a) => a.email), ...extra];
+      let event: google.CalendarEvent | null = null;
+      if (m.event_id) {
+        if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para confirmar reuniones.');
+        try {
+          event = await google.updateCalendarEvent(m.event_id, { summary: m.title, startIso: m.start_at, endIso: m.end_at, attendees: emails }, true);
+        } catch (err) {
+          throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+        }
+      }
+      const staff = staffEmails();
+      const clients = clientByEmail();
+      update(m.id, {
+        tentative: 0,
+        pending_attendees: null,
+        ...(event?.htmlLink ? { calendar_url: event.htmlLink } : {}),
+        attendees: JSON.stringify([
+          ...current,
+          ...extra.map((email) => ({ email, name: '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' })),
+        ]),
+      });
+      if (m.project_id) {
+        const a = actor(v);
+        const when = new Date(m.start_at).toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+        db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: 'meeting_scheduled', data: { title: m.title, when } });
+        notify('meeting_scheduled', { actor: v, projectId: m.project_id, title: `Reunión agendada: «${m.title}»`, body: when, path: `/proyectos/${m.project_id}?tab=reuniones` });
+      }
+      json(res, 200, view(get(m.id)!, v));
+      return true;
+    }
+
     case 'POST meetings/:id/cancel': {
       requireOwner(v);
       const m = visible(id, v);
@@ -1168,7 +1238,7 @@ ${context}
     case 'GET projects/:id/meetings': {
       const project = visibleProject(id, v);
       const rows = sqlite.prepare('SELECT * FROM meetings WHERE project_id = ? ORDER BY start_at DESC').all(project.id) as unknown as Row[];
-      json(res, 200, rows.filter((m) => v.kind === 'owner' || ['programada', 'aprobada'].includes(m.status)).map((m) => view(m, v)));
+      json(res, 200, rows.filter((m) => v.kind === 'owner' || (['programada', 'aprobada'].includes(m.status) && !m.tentative)).map((m) => view(m, v)));
       return true;
     }
 

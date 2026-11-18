@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, compact, formatDateTime, navigate, useApi, useLocation, usd, type BillingProfile } from '../lib';
 import { ErrorBox, Loading, PageHead, useAction, useToast } from '../ui';
 import { TeamPage } from './Team';
+import { CatchUpSwitch } from './billing/CatchUp';
+import { PromptSettings } from './PromptSettings';
 
 type Provider = 'gemini' | 'openrouter';
 interface Target {
@@ -921,6 +923,7 @@ function FinanceTab() {
   return (
     <>
       <IssuerProfile />
+      <CatchUpSwitch />
       <OnlinePayments />
       <section className="card form-section narrow-col" style={{ marginTop: 16 }}>
         <div className="form-section__head">
@@ -1124,7 +1127,7 @@ function NotificationsTab() {
   );
 }
 
-const TABS = { equipo: 'Equipo', ia: 'Inteligencia artificial', consumo: 'Consumo de IA', avisos: 'Avisos', google: 'Google y correo', finanzas: 'Finanzas' } as const;
+const TABS = { equipo: 'Equipo', ia: 'Inteligencia artificial', prompts: 'Instrucciones de la IA', consumo: 'Consumo de IA', avisos: 'Avisos', google: 'Google y correo', finanzas: 'Finanzas' } as const;
 type Tab = keyof typeof TABS;
 
 const GOOGLE_MESSAGES: Record<string, [string, boolean]> = {
@@ -1167,6 +1170,7 @@ export function SettingsPage() {
         ))}
       </div>
       {tab === 'ia' && <AiTab />}
+      {tab === 'prompts' && <PromptSettings />}
       {tab === 'consumo' && <UsageTab />}
       {tab === 'avisos' && <NotificationsTab />}
       {tab === 'google' && <GoogleTab />}

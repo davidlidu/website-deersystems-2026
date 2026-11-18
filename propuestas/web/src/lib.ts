@@ -283,6 +283,10 @@ export interface Meeting {
   endAt: string;
   meetUrl: string | null;
   status: MeetingStatus;
+  /** Reservada en Calendar, aún sin invitar al cliente (se confirma con él). */
+  tentative?: boolean;
+  /** Solo tú: a quién se invitará al confirmarla. */
+  pendingAttendees?: string[];
   attendees: { email: string; name: string; side: 'deersystems' | 'cliente' | 'otro' }[];
   summary?: string;
   agreements?: string[];
@@ -559,6 +563,8 @@ export interface Receipt {
   syncedAt?: string | null;
   /** false = este abono no se envía al Gestor financiero. */
   sendToFinance?: boolean;
+  /** Registrado en modo «Poner al día» (no fue al Gestor). */
+  catchUp?: boolean;
   /** Descripción con la que queda el ingreso en el Gestor. */
   financeDescription?: string | null;
   /** La descripción del Gestor se escribió a mano (o vino de SmartBilling). */

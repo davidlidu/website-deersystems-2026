@@ -68,6 +68,8 @@ interface DraftMeeting {
   durationMinutes: number;
   purpose: string;
   schedule: boolean;
+  /** Invitar al cliente ya; si no, solo se reserva el horario en tu Calendar y la confirmas cuando él diga que le sirve. */
+  inviteNow?: boolean;
   /** El sistema la movió de horario porque se cruzaba con otra reunión. */
   moved?: string;
 }
@@ -77,14 +79,24 @@ interface Result {
   client: { name: string; email: string };
   password: string | null;
   mail: { sent: boolean; error?: string };
-  meetings: { scheduled: number; errors: string[] };
+  meetings: { scheduled: number; reserved?: number; errors: string[] };
   /** Al sumar a un proyecto existente: cuántas tareas se agregaron. */
   added?: number;
 }
 
 const key = () => Math.random().toString(36).slice(2);
+// Solo cifras de dinero (igual que en el servidor): «pagan directamente a sus proveedores» no es un valor.
 const PRICE_RE =
-  /(\$\s?\d)|(\b(COP|USD|US\$|EUR|pesos|d[oó]lares)\b)|(\b\d{1,3}(?:[.,]\d{3}){2,}\b)|(\b(anticipo|abono|cuota|IVA|precio|valor total|inversi[oó]n)\b)/i;
+  /(\$\s?\d)|(\b(COP|USD|US\$|EUR)\s?\d)|(\d[\d.,]*\s?(COP|USD|US\$|EUR|pesos|d[oó]lares|millones)\b)|(\b\d{1,3}(?:\.\d{3}){2,}\b)|(\b\d{1,3}\s?%\s+(de\s+)?(anticipo|al aprobar|contra entrega))/i;
+/** El fragmento que suena a valor, para mostrar qué quitar. */
+function priceExcerpt(text: string): string | null {
+  const m = PRICE_RE.exec(text);
+  if (!m) return null;
+  const from = Math.max(0, text.lastIndexOf('\n', m.index) + 1, m.index - 40);
+  const nl = text.indexOf('\n', m.index);
+  const to = Math.min(nl === -1 ? text.length : nl, m.index + m[0].length + 40);
+  return `${from > 0 ? '…' : ''}${text.slice(from, to).trim()}${to < text.length ? '…' : ''}`;
+}
 
 const emptyTask = (): DraftTask => ({ key: key(), title: '', description: '', side: 'deersystems', assigneeId: null, startDate: null, dueDate: null });
 
@@ -465,6 +477,13 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               recibió las invitaciones.
             </p>
           )}
+          {(result.meetings.reserved ?? 0) > 0 && (
+            <p className="callout">
+              Se {result.meetings.reserved === 1 ? 'reservó 1 reunión' : `reservaron ${result.meetings.reserved} reuniones`} en tu Google Calendar como «Por
+              confirmar». Cuando el cliente te confirme que le sirve, ábrela en la pestaña Reuniones del proyecto y pulsa «Confirmar e invitar»: ahí le llega
+              la invitación.
+            </p>
+          )}
           {result.meetings.errors.map((e) => (
             <p key={e} className="alert">
               No se agendó {e}
@@ -539,6 +558,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     const norm = (t: string) => t.trim().toLowerCase();
     const assignees = new Map(phases.flatMap((p) => p.tasks.map((t) => [norm(t.title), t.assigneeId] as const)));
     const scheduled = new Map(meetings.map((m) => [norm(m.title), m.schedule] as const));
+    const inviting = new Map(meetings.map((m) => [norm(m.title), m.inviteNow] as const));
     const newPhases = r.plan.phases.map((ph) => ({
       key: key(),
       name: ph.name,
@@ -555,6 +575,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
         durationMinutes: m.durationMinutes,
         purpose: m.purpose,
         schedule: scheduled.get(norm(m.title)) ?? true,
+        inviteNow: inviting.get(norm(m.title)),
         moved: m.moved,
       })),
     );
@@ -617,6 +638,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           durationMinutes: m.durationMinutes,
           purpose: m.purpose,
           schedule: canSchedule && m.schedule && !!m.date,
+          tentative: !m.inviteNow,
         })),
         payments: payments.filter((p) => p.label.trim() && Number(p.amount) > 0).map(draftBody),
         notify: notify && !!google.data?.connected,
@@ -921,7 +943,11 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               <span className="field__label">Alcance aprobado · lo ven el cliente y tu equipo (sin valores)</span>
               <textarea rows={10} value={project.scope} onChange={(e) => setProject({ ...project, scope: e.target.value })} />
             </label>
-            {PRICE_RE.test(project.scope) && <p className="alert">El alcance parece mencionar valores o pagos. Tu equipo puede verlo.</p>}
+            {priceExcerpt(project.scope) && (
+              <p className="alert">
+                El alcance menciona un valor: «{priceExcerpt(project.scope)}». Tu equipo puede verlo; pásalo a «Valores y condiciones».
+              </p>
+            )}
             <label className="field">
               <span className="field__label">Valores y condiciones · solo tú y el cliente</span>
               <textarea rows={6} value={project.pricing} onChange={(e) => setProject({ ...project, pricing: e.target.value })} />
@@ -1033,10 +1059,17 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           <section className="card form-section">
             <div className="form-section__head">
               <h2>Reuniones de avance con el cliente</h2>
-              <span className="mono">{meetings.filter((m) => m.schedule && canSchedule && m.date).length} se agendarán</span>
+              <span className="mono">
+                {(() => {
+                  const on = meetings.filter((m) => m.schedule && canSchedule && m.date);
+                  const now = on.filter((m) => m.inviteNow).length;
+                  return [on.length - now ? `${on.length - now} se reservan` : '', now ? `${now} con invitación` : ''].filter(Boolean).join(' · ') || 'ninguna se agenda';
+                })()}
+              </span>
             </div>
             <p className="hint">
-              Cada reunión queda como tarea en su fase del cronograma. Las marcadas se agendan en tu Google Calendar con Meet y el cliente recibe la invitación
+              Cada reunión queda como tarea en su fase del cronograma. Las marcadas con 📅 se reservan en tu Google Calendar con Meet como «Por confirmar»:
+              el cliente no recibe nada hasta que confirmes con él que el día y la hora le sirven. Marca «Invitar ya» si ya lo acordaron
               {canSchedule ? '' : ' (para agendarlas, conecta Google con permiso de crear eventos en Configuración)'}.
             </p>
             {(() => {
@@ -1116,6 +1149,16 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                     placeholder="Qué se presenta o se valida con el cliente"
                     onChange={(e) => setM({ purpose: e.target.value })}
                   />
+                  {m.schedule && canSchedule && (
+                    <div className="draft-meeting__mode" role="radiogroup" aria-label="Cómo agendarla">
+                      <button type="button" role="radio" aria-checked={!m.inviteNow} className={`chip${!m.inviteNow ? ' is-active' : ''}`} onClick={() => setM({ inviteNow: false })}>
+                        Reservar · confirmar con el cliente
+                      </button>
+                      <button type="button" role="radio" aria-checked={!!m.inviteNow} className={`chip${m.inviteNow ? ' is-active' : ''}`} onClick={() => setM({ inviteNow: true })}>
+                        Invitar ya
+                      </button>
+                    </div>
+                  )}
                   {m.moved && !clash && <p className="slot-status slot-status--moved">↻ {m.moved}</p>}
                   {(() => {
                     const c = clashes.get(m.key);

@@ -337,16 +337,27 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
     : { sent: false };
 
   // Después de la bienvenida: las invitaciones de Calendar de las reuniones marcadas para agendar.
-  const meetings = { scheduled: 0, errors: [] as string[] };
+  const meetings = { scheduled: 0, reserved: 0, errors: [] as string[] };
   for (const [i, m] of draft.meetings.entries()) {
     if (rawMeetings[i]?.schedule !== true) continue;
     try {
       await scheduleMeeting(
         created.project,
-        { title: m.title, date: m.date, time: m.time, durationMinutes: m.durationMinutes, agenda: m.purpose, includeClient: true, teamIds: [], guests: [] },
+        {
+          title: m.title,
+          date: m.date,
+          time: m.time,
+          durationMinutes: m.durationMinutes,
+          agenda: m.purpose,
+          includeClient: true,
+          teamIds: [],
+          guests: [],
+          tentative: (rawMeetings[i] as { tentative?: unknown }).tentative === true,
+        },
         v,
       );
-      meetings.scheduled++;
+      if ((rawMeetings[i] as { tentative?: unknown }).tentative === true) meetings.reserved++;
+      else meetings.scheduled++;
     } catch (err) {
       meetings.errors.push(`«${m.title}»: ${(err as Error).message}`);
     }
@@ -451,16 +462,27 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
   });
 
   const updated = db.getProject(projectId)!;
-  const meetings = { scheduled: 0, errors: [] as string[] };
+  const meetings = { scheduled: 0, reserved: 0, errors: [] as string[] };
   for (const [i, m] of draft.meetings.entries()) {
     if (rawMeetings[i]?.schedule !== true) continue;
     try {
       await scheduleMeeting(
         updated,
-        { title: m.title, date: m.date, time: m.time, durationMinutes: m.durationMinutes, agenda: m.purpose, includeClient: true, teamIds: [], guests: [] },
+        {
+          title: m.title,
+          date: m.date,
+          time: m.time,
+          durationMinutes: m.durationMinutes,
+          agenda: m.purpose,
+          includeClient: true,
+          teamIds: [],
+          guests: [],
+          tentative: (rawMeetings[i] as { tentative?: unknown }).tentative === true,
+        },
         v,
       );
-      meetings.scheduled++;
+      if ((rawMeetings[i] as { tentative?: unknown }).tentative === true) meetings.reserved++;
+      else meetings.scheduled++;
     } catch (err) {
       meetings.errors.push(`«${m.title}»: ${(err as Error).message}`);
     }
@@ -1088,6 +1110,68 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       requireOwner(v);
       ai.saveSettings(await readJson(req));
       return json(res, 200, ai.publicSettings());
+
+    // Instrucciones propias de cada tarea de la IA (se suman a su prompt).
+    case 'GET settings/ai/instructions': {
+      requireOwner(v);
+      const saved = ai.instructions();
+      return json(
+        res,
+        200,
+        (Object.keys(ai.PROMPT_TASKS) as ai.PromptTask[]).map((key) => ({
+          key,
+          label: ai.PROMPT_TASKS[key].label,
+          hint: ai.PROMPT_TASKS[key].hint,
+          text: saved[key] ?? '',
+          lastUsedAt: ai.lastPrompt(key)?.at ?? null,
+        })),
+      );
+    }
+
+    case 'PUT settings/ai/instructions': {
+      requireOwner(v);
+      const body = await readJson(req);
+      if (!ai.isPromptTask(body.key)) throw new HttpError(400, 'Tarea no válida.');
+      ai.saveInstructions(body.key, typeof body.text === 'string' ? body.text : '');
+      return json(res, 200, { ok: true });
+    }
+
+    // Le dices el cambio («que las reuniones de avance sean de 30 minutos») y la IA reescribe las instrucciones.
+    case 'POST settings/ai/instructions/suggest': {
+      requireOwner(v);
+      const body = await readJson(req);
+      if (!ai.isPromptTask(body.key)) throw new HttpError(400, 'Tarea no válida.');
+      const change = str(body.change, 2000);
+      if (change.length < 5) throw new HttpError(400, 'Escribe qué quieres cambiar.');
+      const current = typeof body.text === 'string' ? body.text.slice(0, 6000) : (ai.instructions()[body.key] ?? '');
+      const sample = ai.lastPrompt(body.key);
+      const task = ai.PROMPT_TASKS[body.key];
+      const q = '"""';
+      try {
+        const { data, completion } = await ai.completeJson<{ text?: unknown; explanation?: unknown }>({
+          profile: 'propuestas',
+          purpose: 'ajuste de instrucciones',
+          system: `Ayudas a ajustar las instrucciones que DeerSystems le da a su IA para la tarea «${task.label}». Las instrucciones adicionales se
+suman al final del prompt de sistema de esa tarea y tienen prioridad. Escribe en español, en viñetas cortas e imperativas, sin repetir lo que el
+prompt base ya dice, sin datos de un cliente concreto y sin inventar reglas que no se pidieron. Conserva las instrucciones actuales que no
+choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adicionales completas, ya con el cambio", "explanation": "una frase con lo que cambió" }.`,
+          prompt: [
+            sample ? `PROMPT BASE DE LA TAREA (muestra de la última vez que se usó; los datos son de ejemplo):\n${q}\n${sample.system}\n\n${sample.prompt.slice(0, 6000)}\n${q}` : '',
+            `INSTRUCCIONES ADICIONALES ACTUALES:\n${q}\n${current || '(ninguna)'}\n${q}`,
+            `CAMBIO QUE PIDE EL RESPONSABLE:\n${q}\n${change}\n${q}`,
+          ]
+            .filter(Boolean)
+            .join('\n\n'),
+        });
+        return json(res, 200, {
+          text: String(data.text ?? '').trim().slice(0, 6000),
+          explanation: String(data.explanation ?? '').trim().slice(0, 500),
+          ai: { model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs },
+        });
+      } catch (err) {
+        throw new HttpError(502, (err as Error).message);
+      }
+    }
 
     case 'GET settings/ai/models': {
       requireOwner(v);

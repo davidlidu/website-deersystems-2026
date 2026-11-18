@@ -75,6 +75,8 @@ export interface ReceiptRow {
   sb_id: string | null;
   /** 1 = no se envía al Gestor financiero (p. ej. un abono que no es ingreso tuyo). */
   skip_finance: number;
+  /** Registrado en modo «Poner al día»: marca la cuenta como pagada sin llevar el ingreso al Gestor. */
+  catch_up: number;
   /** Referencia de la entrada unida del Gestor (varios abonos = un solo ingreso). */
   finance_group: string | null;
   created_at: string;
@@ -141,6 +143,26 @@ sqlite.exec(`
 if (!(sqlite.prepare('PRAGMA table_info(receipts)').all() as { name: string }[]).some((c) => c.name === 'skip_finance')) {
   sqlite.exec('ALTER TABLE receipts ADD COLUMN skip_finance INTEGER NOT NULL DEFAULT 0');
 }
+if (!(sqlite.prepare('PRAGMA table_info(receipts)').all() as { name: string }[]).some((c) => c.name === 'catch_up')) {
+  sqlite.exec('ALTER TABLE receipts ADD COLUMN catch_up INTEGER NOT NULL DEFAULT 0');
+}
+
+/**
+ * Modo «Poner al día»: mientras está encendido, los abonos que registras (y las cuotas que marcas pagadas) solo
+ * dejan las cuentas de cobro al día; no llevan el ingreso al Gestor financiero, porque ese dinero ya se contó allá.
+ */
+export const catchUpMode = (): { enabled: boolean; since: string | null } => ({
+  enabled: false,
+  since: null,
+  ...(db.getSetting<{ enabled: boolean; since: string | null }>('billing_catch_up') ?? {}),
+});
+/** Deja el abono fuera del Gestor y marcado como de puesta al día (si el modo está encendido). */
+export function applyCatchUp(id: number): boolean {
+  if (!catchUpMode().enabled) return false;
+  sqlite.prepare('UPDATE receipts SET skip_finance = 1, catch_up = 1 WHERE id = ?').run(id);
+  return true;
+}
+
 if (!(sqlite.prepare('PRAGMA table_info(receipts)').all() as { name: string }[]).some((c) => c.name === 'finance_group')) {
   sqlite.exec('ALTER TABLE receipts ADD COLUMN finance_group TEXT');
 }
@@ -509,6 +531,7 @@ function receiptView(r: ReceiptRow) {
     syncError: r.sync_error,
     syncedAt: r.synced_at,
     sendToFinance: !r.skip_finance,
+    catchUp: !!r.catch_up,
     financeDescription: r.finance_group ? (getGroup(r.finance_group)?.description ?? incomeDescription(r)) : incomeDescription(r),
     group: r.finance_group ? groupInfo(r.finance_group, r.id) : null,
     customDescription: !!r.finance_description,
@@ -1194,6 +1217,47 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
     }
 
     // ── Abonos
+    // ── Modo «Poner al día»
+    case 'GET billing/catch-up':
+      requireOwner(v);
+      json(res, 200, catchUpMode());
+      return true;
+
+    case 'PUT billing/catch-up': {
+      requireOwner(v);
+      const enabled = (await readJson(req)).enabled === true;
+      db.setSetting('billing_catch_up', { enabled, since: enabled ? now() : null });
+      json(res, 200, catchUpMode());
+      return true;
+    }
+
+    // Marca la cuenta de cobro como pagada con un abono por lo que le falta (en «Poner al día», sin ir al Gestor).
+    case 'POST invoices/:id/settle': {
+      requireOwner(v);
+      const inv = visibleInvoice(id, v);
+      if (inv.status === 'anulada') throw new HttpError(409, 'La cuenta de cobro está anulada.');
+      const missing = round2(inv.total_cop - appliedTo(inv.id));
+      if (missing <= 0.5) throw new HttpError(409, 'Esta cuenta de cobro ya está pagada.');
+      const body = await readJson(req);
+      const date = optDate(body.date) ?? inv.date;
+      const r = saveReceipt({
+        clientId: inv.client_id,
+        projectId: inv.project_id,
+        invoiceId: inv.id,
+        invoiceIds: [],
+        amountCop: missing,
+        currency: 'COP',
+        amount: missing,
+        trm: null,
+        date,
+        method: str(body.method, 60) || 'Transferencia',
+        notes: str(body.notes, 500) || (catchUpMode().enabled ? 'Registrado para poner la cartera al día.' : ''),
+      });
+      if (!applyCatchUp(r.id)) await syncReceipt(getReceipt(r.id)!);
+      json(res, 201, { receipt: receiptView(getReceipt(r.id)!), invoice: invoiceSummary(getInvoice(inv.id)!) });
+      return true;
+    }
+
     case 'GET receipts': {
       requireOwner(v);
       const f = filterBy(url);
@@ -1207,6 +1271,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       const body = await readJson(req);
       const r = saveReceipt(readReceipt(await withTrm(body)));
       setSendToFinance(r.id, body.sendToFinance);
+      applyCatchUp(r.id);
       json(res, 201, receiptView(await syncReceipt(getReceipt(r.id)!)));
       return true;
     }

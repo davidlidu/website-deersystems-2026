@@ -390,8 +390,9 @@ h2 {
 
 .item__title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 1rem;
@@ -6888,6 +6889,8 @@ button.table__row {
 .psum {
   display: grid;
   gap: 14px;
+  /* Mismo ancho que la columna de avances de abajo. */
+  max-width: 980px;
   margin-bottom: 22px;
 }
 
@@ -7209,4 +7212,235 @@ button.table__row {
   .mission__label strong {
     font-size: 0.78rem;
   }
+}
+
+/* ── Reuniones reservadas (por confirmar con el cliente) */
+
+.tag--warn {
+  border-color: rgba(251, 133, 0, 0.5);
+  color: var(--naranja);
+}
+
+.meeting.is-tentative {
+  border-style: dashed;
+  border-color: rgba(251, 133, 0, 0.45);
+}
+
+.draft-meeting__mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.check--sub {
+  margin-left: 24px;
+  font-size: 0.82rem;
+  color: var(--body);
+}
+
+/* ── Calendario general: cabecera con lo más importante de la semana */
+
+.gcal-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 8px;
+}
+
+.gcal-hero > * {
+  min-width: 0;
+}
+
+button.gcal-stat {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+button.gcal-stat:hover {
+  border-color: var(--hairline-strong);
+}
+
+.gcal-stat.is-active {
+  border-color: var(--verde);
+  background: rgba(126, 217, 87, 0.08);
+}
+
+.gcal-stat.is-bad.is-active {
+  border-color: var(--coral);
+  background: rgba(239, 71, 111, 0.1);
+}
+
+.gcal-top {
+  padding: 16px 18px;
+}
+
+.gcal-top .eyebrow {
+  margin: 0 0 10px;
+}
+
+.gcal-top ul {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gcal-top li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 0 7px 10px;
+  border-left: 3px solid var(--pc, var(--cian));
+  border-bottom: 1px solid var(--hairline);
+}
+
+.gcal-top li:last-child {
+  border-bottom: 0;
+}
+
+.gcal-top li > button {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: 500 0.84rem/1.3 var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.gcal-top li > button:hover .gcal-top__title {
+  color: var(--cian);
+}
+
+.gcal-top__title,
+.gcal-top__meta {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.gcal-top__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--mute);
+}
+
+.gcal-top__when {
+  flex: none;
+  font: 500 0.72rem var(--font-mono);
+  color: var(--body);
+}
+
+.gcal-top__when.is-late {
+  color: var(--coral);
+}
+
+@media (max-width: 960px) {
+  .gcal-hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Títulos largos de propuestas: el nombre ocupa su línea y las etiquetas bajan sin apretarlo. */
+.item__name {
+  flex: 1 1 260px;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+.tag--long {
+  white-space: normal;
+  line-height: 1.5;
+}
+
+@media (max-width: 1180px) {
+  .item--proposal {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .item--proposal .item__actions {
+    justify-content: flex-start;
+  }
+}
+
+/* ── Modo «Poner al día» */
+
+.catchup.is-on {
+  border-color: rgba(251, 133, 0, 0.5);
+}
+
+.catchup-banner {
+  margin-bottom: 16px;
+}
+
+.pay-client--settle .btn {
+  justify-self: end;
+}
+
+/* ── Instrucciones de la IA (Configuración) */
+
+.prompt-card__ask {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.prompt-card__ask .input {
+  flex: 1;
+}
+
+.prompt-card__suggestion {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px dashed rgba(0, 180, 216, 0.45);
+  border-radius: var(--r-md);
+}
+
+.prompt-card__text {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: rgba(5, 25, 35, 0.6);
+  color: var(--ink);
+  font: 0.82rem/1.5 var(--font-mono);
+  white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+  .prompt-card__ask {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* Tuerca de Configuración en la barra superior. */
+.gear-btn {
+  text-decoration: none;
+}
+
+.gear-btn.is-active {
+  border-color: var(--verde);
+  color: var(--verde);
+}
+
+.drawer__context {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.drawer__project-link {
+  font-size: 0.75rem;
 }

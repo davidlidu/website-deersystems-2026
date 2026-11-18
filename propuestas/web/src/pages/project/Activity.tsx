@@ -39,6 +39,8 @@ function describe(a: ActivityItem): string {
       return `envió el resumen de la reunión ${q(d.title)} con ${d.tasks ?? 0} tareas`;
     case 'meeting_scheduled':
       return `agendó la reunión ${q(d.title)} para el ${d.when}`;
+    case 'meeting_reserved':
+      return `reservó la reunión ${q(d.title)} para el ${d.when} (por confirmar con el cliente)`;
     case 'meeting_updated':
       return `actualizó la reunión ${q(d.title)} (${d.when})`;
     case 'meeting_cancelled':

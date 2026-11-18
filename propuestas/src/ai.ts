@@ -268,8 +268,51 @@ async function callTarget(target: Target, req: Request, s: Stored, privateOnly: 
   }
 }
 
+// ───────── Instrucciones propias por tarea ─────────
+
+/**
+ * Cada tarea de la IA tiene su prompt en el código; aquí guardas instrucciones adicionales que se suman al final del
+ * prompt de sistema (p. ej. «las reuniones de avance duran 30 minutos»). Se ajustan desde Configuración, a mano o
+ * pidiéndole a la IA el cambio.
+ */
+export const PROMPT_TASKS = {
+  plan: { label: 'Plan de trabajo al aprobar una propuesta', hint: 'Fases, tareas, fechas, reuniones de avance y alcance.', purposes: ['propuesta', 'propuesta-opciones'] },
+  ajuste: { label: 'Ajustes del plan con IA', hint: '«Corre una semana todo», «reprograma las reuniones»…', purposes: ['ajuste del plan', 'ajuste del plan del proyecto'] },
+  pagos: { label: 'Plan de pagos', hint: 'Cuotas, porcentajes y fechas de pago.', purposes: ['pagos'] },
+  avance: { label: 'Avance del día', hint: 'El texto del avance que se publica al cliente.', purposes: ['avance'] },
+  reunion: { label: 'Resumen de reuniones', hint: 'Resumen, acuerdos y tareas a partir de la transcripción.', purposes: ['reunion'] },
+  correo: { label: 'Correo con la propuesta tras la llamada', hint: 'El mensaje que acompaña el enlace de la propuesta.', purposes: ['propuesta-correo'] },
+} as const;
+export type PromptTask = keyof typeof PROMPT_TASKS;
+export const isPromptTask = (v: unknown): v is PromptTask => typeof v === 'string' && v in PROMPT_TASKS;
+
+const taskOf = (purpose: string): PromptTask | null =>
+  (Object.keys(PROMPT_TASKS) as PromptTask[]).find((k) => (PROMPT_TASKS[k].purposes as readonly string[]).includes(purpose)) ?? null;
+
+export const instructions = (): Partial<Record<PromptTask, string>> => getSetting<Partial<Record<PromptTask, string>>>('ai_instructions') ?? {};
+
+export function saveInstructions(task: PromptTask, text: string): void {
+  setSetting('ai_instructions', { ...instructions(), [task]: text.trim().slice(0, 6000) });
+}
+
+/** El último prompt que se usó en cada tarea: para que la IA sepa qué está ajustando al reescribir las instrucciones. */
+export const lastPrompt = (task: PromptTask): { system: string; prompt: string; at: string } | null => getSetting(`ai_prompt_last:${task}`);
+
+function withInstructions(req: Request): Request {
+  const task = taskOf(req.purpose);
+  if (!task) return req;
+  try {
+    setSetting(`ai_prompt_last:${task}`, { system: req.system.slice(0, 8000), prompt: req.prompt.slice(0, 12_000), at: new Date().toISOString() });
+  } catch {
+    // Guardar la muestra es opcional: nunca debe frenar la llamada.
+  }
+  const extra = instructions()[task]?.trim();
+  return extra ? { ...req, system: `${req.system}\n\nINSTRUCCIONES ADICIONALES DEL RESPONSABLE (tienen prioridad sobre las anteriores si chocan):\n${extra}` } : req;
+}
+
 /** Usa el modelo principal y, si falla, el de respaldo. */
-export async function complete(req: Request): Promise<Completion> {
+export async function complete(raw: Request): Promise<Completion> {
+  const req = withInstructions(raw);
   const s = stored();
   const route = s.profiles[req.profile];
   try {
