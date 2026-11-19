@@ -5062,7 +5062,7 @@ textarea:focus {
 /* ── Avances */
 
 .updates-col {
-  max-width: 980px;
+  max-width: none;
 }
 
 .updates {
@@ -7526,6 +7526,46 @@ button.gcal-stat:hover {
 .recipient:disabled {
   opacity: 0.6;
   cursor: progress;
+}
+
+.recipient--extra {
+  padding: 0;
+  gap: 0;
+}
+
+.recipient--extra button {
+  padding: 4px 4px 4px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.recipient--extra .recipient__x {
+  padding: 4px 10px 4px 6px;
+  opacity: 0.7;
+}
+
+.recipient--extra .recipient__x:hover {
+  opacity: 1;
+  color: var(--coral);
+}
+
+.recipient--new {
+  border-style: dashed;
+}
+
+.recipient-add {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.recipient-add input {
+  width: 220px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
 }
 
 .modal .recipients {

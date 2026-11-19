@@ -29,25 +29,49 @@ interface MailInfo {
   to: string | null;
   /** Personas del cliente que ven el proyecto; selected = le llegan los avances por correo. */
   people: { id: number; name: string; email: string; selected: boolean }[];
+  /** Correos adicionales solo para los avances de este proyecto (sin acceso al portal). */
+  extras: { email: string; selected: boolean }[];
   canSend: boolean;
   defaultOn: boolean;
   reason: string | null;
 }
 
-/** A quién le llega el avance por correo. La elección queda guardada para el proyecto (también para el envío diario). */
+/**
+ * A quién le llega el avance por correo: las personas del cliente con acceso al portal y correos adicionales
+ * (solo para los avances de este proyecto). La elección queda guardada para el proyecto (también para el envío diario).
+ */
 function Recipients({ projectId, info, onChange }: { projectId: number; info: MailInfo; onChange: (info: MailInfo) => void }) {
   const { busy, run } = useAction();
   const toast = useToast();
-  if (info.people.length < 2) return null;
-  const toggle = (id: number) => {
-    const people = info.people.map((p) => (p.id === id ? { ...p, selected: !p.selected } : p));
-    const chosen = people.filter((p) => p.selected);
-    if (!chosen.length) return toast('Deja al menos a una persona, o apaga «Enviar también por correo».', true);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState('');
+
+  const save = (people: MailInfo['people'], extras: MailInfo['extras'], after?: () => void) => {
+    if (!people.some((p) => p.selected) && !extras.some((e) => e.selected)) {
+      return toast('Deja al menos un destinatario, o apaga «Enviar también por correo».', true);
+    }
     run(async () => {
-      await api('PUT', `projects/${projectId}/updates/recipients`, { ids: chosen.map((p) => p.id) });
-      onChange({ ...info, people, to: chosen.map((p) => p.email).join(', ') });
+      const r = await api<{ to: string | null }>('PUT', `projects/${projectId}/updates/recipients`, {
+        ids: people.filter((p) => p.selected).map((p) => p.id),
+        extras,
+      });
+      onChange({ ...info, people, extras, to: r.to });
+      after?.();
     });
   };
+
+  const add = () => {
+    const email = draft.trim().toLowerCase();
+    if (!email) return setAdding(false);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return toast('Ese correo no es válido.', true);
+    if (info.extras.some((e) => e.email === email) || info.people.some((p) => p.email.toLowerCase() === email)) return toast('Ese correo ya está en la lista.', true);
+    save(info.people, [...info.extras, { email, selected: true }], () => {
+      setDraft('');
+      setAdding(false);
+      toast(`${email} recibirá los avances de este proyecto.`);
+    });
+  };
+
   return (
     <span className="recipients" role="group" aria-label="Enviar el correo a">
       <small>Enviar a:</small>
@@ -59,11 +83,59 @@ function Recipients({ projectId, info, onChange }: { projectId: number; info: Ma
           aria-pressed={p.selected}
           disabled={busy}
           title={p.email}
-          onClick={() => toggle(p.id)}
+          onClick={() => save(info.people.map((x) => (x.id === p.id ? { ...x, selected: !x.selected } : x)), info.extras)}
         >
           <span aria-hidden="true">{p.selected ? '✓' : '+'}</span> {p.name || p.email}
         </button>
       ))}
+      {info.extras.map((e) => (
+        <span key={e.email} className={`recipient recipient--extra${e.selected ? ' is-on' : ''}`}>
+          <button
+            type="button"
+            aria-pressed={e.selected}
+            disabled={busy}
+            title="Correo adicional: solo recibe los avances de este proyecto"
+            onClick={() => save(info.people, info.extras.map((x) => (x.email === e.email ? { ...x, selected: !x.selected } : x)))}
+          >
+            <span aria-hidden="true">{e.selected ? '✓' : '+'}</span> {e.email}
+          </button>
+          <button
+            type="button"
+            className="recipient__x"
+            disabled={busy}
+            aria-label={`Quitar ${e.email}`}
+            title="Quitar este correo"
+            onClick={() => save(info.people, info.extras.filter((x) => x.email !== e.email))}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {adding ? (
+        <span className="recipient-add">
+          <input
+            type="email"
+            autoFocus
+            placeholder="correo@empresa.com"
+            value={draft}
+            disabled={busy}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                add();
+              } else if (e.key === 'Escape') setAdding(false);
+            }}
+          />
+          <button type="button" className="btn btn--primary btn--xs" disabled={busy} onClick={add}>
+            Agregar
+          </button>
+        </span>
+      ) : (
+        <button type="button" className="recipient recipient--new" onClick={() => setAdding(true)} title="Un correo que solo recibe los avances de este proyecto">
+          + Agregar correo
+        </button>
+      )}
     </span>
   );
 }

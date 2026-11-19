@@ -6,7 +6,7 @@ import * as google from '../google.ts';
 import { HttpError, json, readJson } from '../http.ts';
 import { projectUpdate } from '../mail.ts';
 import type { Viewer } from './auth.ts';
-import { noteView, requireStaff, visibleProject } from './common.ts';
+import { EMAIL_RE, noteView, requireStaff, visibleProject } from './common.ts';
 import * as db from './db.ts';
 import { clientEmailsFor, notify } from './notify.ts';
 
@@ -180,6 +180,12 @@ function updateMail(project: db.Project, to: string, body: string, createdAt: st
  * proyecto (también lo usa el envío diario): sin elegir, a todas las personas del cliente que ven el proyecto.
  */
 const recipientsKey = (projectId: number) => `update_recipients:${projectId}`;
+/** Correos que no son del portal (p. ej. otra persona del cliente): solo reciben los avances de este proyecto. */
+const extrasKey = (projectId: number) => `update_extra_emails:${projectId}`;
+export interface ExtraEmail {
+  email: string;
+  selected: boolean;
+}
 
 function mailPeople(project: db.Project) {
   const people = db.projectClientAccounts(project.id);
@@ -187,15 +193,23 @@ function mailPeople(project: db.Project) {
   return people.map((a) => ({ account: a, selected: !chosen || chosen.includes(a.id) }));
 }
 
-export const updateRecipients = (project: db.Project) => mailPeople(project).filter((p) => p.selected).map((p) => p.account);
+const extraEmails = (project: db.Project) => db.getSetting<ExtraEmail[]>(extrasKey(project.id)) ?? [];
+
+/** Correos a los que se envía el avance: las personas del portal elegidas y los correos adicionales marcados. */
+export function updateRecipients(project: db.Project): string[] {
+  const emails = [
+    ...mailPeople(project).filter((p) => p.selected).map((p) => p.account.email),
+    ...extraEmails(project).filter((e) => e.selected).map((e) => e.email),
+  ];
+  return [...new Set(emails.map((e) => e.toLowerCase()))];
+}
 
 /** Le manda al cliente el avance completo por correo y lo deja marcado, para no enviarlo dos veces. */
 export async function emailUpdate(project: db.Project, note: db.Note): Promise<void> {
-  if (!db.projectClientAccounts(project.id).length) throw new HttpError(409, 'El cliente no tiene acceso activo al portal: no hay a qué correo enviarlo.');
-  const people = updateRecipients(project);
-  if (!people.length) throw new HttpError(409, 'Elige al menos a una persona para enviarle el avance.');
+  const to = updateRecipients(project);
+  if (!to.length) throw new HttpError(409, 'Elige al menos a una persona (o agrega un correo) para enviarle el avance.');
   if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
-  await google.sendMail(updateMail(project, people.map((a) => a.email).join(', '), note.body, note.created_at, note.id));
+  await google.sendMail(updateMail(project, to.join(', '), note.body, note.created_at, note.id));
   db.markNoteEmailed(note.id);
 }
 
@@ -206,7 +220,7 @@ export async function emailUpdate(project: db.Project, note: db.Note): Promise<v
  */
 export async function announceUpdate(project: db.Project, note: db.Note, actor: Viewer | null, email?: boolean): Promise<'sent' | 'off' | 'error'> {
   notify('staff_update', { actor, projectId: project.id, title: `Nuevo avance en ${project.name}`, body: note.body, path: `/proyectos/${project.id}?tab=avances`, skipEmail: true });
-  if (!(email ?? (clientEmailsFor('staff_update', project.id).length > 0 && updateRecipients(project).length > 0))) return 'off';
+  if (!(email ?? (updateRecipients(project).length > 0 && (clientEmailsFor('staff_update', project.id).length > 0 || extraEmails(project).some((e) => e.selected))))) return 'off';
   try {
     await emailUpdate(project, note);
     return 'sent';
@@ -272,28 +286,41 @@ export async function handleUpdates(route: string, id: number, req: IncomingMess
       requireStaff(v);
       const project = visibleProject(id, v);
       const people = mailPeople(project);
-      const to = people.filter((p) => p.selected).map((p) => p.account.email);
-      const ready = people.length > 0 && google.connectionStatus().connected;
+      const extras = extraEmails(project);
+      const to = updateRecipients(project);
+      const ready = (people.length > 0 || extras.length > 0) && google.connectionStatus().connected;
       json(res, 200, {
         to: to.length ? to.join(', ') : null,
         people: people.map((p) => ({ id: p.account.id, name: p.account.name, email: p.account.email, selected: p.selected })),
+        extras,
         canSend: ready,
-        defaultOn: ready && to.length > 0 && clientEmailsFor('staff_update', project.id).length > 0,
-        reason: !people.length ? 'El cliente no tiene acceso activo al portal.' : !ready ? 'Conecta Google en Configuración para enviar correos.' : null,
+        defaultOn: ready && to.length > 0 && (clientEmailsFor('staff_update', project.id).length > 0 || extras.some((e) => e.selected)),
+        reason: !google.connectionStatus().connected ? 'Conecta Google en Configuración para enviar correos.' : !ready ? 'El cliente no tiene acceso al portal: agrega un correo para enviarle los avances.' : null,
       });
       return true;
     }
 
-    // Quiénes reciben los avances por correo en este proyecto (queda guardado).
+    // Quiénes reciben los avances por correo en este proyecto, y los correos adicionales (queda guardado).
     case 'PUT projects/:id/updates/recipients': {
       requireStaff(v);
       const project = visibleProject(id, v);
       const body = await readJson(req);
       const valid = new Set(db.projectClientAccounts(project.id).map((a) => a.id));
       const ids = (Array.isArray(body.ids) ? body.ids : []).map(Number).filter((n) => valid.has(n));
+      const portal = new Set(db.projectClientAccounts(project.id).map((a) => a.email.toLowerCase()));
+      const extras: ExtraEmail[] = [];
+      for (const raw of Array.isArray(body.extras) ? body.extras : []) {
+        const e = raw as { email?: unknown; selected?: unknown };
+        const email = String(e.email ?? '').trim().toLowerCase().slice(0, 200);
+        if (!EMAIL_RE.test(email)) throw new HttpError(400, `«${email}» no es un correo válido.`);
+        if (portal.has(email)) throw new HttpError(400, `${email} ya tiene acceso al portal: márcalo en la lista.`);
+        if (!extras.some((x) => x.email === email)) extras.push({ email, selected: e.selected !== false });
+      }
+      if (extras.length > 10) throw new HttpError(400, 'Máximo 10 correos adicionales por proyecto.');
       // Todos marcados = sin elección (así una persona nueva del cliente también los recibe).
       db.setSetting(recipientsKey(project.id), ids.length === valid.size ? null : ids);
-      json(res, 200, { ok: true });
+      db.setSetting(extrasKey(project.id), extras);
+      json(res, 200, { ok: true, to: updateRecipients(project).join(', ') || null });
       return true;
     }
 
@@ -305,7 +332,7 @@ export async function handleUpdates(route: string, id: number, req: IncomingMess
       const text = typeof body.body === 'string' ? body.body.trim().slice(0, 10_000) : '';
       if (!text) throw new HttpError(400, 'Escribe el avance para ver el correo.');
       const note = Number(body.noteId) ? db.getNote(Number(body.noteId)) : undefined;
-      const to = updateRecipients(project).map((a) => a.email).join(', ') || 'cliente@empresa.com';
+      const to = updateRecipients(project).join(', ') || 'cliente@empresa.com';
       const m = updateMail(project, to, text, note?.created_at ?? new Date().toISOString(), note?.project_id === project.id ? note.id : undefined);
       json(res, 200, { subject: m.subject, to: m.to, html: m.html });
       return true;
