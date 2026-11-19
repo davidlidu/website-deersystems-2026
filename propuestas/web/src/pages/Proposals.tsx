@@ -159,7 +159,7 @@ function ApprovalRow({ p, a, onChange }: { p: ProposalRow; a: ClientApproval; on
         <Link className={`btn btn--sm ${a.status === 'listo' ? 'btn--primary' : 'btn--outline'}`} to={`/propuestas/${p.id}/aprobar?aprobacion=${a.id}`}>
           Revisar plan
         </Link>
-        <button className="btn btn--ghost btn--sm" disabled={busy} onClick={discard}>
+        <button className="btn btn--outline btn--sm" disabled={busy} onClick={discard}>
           Descartar
         </button>
       </div>
@@ -271,29 +271,34 @@ function ProposalItem({
         {showVersions && <Versions proposal={p} onRestored={onChange} />}
       </div>
       <div className="item__actions">
-        <Link className={`btn btn--sm ${p.projects.length || p.approvals.length ? 'btn--outline' : 'btn--primary'}`} to={`/propuestas/${p.id}/aprobar`}>
-          {p.projects.length ? 'Aprobar de nuevo' : 'Propuesta aprobada'}
-        </Link>
-        <button className="btn btn--outline btn--sm" disabled={!p.active} onClick={onSend} title={p.active ? 'Enviarla al cliente en un correo' : 'Está pausada: actívala para enviarla'}>
-          Enviar por correo
-        </button>
-        <button className="btn btn--outline btn--sm" onClick={copy}>
-          Copiar enlace
-        </button>
-        <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => input.current?.click()}>
-          Nueva versión
-        </button>
-        <button className="btn btn--outline btn--sm" disabled={busy} onClick={toggle}>
-          {p.active ? 'Pausar' : 'Activar'}
-        </button>
-        <button className="btn btn--outline btn--sm" disabled={busy} onClick={rename}>
-          Renombrar
-        </button>
-        {!p.projects.length && (
-          <button className="btn btn--outline btn--sm btn--danger" disabled={busy} onClick={remove}>
-            Eliminar
+        {/* Lo que se hace con el cliente, a la izquierda; administrar la propuesta, a la derecha y más discreto. */}
+        <span className="item__actions-main">
+          <Link className={`btn btn--sm ${p.projects.length || p.approvals.length ? 'btn--outline' : 'btn--primary'}`} to={`/propuestas/${p.id}/aprobar`}>
+            {p.projects.length ? 'Aprobar de nuevo' : 'Propuesta aprobada'}
+          </Link>
+          <button className="btn btn--outline btn--sm" disabled={!p.active} onClick={onSend} title={p.active ? 'Enviarla al cliente en un correo' : 'Está pausada: actívala para enviarla'}>
+            Enviar por correo
           </button>
-        )}
+          <button className="btn btn--outline btn--sm" onClick={copy}>
+            Copiar enlace
+          </button>
+        </span>
+        <span className="item__actions-more">
+          <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => input.current?.click()}>
+            Nueva versión
+          </button>
+          <button className="btn btn--outline btn--sm" disabled={busy} onClick={toggle}>
+            {p.active ? 'Pausar' : 'Activar'}
+          </button>
+          <button className="btn btn--outline btn--sm" disabled={busy} onClick={rename}>
+            Renombrar
+          </button>
+          {!p.projects.length && (
+            <button className="btn btn--outline btn--sm btn--danger" disabled={busy} onClick={remove}>
+              Eliminar
+            </button>
+          )}
+        </span>
         <input
           ref={input}
           type="file"

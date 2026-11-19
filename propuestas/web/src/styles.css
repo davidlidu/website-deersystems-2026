@@ -7371,11 +7371,41 @@ button.gcal-stat:hover {
   line-height: 1.5;
 }
 
-@media (max-width: 1180px) {
-  .item--proposal {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* Propuestas: la información arriba a todo el ancho y los botones en una fila debajo. */
+.item--proposal {
+  grid-template-columns: minmax(0, 1fr);
+}
 
+.item--proposal .item__actions {
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.item__actions-main,
+.item__actions-more {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.item__actions-more {
+  gap: 4px;
+}
+
+/* Administrar la propuesta: botones sin borde hasta pasar el mouse, para no competir con los del cliente. */
+.item__actions-more .btn--outline {
+  border-color: transparent;
+  color: var(--mute);
+}
+
+.item__actions-more .btn--outline:hover:not(:disabled) {
+  border-color: var(--hairline-strong);
+  color: var(--ink);
+}
+
+@media (max-width: 640px) {
   .item--proposal .item__actions {
     justify-content: flex-start;
   }
