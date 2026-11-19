@@ -27,9 +27,45 @@ function Visibility({ internal, onChange }: { internal: boolean; onChange: (inte
 
 interface MailInfo {
   to: string | null;
+  /** Personas del cliente que ven el proyecto; selected = le llegan los avances por correo. */
+  people: { id: number; name: string; email: string; selected: boolean }[];
   canSend: boolean;
   defaultOn: boolean;
   reason: string | null;
+}
+
+/** A quién le llega el avance por correo. La elección queda guardada para el proyecto (también para el envío diario). */
+function Recipients({ projectId, info, onChange }: { projectId: number; info: MailInfo; onChange: (info: MailInfo) => void }) {
+  const { busy, run } = useAction();
+  const toast = useToast();
+  if (info.people.length < 2) return null;
+  const toggle = (id: number) => {
+    const people = info.people.map((p) => (p.id === id ? { ...p, selected: !p.selected } : p));
+    const chosen = people.filter((p) => p.selected);
+    if (!chosen.length) return toast('Deja al menos a una persona, o apaga «Enviar también por correo».', true);
+    run(async () => {
+      await api('PUT', `projects/${projectId}/updates/recipients`, { ids: chosen.map((p) => p.id) });
+      onChange({ ...info, people, to: chosen.map((p) => p.email).join(', ') });
+    });
+  };
+  return (
+    <span className="recipients" role="group" aria-label="Enviar el correo a">
+      <small>Enviar a:</small>
+      {info.people.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          className={`recipient${p.selected ? ' is-on' : ''}`}
+          aria-pressed={p.selected}
+          disabled={busy}
+          title={p.email}
+          onClick={() => toggle(p.id)}
+        >
+          <span aria-hidden="true">{p.selected ? '✓' : '+'}</span> {p.name || p.email}
+        </button>
+      ))}
+    </span>
+  );
 }
 
 /** El correo del avance tal como le llegaría al cliente. */
@@ -66,6 +102,7 @@ function SendMailDialog({ note, projectId, onSent, onClose }: { note: Note; proj
   const ref = useRef<HTMLDialogElement>(null);
   const { busy, run } = useAction();
   const toast = useToast();
+  const info = useApi<MailInfo>(`projects/${projectId}/updates/mail`);
   useEffect(() => ref.current?.showModal(), []);
   const send = () =>
     run(async () => {
@@ -90,7 +127,8 @@ function SendMailDialog({ note, projectId, onSent, onClose }: { note: Note; proj
             ✕
           </button>
         </header>
-        <MailPreview projectId={projectId} body={note.body} noteId={note.id} />
+        {info.data && <Recipients projectId={projectId} info={info.data} onChange={info.setData} />}
+        <MailPreview key={info.data?.to ?? ''} projectId={projectId} body={note.body} noteId={note.id} />
         <div className="actions actions--tight">
           <button className="btn btn--primary btn--sm" disabled={busy} onClick={send}>
             {busy ? 'Enviando…' : 'Enviar al cliente'}
@@ -462,6 +500,7 @@ export function UpdatesPanel({
                     </span>
                   </label>
                 )}
+                {!internal && email && mailInfo.data && <Recipients projectId={project.id} info={mailInfo.data} onChange={mailInfo.setData} />}
                 {aiDraft && <span className="tag tag--ai">Borrador de la IA</span>}
               </span>
               <span className="actions actions--tight">

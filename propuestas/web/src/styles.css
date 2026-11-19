@@ -6898,8 +6898,6 @@ button.table__row {
 .psum {
   display: grid;
   gap: 14px;
-  /* Mismo ancho que la columna de avances de abajo. */
-  max-width: 980px;
   margin-bottom: 22px;
 }
 
@@ -7491,4 +7489,45 @@ button.gcal-stat:hover {
 
 .catchup-pay .field {
   flex: 1 1 160px;
+}
+
+/* Destinatarios del correo de un avance */
+.recipients {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.recipients small {
+  color: var(--mute);
+}
+
+.recipient {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mute);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.recipient.is-on {
+  border-color: rgba(126, 217, 87, 0.6);
+  color: var(--verde);
+  background: rgba(126, 217, 87, 0.08);
+}
+
+.recipient:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.modal .recipients {
+  margin-bottom: 12px;
 }
