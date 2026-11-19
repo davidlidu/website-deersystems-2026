@@ -5,7 +5,7 @@ import { InvoiceStatus } from './billing/InvoiceStatus';
 import { useUngroup } from './billing/GroupBar';
 import { ReceiptDetail } from './billing/ReceiptDetail';
 import { ReceiptForm } from './billing/ReceiptForm';
-import { CatchUpBanner, useCatchUp } from './billing/CatchUp';
+import { CatchUpBanner, CatchUpInvoices, useCatchUp } from './billing/CatchUp';
 import { ProjectCard } from './Home';
 import { ClientPeople, type ClientAccount } from './ClientPeople';
 
@@ -158,21 +158,9 @@ function ClientStatement({ clientId }: { clientId: number }) {
   const [openId, setOpenId] = useState<number | null>(null);
   const [editing, setEditing] = useState<Receipt | null>(null);
   const { ungroup } = useUngroup(() => reload());
-  const { busy, run } = useAction();
+  const { run } = useAction();
   const toast = useToast();
   const catchUp = useCatchUp();
-  const settle = (i: Statement['invoices'][number]) => {
-    const date = prompt(
-      `Marcar pagada la cuenta de cobro ${i.number} (${formatMoney(i.totalCop - (i.applied ?? 0))} pendientes).\n\nFecha del pago (AAAA-MM-DD):`,
-      i.date.slice(0, 10),
-    );
-    if (date === null) return;
-    run(async () => {
-      await api('POST', `invoices/${i.id}/settle`, { date });
-      toast(catchUp.data?.enabled ? `Cuenta ${i.number} al día (no se envió al Gestor).` : `Cuenta ${i.number} marcada pagada.`);
-      reload();
-    });
-  };
   const remove = (r: Receipt) => {
     if (!confirm(`¿Eliminar el abono de ${formatMoney(r.amountCop)} del ${docDate(r.date)}? La cuenta de cobro vuelve a quedar con ese saldo y también se borra el ingreso de tu Gestor financiero.`)) return;
     run(async () => {
@@ -207,6 +195,9 @@ function ClientStatement({ clientId }: { clientId: number }) {
         <div className="kpi card">
           <small>Abonado</small>
           <strong>{formatMoney(s.totals.paid)}</strong>
+          {(s.totals.catchUp ?? 0) > 0 && (
+            <span className="hint">No incluye {formatMoney(s.totals.catchUp!)} de «Poner al día»: solo marcan cuentas como pagadas.</span>
+          )}
         </div>
         <div className="kpi card">
           <small>{s.totals.balance < 0 ? 'Saldo a favor del cliente' : 'Saldo pendiente'}</small>
@@ -239,20 +230,11 @@ function ClientStatement({ clientId }: { clientId: number }) {
         <div>
           <h3 className="subhead">Cuentas de cobro</h3>
           {s.invoices.length ? (
-            <div className="table card">
-              {s.invoices.map((i) =>
-                catchUp.data?.enabled && i.status !== 'anulada' && !i.paid ? (
-                  <div key={i.id} className="table__row pay-client pay-client--settle">
-                    <Link to={`/cuentas-de-cobro/${i.id}`} className="mono">
-                      <strong>{i.number}</strong>
-                    </Link>
-                    <span className="mono">{docDate(i.date)}</span>
-                    <span className="mono">{formatMoney(i.totalCop)}</span>
-                    <button className="btn btn--outline btn--xs" disabled={busy} onClick={() => settle(i)} title="Registra un abono por lo pendiente, sin enviarlo al Gestor">
-                      Marcar pagada
-                    </button>
-                  </div>
-                ) : (
+            catchUp.data?.enabled ? (
+              <CatchUpInvoices invoices={s.invoices} onDone={reload} />
+            ) : (
+              <div className="table card">
+                {s.invoices.map((i) => (
                   <Link key={i.id} to={`/cuentas-de-cobro/${i.id}`} className={`table__row pay-client${i.status === 'anulada' ? ' is-void' : ''}`}>
                     <span className="mono">
                       <strong>{i.number}</strong>
@@ -263,9 +245,9 @@ function ClientStatement({ clientId }: { clientId: number }) {
                       <InvoiceStatus i={i} />
                     </span>
                   </Link>
-                ),
-              )}
-            </div>
+                ))}
+              </div>
+            )
           ) : (
             <Empty>Sin cuentas de cobro.</Empty>
           )}

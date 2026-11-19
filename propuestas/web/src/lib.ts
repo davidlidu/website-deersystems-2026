@@ -586,7 +586,8 @@ export interface InvoiceDetail extends InvoiceSummary {
 }
 
 export interface Statement {
-  totals: { invoiced: number; paid: number; balance: number };
+  /** catchUp: lo registrado en «Poner al día», que no cuenta en lo abonado ni en el saldo. */
+  totals: { invoiced: number; paid: number; balance: number; catchUp?: number };
   invoices: InvoiceSummary[];
   receipts: Receipt[];
   howToPay?: { name: string; docType: string; docNumber: string; bankInfo: string; qr: string | null };

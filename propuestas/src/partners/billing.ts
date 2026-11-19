@@ -850,12 +850,41 @@ function readReceipt(body: Record<string, unknown>, current?: ReceiptRow): Recei
 
 // ───────── Estado de cuenta ─────────
 
+/** Abono a una cuenta de cobro desde «Poner al día» o «Marcar pagada»: por lo pendiente, o por un monto menor (parcial). */
+async function settleInvoice(inv: InvoiceRow, body: Record<string, unknown>): Promise<ReceiptRow> {
+  if (inv.status === 'anulada') throw new HttpError(409, 'La cuenta de cobro está anulada.');
+  const missing = round2(inv.total_cop - appliedTo(inv.id));
+  if (missing <= 0.5) throw new HttpError(409, 'Ya está pagada.');
+  const asked = Number(body.amount);
+  if (body.amount !== undefined && body.amount !== null && body.amount !== '' && !(asked > 0)) throw new HttpError(400, 'El monto del abono no es válido.');
+  if (asked > missing + 0.5) throw new HttpError(400, `El abono supera lo pendiente (${missing.toLocaleString('es-CO')}).`);
+  const amount = asked > 0 ? round2(asked) : missing;
+  const r = saveReceipt({
+    clientId: inv.client_id,
+    projectId: inv.project_id,
+    invoiceId: inv.id,
+    invoiceIds: [],
+    amountCop: amount,
+    currency: 'COP',
+    amount,
+    trm: null,
+    date: optDate(body.date) ?? inv.date,
+    method: str(body.method, 60) || 'Transferencia',
+    notes: str(body.notes, 500) || (catchUpMode().enabled ? 'Registrado para poner la cartera al día.' : ''),
+  });
+  if (!applyCatchUp(r.id)) await syncReceipt(getReceipt(r.id)!);
+  return getReceipt(r.id)!;
+}
+
 export function statement(clientId: number) {
   const invoices = sqlite.prepare("SELECT * FROM invoices WHERE client_id = ? ORDER BY date DESC, id DESC").all(clientId) as unknown as InvoiceRow[];
   const receipts = sqlite.prepare('SELECT * FROM receipts WHERE client_id = ? ORDER BY date DESC, id DESC').all(clientId) as unknown as ReceiptRow[];
   const invoiced = invoices.filter((i) => i.status !== 'anulada').reduce((n, i) => n + i.total_cop, 0);
-  const paid = receipts.reduce((n, r) => n + r.amount_cop, 0);
-  return { invoices, receipts, totals: { invoiced, paid, balance: round2(invoiced - paid) } };
+  // Los abonos de «Poner al día» solo marcan las cuentas como pagadas: ese dinero ya está contado (en otros abonos o
+  // fuera del sistema), así que no suman a lo abonado ni al saldo.
+  const paid = receipts.filter((r) => !r.catch_up).reduce((n, r) => n + r.amount_cop, 0);
+  const catchUp = receipts.filter((r) => r.catch_up).reduce((n, r) => n + r.amount_cop, 0);
+  return { invoices, receipts, totals: { invoiced, paid, balance: round2(invoiced - paid), catchUp: round2(catchUp) } };
 }
 
 // ───────── Perfil del emisor (lo que va en la cuenta de cobro) ─────────
@@ -1231,30 +1260,36 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       return true;
     }
 
-    // Marca la cuenta de cobro como pagada con un abono por lo que le falta (en «Poner al día», sin ir al Gestor).
+    // Pone al día una cuenta de cobro: abono por lo que le falta, o por `amount` si es un abono parcial.
+    // En «Poner al día» no va al Gestor ni suma a lo abonado.
     case 'POST invoices/:id/settle': {
       requireOwner(v);
       const inv = visibleInvoice(id, v);
-      if (inv.status === 'anulada') throw new HttpError(409, 'La cuenta de cobro está anulada.');
-      const missing = round2(inv.total_cop - appliedTo(inv.id));
-      if (missing <= 0.5) throw new HttpError(409, 'Esta cuenta de cobro ya está pagada.');
       const body = await readJson(req);
-      const date = optDate(body.date) ?? inv.date;
-      const r = saveReceipt({
-        clientId: inv.client_id,
-        projectId: inv.project_id,
-        invoiceId: inv.id,
-        invoiceIds: [],
-        amountCop: missing,
-        currency: 'COP',
-        amount: missing,
-        trm: null,
-        date,
-        method: str(body.method, 60) || 'Transferencia',
-        notes: str(body.notes, 500) || (catchUpMode().enabled ? 'Registrado para poner la cartera al día.' : ''),
-      });
-      if (!applyCatchUp(r.id)) await syncReceipt(getReceipt(r.id)!);
-      json(res, 201, { receipt: receiptView(getReceipt(r.id)!), invoice: invoiceSummary(getInvoice(inv.id)!) });
+      const r = await settleInvoice(inv, body);
+      json(res, 201, { receipt: receiptView(r), invoice: invoiceSummary(getInvoice(inv.id)!) });
+      return true;
+    }
+
+    // Varias a la vez: cada una queda pagada por lo que le falta, con la misma fecha.
+    case 'POST invoices/settle': {
+      requireOwner(v);
+      const body = await readJson(req);
+      const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(Number).filter((n: number) => n > 0))] as number[];
+      if (!ids.length) throw new HttpError(400, 'Elige al menos una cuenta de cobro.');
+      const done: number[] = [];
+      const errors: string[] = [];
+      for (const invoiceId of ids.slice(0, 200)) {
+        const inv = getInvoice(invoiceId);
+        if (!inv) continue;
+        try {
+          await settleInvoice(inv, { date: body.date ?? null, method: body.method, notes: body.notes });
+          done.push(inv.id);
+        } catch (err) {
+          errors.push(`${inv.number}: ${(err as Error).message}`);
+        }
+      }
+      json(res, 200, { settled: done.length, errors });
       return true;
     }
 
@@ -1338,7 +1373,8 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       json(res, 200, {
         totals: s.totals,
         invoices: s.invoices.filter((i) => owner || i.status !== 'anulada').map(invoiceSummary),
-        receipts: owner ? s.receipts.map(receiptView) : s.receipts.map(receiptForClient),
+        // Al cliente no se le muestran los de «Poner al día» (solo dejan sus cuentas como pagadas).
+        receipts: owner ? s.receipts.map(receiptView) : s.receipts.filter((r) => !r.catch_up).map(receiptForClient),
         ...(owner ? {} : { howToPay: paymentInstructions() }),
       });
       return true;
@@ -1348,7 +1384,8 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       // Lo mismo que usaban los reportes de SmartBilling: cuentas de cobro (total en COP), abonos y clientes.
       requireOwner(v);
       const invoices = (sqlite.prepare("SELECT * FROM invoices WHERE status != 'anulada' ORDER BY date").all() as unknown as InvoiceRow[]).map(invoiceSummary);
-      const receipts = (sqlite.prepare('SELECT * FROM receipts ORDER BY date').all() as unknown as ReceiptRow[]).map((r) => ({
+      // Los de «Poner al día» no son ingresos: no cuentan en los reportes.
+      const receipts = (sqlite.prepare('SELECT * FROM receipts WHERE catch_up = 0 ORDER BY date').all() as unknown as ReceiptRow[]).map((r) => ({
         id: r.id,
         clientId: r.client_id,
         date: r.date,
