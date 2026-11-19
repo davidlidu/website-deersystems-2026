@@ -24,6 +24,7 @@ import { NotesPanel } from './project/Notes';
 import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
 import { PaymentsPanel } from './project/Payments';
 import { PlanAdjustButton } from './project/PlanAdjust';
+import { ScopeHistory, ScopeRemoveDialog } from './project/ScopeAdjust';
 import { ProjectSummary } from './project/Summary';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
 import { UpdatesPanel } from './project/Updates';
@@ -139,6 +140,8 @@ function PlanPdfButton({ project, tasks }: { project: ProjectDetail; tasks: Task
 
 export function ProjectPage({ me, id }: { me: Me; id: number }) {
   const { data, error, loading, reload, setData } = useApi<ProjectDetail>(`projects/${id}`);
+  const [scopeOpen, setScopeOpen] = useState(false);
+  const [scopeVersion, setScopeVersion] = useState(0);
   const staff = me.role !== 'client';
   const team = useApi<TeamMember[]>(staff ? 'team' : null);
   const [tab, setTab] = useState<Tab>('avances');
@@ -496,7 +499,16 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
       {tab === 'alcance' && (
         <section className="section section--flush scope-page">
           <div className="card prose">
-            <h2 className="scope-page__title">Alcance aprobado</h2>
+            {me.role === 'owner' ? (
+              <div className="scope-page__head">
+                <h2 className="scope-page__title">Alcance aprobado</h2>
+                <button className="btn btn--outline btn--sm" onClick={() => setScopeOpen(true)}>
+                  Retirar del alcance…
+                </button>
+              </div>
+            ) : (
+              <h2 className="scope-page__title">Alcance aprobado</h2>
+            )}
             {(p.approvedOption || p.approvalNotes) && (
               <div className="approved-option">
                 {p.approvedOption && (
@@ -513,6 +525,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
                 )}
               </div>
             )}
+            {me.role === 'owner' && <ScopeHistory projectId={p.id} version={scopeVersion} />}
             {p.scope ? <Markdown text={p.scope} /> : <p>Sin alcance registrado.</p>}
           </div>
           {hasCommercial && (
@@ -535,6 +548,17 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
         <section className="section section--flush">
           <PaymentsPanel me={me} projectId={p.id} clientId={p.clientId} />
         </section>
+      )}
+
+      {scopeOpen && (
+        <ScopeRemoveDialog
+          projectId={p.id}
+          onClose={() => setScopeOpen(false)}
+          onDone={() => {
+            setScopeVersion((n) => n + 1);
+            reload();
+          }}
+        />
       )}
 
       {drawer && (drawer.taskId === null || openTask) && (

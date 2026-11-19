@@ -43,6 +43,24 @@ sqlite.exec(`
     updated_at TEXT NOT NULL
   );
   CREATE INDEX IF NOT EXISTS proposal_approvals_proposal ON proposal_approvals(proposal_id);
+  -- Opciones o fases que se retiraron del alcance de un proyecto después de aprobadas (ver scope.ts).
+  CREATE TABLE IF NOT EXISTS scope_changes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    option_id TEXT NOT NULL DEFAULT '',
+    option_name TEXT NOT NULL DEFAULT '',
+    amount REAL,
+    currency TEXT NOT NULL DEFAULT 'COP',
+    reason TEXT NOT NULL DEFAULT '',
+    label_before TEXT NOT NULL DEFAULT '',
+    label_after TEXT NOT NULL DEFAULT '',
+    phases TEXT NOT NULL DEFAULT '[]',
+    tasks_removed INTEGER NOT NULL DEFAULT 0,
+    payments TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS scope_changes_project ON scope_changes(project_id, id);
 `);
 
 /**
@@ -193,7 +211,7 @@ export interface PublicOption {
 }
 
 /** Alternativas que el cliente puede elegir. Sin datos estructurados (propuestas hechas a mano), una sola oferta. */
-function optionsOf(data: GeneratedData | null): PublicOption[] {
+export function optionsOf(data: GeneratedData | null): PublicOption[] {
   const ap = data?.meta?.aprobacion;
   if (ap?.opciones && ap.opciones.length > 1) {
     return ap.opciones.map((o) => ({
@@ -234,10 +252,10 @@ function combinable(data: GeneratedData | null, options: PublicOption[]): boolea
 }
 
 /** «Opción 2 · Seguimiento v1» → «Seguimiento v1». */
-const shortName = (o: PublicOption) => o.name.replace(/^opci[oó]n\s+\w+\s*·\s*/i, '').trim() || o.name;
+export const shortName = (o: PublicOption) => o.name.replace(/^opci[oó]n\s+\w+\s*·\s*/i, '').trim() || o.name;
 
 /** Lo que se guarda cuando el cliente aprueba varias opciones a la vez. */
-function combined(chosen: PublicOption[], all: PublicOption[]): { id: string; name: string; summary: string } {
+export function combined(chosen: PublicOption[], all: PublicOption[]): { id: string; name: string; summary: string } {
   if (chosen.length === 1) return { id: chosen[0].id, name: chosen[0].name, summary: chosen[0].summary };
   const ids = chosen.map((o) => o.id);
   const list = ids.length === 2 ? ids.join(' y ') : `${ids.slice(0, -1).join(', ')} y ${ids[ids.length - 1]}`;
@@ -278,8 +296,16 @@ function alreadyApproved(proposalId: number): Map<string, string> {
   const rows = sqlite
     .prepare("SELECT option_id, created_at FROM proposal_approvals WHERE proposal_id = ? AND status != 'descartada' AND option_id != '' ORDER BY id")
     .all(proposalId) as { option_id: string; created_at: string }[];
+  // Lo que se retiró después del alcance (scope.ts) vuelve a quedar disponible para aprobarlo otra vez.
+  const removed = new Set(
+    (
+      sqlite
+        .prepare('SELECT s.option_id FROM scope_changes s JOIN projects p ON p.id = s.project_id WHERE p.proposal_id = ? AND s.option_id != \'\'')
+        .all(proposalId) as { option_id: string }[]
+    ).flatMap((r) => r.option_id.split(',')),
+  );
   const out = new Map<string, string>();
-  for (const r of rows) for (const id of r.option_id.split(',')) if (!out.has(id)) out.set(id, r.created_at);
+  for (const r of rows) for (const id of r.option_id.split(',')) if (!out.has(id) && !removed.has(id)) out.set(id, r.created_at);
   return out;
 }
 

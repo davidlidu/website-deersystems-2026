@@ -43,6 +43,7 @@ import { handleOnlinePayments, handleWompiWebhook } from './online-payments.ts';
 import { createPayments, handlePayments } from './payments.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
+import { handleScope } from './scope.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
 import { actor, clientSees, EMAIL_RE, isStaff, seesMoney, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { approvalDetail, closeApproval, generatePlan, getApproval, openApprovals, proposalClient, setProposalClient } from './approvals.ts';
@@ -1299,6 +1300,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handlePlanAdjust(route, id, req, res, v)) return;
   if (await handleUpdates(route, id, req, res, v)) return;
   if (await handleProposalMail(route, req, res, v)) return;
+  if (await handleScope(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
   if (await handlePayments(route, id, req, res, v)) return;
