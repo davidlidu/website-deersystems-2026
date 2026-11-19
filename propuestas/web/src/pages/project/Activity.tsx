@@ -11,6 +11,8 @@ function describe(a: ActivityItem): string {
       return `aprobó la propuesta y creó el proyecto con ${d.tasks ?? 0} tareas`;
     case 'project_extended':
       return `sumó al proyecto lo aprobado después${d.option ? ` (${d.option})` : ''}: ${d.tasks === 1 ? '1 tarea nueva' : `${d.tasks ?? 0} tareas nuevas`}`;
+    case 'report_published':
+      return `publicó el ${d.kind === 'final' ? 'informe de cierre' : 'informe'} ${q(d.title)}`;
     case 'scope_removed':
       return `retiró del alcance ${d.option ?? 'una parte'}: ${d.tasks ?? 0} tareas${d.meetings ? `, ${d.meetings} reuniones` : ''} y ${d.payments ?? 0} pagos`;
     case 'plan_adjusted':
@@ -68,6 +70,7 @@ const ICON: Record<string, string> = {
   project_created: '✓',
   project_extended: '＋',
   scope_removed: '−',
+  report_published: '▤',
   plan_adjusted: '✦',
   file_added: '📎',
   meeting_approved: '🎙',

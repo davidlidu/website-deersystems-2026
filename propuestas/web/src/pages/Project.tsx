@@ -24,13 +24,14 @@ import { NotesPanel } from './project/Notes';
 import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
 import { PaymentsPanel } from './project/Payments';
 import { PlanAdjustButton } from './project/PlanAdjust';
+import { ReportsPanel } from './project/Reports';
 import { ScopeHistory, ScopeRemoveDialog } from './project/ScopeAdjust';
 import { ProjectSummary } from './project/Summary';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
 import { UpdatesPanel } from './project/Updates';
 
-/** Cinco pestañas: Avances (la principal), Plan de trabajo, Documentación, Alcance y propuesta, Pagos. */
-type Tab = 'avances' | 'plan' | 'documentacion' | 'alcance' | 'pagos';
+/** Seis pestañas: Avances (la principal), Plan de trabajo, Documentación, Informes, Alcance y propuesta, Pagos. */
+type Tab = 'avances' | 'plan' | 'documentacion' | 'informes' | 'alcance' | 'pagos';
 type PlanView = 'tareas' | 'reuniones' | 'cronograma';
 type DocsView = 'archivos' | 'notas';
 type DocsFilter = 'all' | 'shared' | 'internal';
@@ -52,6 +53,7 @@ const PLACES: Record<string, Place> = {
   documentacion: { tab: 'documentacion' },
   archivos: { tab: 'documentacion', docs: 'archivos' },
   notas: { tab: 'documentacion', docs: 'notas' },
+  informes: { tab: 'informes' },
   alcance: { tab: 'alcance' },
   comercial: { tab: 'alcance' },
   pagos: { tab: 'pagos' },
@@ -79,6 +81,7 @@ const TAB_ICON: Record<Tab, ReactNode> = {
   avances: svg('M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2.1-.1-2.9a2.2 2.2 0 0 0-2.9-.1zM12 15l-3-3a22 22 0 0 1 2-3.9A12.9 12.9 0 0 1 22 2c0 2.7-.8 7.5-6 11a22.4 22.4 0 0 1-4 2zM9 12H4s.6-3 2-4c1.6-1.1 5 0 5 0M12 15v5s3-.6 4-2c1.1-1.6 0-5 0-5'),
   plan: svg('M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01'),
   documentacion: svg('M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.7-.9l-.8-1.2A2 2 0 0 0 7.9 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z'),
+  informes: svg('M3 3v18h18M7 15l4-4 3 3 5-6'),
   alcance: svg('M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2zM14 2v6h6M16 13H8M16 17H8M10 9H8'),
   pagos: svg('M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2zM2 10h20M6 15h4'),
 };
@@ -150,6 +153,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
   const [docsFilter, setDocsFilter] = useState<DocsFilter>('all');
   const [log, setLog] = useState(false);
   const [focusUpdate, setFocusUpdate] = useState<number | null>(null);
+  const [focusReport, setFocusReport] = useState<number | null>(null);
   const [view, setView] = useState<View>(storedView);
   const [sideFilter, setSideFilter] = useState<'todas' | 'deersystems' | 'cliente'>('todas');
   const [assignee, setAssignee] = useState<number | 'todos'>('todos');
@@ -171,6 +175,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
   const taskParam = Number(query.get('tarea')) || null;
   const tabParam = query.get('tab');
   const updateParam = Number(query.get('avance')) || null;
+  const reportParam = Number(query.get('informe')) || null;
   useEffect(() => {
     if (!taskParam && !tabParam) return;
     if (taskParam) {
@@ -178,8 +183,9 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
       setDrawer({ taskId: taskParam });
     } else if (tabParam && PLACES[tabParam]) go(PLACES[tabParam]);
     if (updateParam) setFocusUpdate(updateParam);
+    if (reportParam) setFocusReport(reportParam);
     navigate(`/proyectos/${id}`, true);
-  }, [taskParam, tabParam, updateParam, id, go]);
+  }, [taskParam, tabParam, updateParam, reportParam, id, go]);
 
   // El recorrido guiado pide abrir una pestaña (p. ej. «tareas» para mostrar las vistas).
   useEffect(() => {
@@ -273,6 +279,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
     ['avances', 'Avances'],
     ['plan', 'Plan de trabajo'],
     ['documentacion', 'Documentación'],
+    ['informes', 'Informes'],
     ['alcance', hasCommercial ? 'Alcance y propuesta' : 'Alcance'],
     // Los pagos son valores: los ves tú y el cliente (si esa persona tiene permiso de pagos), nunca el equipo.
     ...(seesMoney(me) ? ([['pagos', 'Pagos']] as [Tab, string][]) : []),
@@ -493,6 +500,12 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
           ) : (
             <NotesPanel key={docsFilter} me={me} projectId={p.id} filter={staff ? docsFilter : 'all'} rich />
           )}
+        </section>
+      )}
+
+      {tab === 'informes' && (
+        <section className="section section--flush">
+          <ReportsPanel me={me} project={p} focusId={focusReport} onProjectChange={reload} />
         </section>
       )}
 

@@ -7797,3 +7797,136 @@ button.gcal-stat:hover {
 .scope-history__reason {
   font-style: italic;
 }
+
+/* Informes parciales y de cierre */
+.reports {
+  display: grid;
+  gap: 16px;
+}
+
+.report-new {
+  display: grid;
+  gap: 14px;
+  padding: 22px 24px;
+}
+
+.report-new .hint {
+  margin: 0;
+}
+
+.report-new__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.report-new__head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+
+.report {
+  display: grid;
+  gap: 14px;
+  padding: 20px 24px;
+  border-left: 3px solid var(--cian);
+}
+
+.report--final {
+  border-left-color: var(--verde);
+}
+
+.report.is-focused {
+  box-shadow: 0 0 0 1px var(--cian);
+}
+
+.report__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.report__toggle {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.report__toggle strong {
+  font-family: var(--font-display);
+  font-size: 1.02rem;
+}
+
+.report__toggle small {
+  color: var(--mute);
+}
+
+.report__kind {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cian);
+}
+
+.report--final .report__kind {
+  color: var(--verde);
+}
+
+.report__status {
+  padding: 2px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  color: var(--mute);
+  letter-spacing: 0.08em;
+}
+
+.report__status--publicado {
+  border-color: rgba(126, 217, 87, 0.45);
+  color: var(--verde);
+}
+
+.prose.report__body {
+  padding: 14px 0 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.report__edit,
+.report__regen {
+  display: grid;
+  gap: 12px;
+}
+
+.report__textarea {
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.report__actions {
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.report__delete {
+  margin-left: auto;
+}
+
+.report-mail {
+  display: grid;
+  gap: 10px;
+}

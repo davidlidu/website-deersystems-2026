@@ -319,19 +319,43 @@ function mdHtml(md: string): string {
       .replace(/\*\*([^*]+)\*\*/g, `<strong style="color:${C.ink}">$1</strong>`)
       .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
   const p = `margin:0 0 16px;font:400 15px/1.65 ${FONT};color:${C.body}`;
-  return md
-    .split(/\n{2,}/)
-    .map((block) => {
-      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+  const heading = (l: string) => {
+    const level = /^#+/.exec(l)![0].length;
+    const size = level <= 1 ? 20 : level === 2 ? 17 : 15;
+    return `<div style="margin:24px 0 10px;font:700 ${size}px/1.35 ${DISPLAY};color:${C.ink}">${inline(l.replace(/^#{1,6}\s+/, ''))}</div>`;
+  };
+  const block = (raw: string): string => {
+      const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
       if (!lines.length) return '';
+      // Un título (## …) va solo, aunque no tenga una línea en blanco después.
+      if (/^#{1,6}\s+/.test(lines[0])) return heading(lines[0]) + block(lines.slice(1).join('\n'));
       const bullet = /^([-*•]|\d+[.)])\s+/;
       if (lines.every((l) => bullet.test(l))) {
         const tag = /^\d/.test(lines[0]) ? 'ol' : 'ul';
         return `<${tag} style="margin:0 0 16px;padding-left:20px">${lines.map((l) => `<li style="margin:0 0 6px;font:400 15px/1.6 ${FONT};color:${C.body}">${inline(l.replace(bullet, ''))}</li>`).join('')}</${tag}>`;
       }
       return `<p style="${p}">${lines.map((l) => inline(l.replace(/^#{1,6}\s+/, ''))).join('<br>')}</p>`;
-    })
-    .join('');
+  };
+  return md.split(/\n{2,}/).map(block).join('');
+}
+
+/** Un informe del proyecto (parcial o de cierre), completo, para el cliente. */
+export function projectReport(p: { to: string; projectName: string; kind: 'parcial' | 'final'; title: string; body: string; url: string }): Mail {
+  const final = p.kind === 'final';
+  return {
+    to: p.to,
+    subject: p.title || (final ? `Informe de cierre · ${p.projectName}` : `Informe de avance · ${p.projectName}`),
+    ...layout({
+      eyebrow: `${p.projectName} · ${final ? 'Informe de cierre' : 'Informe parcial'}`,
+      title: p.title || (final ? 'Cierre del proyecto' : 'Informe de avance'),
+      paragraphs: [],
+      rich: { html: mdHtml(p.body), text: p.body.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/^#{1,6}\s+/gm, '') },
+      cta: { label: final ? 'Ver el informe de cierre en DeerSystems Partners' : 'Ver el informe en DeerSystems Partners', url: p.url },
+      footnote: final
+        ? 'Gracias por confiar en DeerSystems. Si tienes preguntas sobre el cierre, responde este correo.'
+        : 'Recibes este correo porque tienes un proyecto activo con DeerSystems. Puedes responderlo si tienes comentarios.',
+    }),
+  };
 }
 
 /** Un avance del proyecto, completo, para el cliente. */

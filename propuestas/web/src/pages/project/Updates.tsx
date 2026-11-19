@@ -25,7 +25,7 @@ function Visibility({ internal, onChange }: { internal: boolean; onChange: (inte
   );
 }
 
-interface MailInfo {
+export interface MailInfo {
   to: string | null;
   /** Personas del cliente que ven el proyecto; selected = le llegan los avances por correo. */
   people: { id: number; name: string; email: string; selected: boolean }[];
@@ -40,7 +40,7 @@ interface MailInfo {
  * A quién le llega el avance por correo: las personas del cliente con acceso al portal y correos adicionales
  * (solo para los avances de este proyecto). La elección queda guardada para el proyecto (también para el envío diario).
  */
-function Recipients({ projectId, info, onChange }: { projectId: number; info: MailInfo; onChange: (info: MailInfo) => void }) {
+export function Recipients({ projectId, info, onChange }: { projectId: number; info: MailInfo; onChange: (info: MailInfo) => void }) {
   const { busy, run } = useAction();
   const toast = useToast();
   const [adding, setAdding] = useState(false);
