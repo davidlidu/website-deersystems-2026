@@ -318,6 +318,14 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   useEffect(() => {
     if (proposal && !project.name) setProject((p) => ({ ...p, name: proposal.title || '' }));
   }, [proposal, project.name]);
+  // Propuesta vinculada a un cliente que ya existe: el proyecto es para él.
+  const clientSet = useRef(false);
+  useEffect(() => {
+    if (clientSet.current || !proposal?.client) return;
+    clientSet.current = true;
+    setClientMode('existing');
+    setExistingId(proposal.client.id);
+  }, [proposal]);
 
   /** Pone en pantalla un plan: recién generado aquí o el que se armó cuando el cliente aprobó desde el enlace. */
   const applyDraft = ({ draft, ai, existingClientId }: DraftResponse) => {

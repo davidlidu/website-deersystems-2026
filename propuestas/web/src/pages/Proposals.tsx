@@ -20,6 +20,13 @@ export interface ProposalRow {
   approvals: ClientApproval[];
   /** Último envío por correo desde aquí. */
   lastSent: { to: string; at: string; count: number } | null;
+  /** Cliente que ya existe al que va: al aprobar no se le piden sus datos. Null = cliente nuevo. */
+  client: { id: number; name: string } | null;
+}
+
+interface ClientOption {
+  id: number;
+  name: string;
 }
 
 export interface ClientApproval {
@@ -175,6 +182,7 @@ function ProposalItem({
   selected,
   onSelect,
   onSend,
+  clients,
 }: {
   p: ProposalRow;
   onChange: (p: ProposalRow) => void;
@@ -183,6 +191,7 @@ function ProposalItem({
   selected: boolean;
   onSelect: (on: boolean) => void;
   onSend: () => void;
+  clients: ClientOption[];
 }) {
   const [showVersions, setShowVersions] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -221,6 +230,12 @@ function ProposalItem({
     });
   };
   const copy = () => navigator.clipboard.writeText(p.url).then(() => toast('Enlace copiado.'));
+  const link = (value: string) =>
+    run(async () => {
+      const clientId = value ? Number(value) : null;
+      onChange(await api<ProposalRow>('PATCH', `proposals/${p.id}`, { clientId }));
+      toast(clientId ? 'Vinculada: al aprobarla, el cliente no tendrá que llenar sus datos.' : 'Desvinculada: al aprobarla, el cliente llenará sus datos.');
+    });
 
   return (
     <article className={`item item--proposal card${p.active ? '' : ' is-paused'}${selected ? ' is-selected' : ''}`}>
@@ -262,6 +277,18 @@ function ProposalItem({
             </span>
           )}
         </div>
+        <label className="item__client" title="Si ya es tu cliente, al aprobar no tendrá que llenar sus datos y el proyecto se crea para él.">
+          <span>Cliente:</span>
+          <select value={p.client?.id ?? ''} disabled={busy || p.projects.length > 0} onChange={(e) => link(e.target.value)}>
+            <option value="">Nuevo (llena sus datos al aprobar)</option>
+            {p.client && !clients.some((c) => c.id === p.client!.id) && <option value={p.client.id}>{p.client.name}</option>}
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </label>
         {p.projects.map((pr) => (
           <Link key={pr.id} className="item__project" to={`/proyectos/${pr.id}`}>
             → {pr.name}
@@ -323,6 +350,7 @@ function ProposalItem({
 
 export function ProposalsPage() {
   const { data, error, loading, reload, setData } = useApi<ProposalRow[]>('proposals');
+  const clients = useApi<ClientOption[]>('clients');
   const [filter, setFilter] = useState<'pendientes' | 'todas'>('todas');
   const [pending, setPending] = useState<File | null>(null);
   const [over, setOver] = useState(false);
@@ -471,6 +499,7 @@ export function ProposalsPage() {
                 selected={picked.includes(p.id)}
                 onSelect={(on) => setPicked(on ? [...picked, p.id] : picked.filter((x) => x !== p.id))}
                 onSend={() => setSending([p])}
+                clients={clients.data ?? []}
               />
             ))}
           </div>

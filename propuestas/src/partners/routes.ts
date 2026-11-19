@@ -45,7 +45,7 @@ import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
 import { actor, clientSees, EMAIL_RE, isStaff, seesMoney, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
-import { approvalDetail, closeApproval, generatePlan, getApproval, openApprovals } from './approvals.ts';
+import { approvalDetail, closeApproval, generatePlan, getApproval, openApprovals, proposalClient, setProposalClient } from './approvals.ts';
 import { adjustPlan, detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
 const APP_DIR = fileURLToPath(new URL('../../public/partners/', import.meta.url));
@@ -514,6 +514,11 @@ function proposalView(p: Proposal) {
     approvals: openApprovals(p.id),
     /** Último envío por correo (a quién y cuándo) y cuántas veces se ha enviado. */
     lastSent: lastSend(p.id),
+    /** Cliente ya existente al que va la propuesta: al aprobarla no se le piden sus datos. */
+    client: (() => {
+      const c = proposalClient(p.id);
+      return c ? { id: c.id, name: c.name } : null;
+    })(),
   };
 }
 
@@ -961,6 +966,11 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         title: typeof body.title === 'string' ? body.title.trim().slice(0, 200) : undefined,
         active: typeof body.active === 'boolean' ? body.active : undefined,
       });
+      if ('clientId' in body) {
+        const clientId = body.clientId === null ? null : Number(body.clientId);
+        if (clientId !== null && !db.getClient(clientId)) throw new HttpError(400, 'El cliente no existe.');
+        setProposalClient(current.id, clientId);
+      }
       return json(res, 200, proposalView(getProposal(current.id)!));
     }
 

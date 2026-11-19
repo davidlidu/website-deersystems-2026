@@ -7694,3 +7694,19 @@ button.gcal-stat:hover {
     grid-column: 2;
   }
 }
+
+/* Cliente vinculado a una propuesta */
+.item__client {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  color: var(--mute);
+}
+
+.item__client select {
+  max-width: 280px;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+}

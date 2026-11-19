@@ -5,7 +5,9 @@ import { HttpError, json, readJson } from '../http.ts';
 import { proposalsOffer } from '../mail.ts';
 import * as proposals from '../proposals.ts';
 import type { Viewer } from './auth.ts';
+import { proposalClient, setProposalClient } from './approvals.ts';
 import { EMAIL_RE, requireOwner, str } from './common.ts';
+import * as pdb from './db.ts';
 
 /**
  * Enviar una o varias propuestas publicadas por correo, en un solo mensaje comercial, a quien elijas.
@@ -88,6 +90,12 @@ export async function handleProposalMail(route: string, req: IncomingMessage, re
       const at = new Date().toISOString();
       const log = sqlite.prepare('INSERT INTO proposal_sends (proposal_id, to_emails, subject, sent_at, sent_by) VALUES (?, ?, ?, ?, ?)');
       for (const it of d.items) log.run(it.id, d.to.join(', '), d.subject, at, v.email);
+      // Enviada a un cliente que ya existe: queda vinculada, así al aprobarla no se le piden sus datos.
+      const known = new Set(d.to.map((e) => pdb.getClientByEmail(e)?.id ?? pdb.getAccountByEmail(e)?.client_id).filter((x): x is number => !!x));
+      if (known.size === 1) {
+        const [clientId] = known;
+        for (const it of d.items) if (!proposalClient(it.id)) setProposalClient(it.id, clientId);
+      }
       json(res, 200, { ok: true, to: d.to, count: d.items.length });
       return true;
     }

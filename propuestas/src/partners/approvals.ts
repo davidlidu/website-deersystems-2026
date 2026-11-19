@@ -45,6 +45,34 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS proposal_approvals_proposal ON proposal_approvals(proposal_id);
 `);
 
+/**
+ * Propuesta vinculada a un cliente que ya existe: al aprobarla desde el enlace no se le piden sus datos
+ * (ya los tienes) y el proyecto se crea para ese cliente. Sin vínculo, es un cliente nuevo y llena el formulario.
+ */
+const hasColumn = (table: string, col: string) => (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
+if (!hasColumn('proposals', 'client_id')) sqlite.exec('ALTER TABLE proposals ADD COLUMN client_id INTEGER');
+if (!hasColumn('proposal_approvals', 'client_id')) sqlite.exec('ALTER TABLE proposal_approvals ADD COLUMN client_id INTEGER');
+
+/** El cliente vinculado a la propuesta: el elegido a mano o, si no, el de un proyecto que ya salió de ella. */
+export function proposalClient(proposalId: number): db.Client | null {
+  const row = sqlite.prepare('SELECT client_id FROM proposals WHERE id = ?').get(proposalId) as { client_id: number | null } | undefined;
+  const id = row?.client_id ?? db.projectsForProposal(proposalId)[0]?.client_id ?? null;
+  return id ? (db.getClient(id) ?? null) : null;
+}
+
+export function setProposalClient(proposalId: number, clientId: number | null): void {
+  sqlite.prepare('UPDATE proposals SET client_id = ? WHERE id = ?').run(clientId, proposalId);
+}
+
+/** Quien aprueba en nombre de un cliente conocido: su contacto y el correo del acceso al portal (o el del cliente). */
+function knownContact(c: db.Client): { name: string; email: string; company: string; phone: string } {
+  const account = db.getClientAccount(c.id);
+  return { name: c.contact_name || account?.name || c.name, email: (account?.email ?? c.email ?? '').toLowerCase(), company: c.name, phone: c.phone ?? '' };
+}
+
+/** Para mostrar en la página pública sin exponer el correo completo: a•••@empresa.com */
+const maskEmail = (e: string) => e.replace(/^(.)[^@]*(@.*)$/, '$1•••$2');
+
 /** generando → listo (o error) → convertida (creaste el proyecto) o descartada. */
 export type ApprovalStatus = 'generando' | 'listo' | 'error' | 'convertida' | 'descartada';
 
@@ -262,10 +290,12 @@ const dateEs = (iso: string) =>
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-function page(p: Proposal, data: GeneratedData | null, options: PublicOption[], multi: boolean, approved: Map<string, string>): string {
+function page(p: Proposal, data: GeneratedData | null, options: PublicOption[], multi: boolean, approved: Map<string, string>, client: db.Client | null): string {
   const title = data?.meta?.titulo || p.title || 'Propuesta DeerSystems';
   const nro = data?.meta?.nro ? `Propuesta N.º DS-${data.meta.nro}` : 'Propuesta';
-  const company = data?.meta?.cliente ?? '';
+  const company = client?.name ?? data?.meta?.cliente ?? '';
+  // Sin correo guardado (cliente solo de facturación) no hay a dónde mandar la confirmación: llena el formulario.
+  const known = client && knownContact(client).email ? knownContact(client) : null;
   const currency = data?.meta?.aprobacion?.moneda === 'USD' ? 'USD' : 'COP';
   const pending = options.filter((o) => !approved.has(o.id));
   const someDone = pending.length < options.length;
@@ -319,7 +349,9 @@ p{margin:0 0 14px}a{color:var(--cian)}
 form{display:grid;gap:16px;margin-top:8px}
 label.f{display:grid;gap:6px;font:500 13px/1.4 Inter,sans-serif;color:var(--mute)}
 input[type=text],input[type=email],input[type=tel],textarea{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--hairline);background:var(--surface);color:var(--ink);font:400 15px/1.4 Inter,sans-serif}
-input:focus,textarea:focus{outline:2px solid var(--cian);outline-offset:1px}
+input[type=text]:focus,input[type=email]:focus,input[type=tel]:focus,textarea:focus{outline:2px solid var(--cian);outline-offset:1px}
+input[type=radio]:focus,input[type=checkbox]:focus{outline:none}
+.opt:has(input:focus-visible){outline:2px solid var(--cian);outline-offset:2px}.check:has(input:focus-visible) span{text-decoration:underline}
 textarea{min-height:90px;resize:vertical}
 .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:560px){.row{grid-template-columns:1fr}}
 fieldset.opts{border:0;padding:0;margin:0;display:grid;gap:10px}legend{font:600 15px/1.4 'Space Grotesk',sans-serif;color:var(--ink);margin-bottom:8px}
@@ -335,6 +367,10 @@ button{justify-self:start;padding:13px 24px;border:0;border-radius:8px;backgroun
 button:disabled{opacity:.6;cursor:wait}
 .err{color:var(--rojo);font-size:14px;margin:0}.muted{color:var(--mute);font-size:13px}
 .done h1{color:var(--verde)}
+.known{padding:14px 16px;border:1px solid rgba(126,217,87,.35);border-radius:12px;background:rgba(126,217,87,.06)}.known p{margin:0 0 6px}.known__who{color:var(--ink)}
+.linkbtn{padding:0;border:0;background:none;color:var(--cian);font:500 13px/1.4 Inter,sans-serif;text-decoration:underline;cursor:pointer}
+input[readonly]{opacity:.7}
+#who{display:grid;gap:16px}#who[hidden],.known[hidden]{display:none}
 </style></head><body><main>
 <a class="brand" href="${esc(HOME_URL)}"><b>Deer</b>Systems</a>
 ${
@@ -349,13 +385,24 @@ ${
   <p>${esc(title)}. Al aprobarla confirmas el alcance, la inversión y la forma de pago tal como aparecen en <a href="./">la propuesta</a>. Con eso preparamos el plan de trabajo y te contactamos para agendar el arranque.</p>
   <form id="f" novalidate>
     ${opts}
+${
+  known
+    ? `<div class="known" id="known">
+      <p class="known__who">Apruebas como <strong>${esc(known.name)}</strong> · ${esc(known.company)}${known.email ? `<br><span class="muted">${esc(maskEmail(known.email))}</span>` : ''}</p>
+      <p class="muted">Ya tenemos tus datos: no hace falta llenarlos. La confirmación llega a ese correo.</p>
+      <button type="button" class="linkbtn" id="other">¿Apruebas a nombre de otra persona de ${esc(known.company)}?</button>
+    </div>
+    <input type="hidden" name="known" value="1">`
+    : ''
+}<div id="who"${known ? ' hidden' : ''}>
     <div class="row">
-      <label class="f">Tu nombre<input type="text" name="name" autocomplete="name" required maxlength="160"></label>
-      <label class="f">Tu correo<input type="email" name="email" autocomplete="email" required maxlength="200"></label>
+      <label class="f">Tu nombre<input type="text" name="name" autocomplete="name"${known ? '' : ' required'} maxlength="160"></label>
+      <label class="f">Tu correo<input type="email" name="email" autocomplete="email"${known ? '' : ' required'} maxlength="200"></label>
     </div>
     <div class="row">
-      <label class="f">Empresa<input type="text" name="company" autocomplete="organization" maxlength="160" value="${esc(company)}"></label>
+      <label class="f">Empresa<input type="text" name="company" autocomplete="organization" maxlength="160" value="${esc(company)}"${known ? ' readonly' : ''}></label>
       <label class="f">Teléfono (opcional)<input type="tel" name="phone" autocomplete="tel" maxlength="60"></label>
+    </div>
     </div>
     <label class="f">Comentarios (opcional)<textarea name="notes" maxlength="2000" placeholder="Ajustes, fecha en la que quieres arrancar, a quién más incluir…"></textarea></label>
     <label class="hp" aria-hidden="true">Sitio web<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
@@ -393,13 +440,20 @@ ${
     if(all)all.addEventListener('change',function(){boxes.forEach(function(b){b.checked=all.checked;});sync();});
     boxes.forEach(function(b){b.addEventListener('change',sync);});
   }
+  var other=document.getElementById('other');
+  if(other)other.addEventListener('click',function(){
+    document.getElementById('known').hidden=true;document.getElementById('who').hidden=false;
+    var k=f.querySelector('input[name=known]');if(k)k.remove();
+    var n=f.querySelector('input[name=name]'),m=f.querySelector('input[name=email]');n.required=true;m.required=true;n.focus();
+  });
   f.addEventListener('submit',function(e){
     e.preventDefault();err.hidden=true;
     var d=new FormData(f),o={};d.forEach(function(v,k){if(k!=='options')o[k]=v;});o.accept=!!f.accept.checked;
     if(boxes.length){o.options=boxes.filter(function(b){return b.checked;}).map(function(b){return b.value;});if(!o.options.length)return fail('Elige al menos una opción, o la propuesta completa.');}
     if(f.querySelector('input[name=option]')&&!o.option)return fail('Elige la opción que apruebas.');
-    if(!String(o.name||'').trim())return fail('Escribe tu nombre.');
-    if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(o.email||'').trim()))return fail('Escribe un correo válido.');
+    var asKnown=!!f.querySelector('input[name=known]');
+    if(!asKnown&&!String(o.name||'').trim())return fail('Escribe tu nombre.');
+    if(!asKnown&&!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(o.email||'').trim()))return fail('Escribe un correo válido.');
     if(!o.accept)return fail('Marca que aceptas la propuesta.');
     var label=btn.textContent;btn.disabled=true;btn.textContent='Enviando…';
     fetch(location.pathname,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o)})
@@ -439,7 +493,7 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
       'X-Robots-Tag': 'noindex, nofollow',
       'X-Frame-Options': 'DENY',
     });
-    return void res.end(req.method === 'HEAD' ? undefined : page(proposal, data, options, multi, alreadyApproved(proposal.id)));
+    return void res.end(req.method === 'HEAD' ? undefined : page(proposal, data, options, multi, alreadyApproved(proposal.id), proposalClient(proposal.id)));
   }
   if (req.method !== 'POST') throw new HttpError(405, 'Método no permitido.');
 
@@ -449,8 +503,12 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
   const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '')
     .split(',')[0]
     .trim();
-  const name = str(body.name, 160);
-  const email = str(body.email, 200).toLowerCase();
+  // Cliente ya conocido: sin cambiar de persona, se usan sus datos guardados.
+  const client = proposalClient(proposal.id);
+  const known = client ? knownContact(client) : null;
+  const useKnown = !!known && known.email !== '' && !str(body.email, 200);
+  const name = useKnown ? known.name : str(body.name, 160);
+  const email = useKnown ? known.email : str(body.email, 200).toLowerCase();
   if (!name) throw new HttpError(400, 'Escribe tu nombre.');
   if (!EMAIL_RE.test(email)) throw new HttpError(400, 'Escribe un correo válido.');
   if (body.accept !== true) throw new HttpError(400, 'Marca que aceptas la propuesta.');
@@ -484,8 +542,8 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
   const t = now();
   const { lastInsertRowid } = sqlite
     .prepare(
-      `INSERT INTO proposal_approvals (proposal_id, version, option_id, option_name, option_summary, name, email, company, phone, notes, ip, user_agent, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generando', ?, ?)`,
+      `INSERT INTO proposal_approvals (proposal_id, version, option_id, option_name, option_summary, name, email, company, phone, notes, ip, user_agent, status, client_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generando', ?, ?, ?)`,
     )
     .run(
       proposal.id,
@@ -495,11 +553,12 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
       option?.summary ?? '',
       name,
       email,
-      str(body.company, 160),
-      str(body.phone, 60),
+      client ? client.name : str(body.company, 160),
+      str(body.phone, 60) || (useKnown ? known.phone : ''),
       str(body.notes, 2000),
       ip.slice(0, 64),
       String(req.headers['user-agent'] ?? '').slice(0, 300),
+      client?.id ?? null,
       t,
       t,
     );
@@ -552,11 +611,23 @@ export async function generatePlan(id: number): Promise<void> {
     draft.approvalNotes = a.notes;
     const exact = paymentsOf(await generatedData(approved), a.option_id);
     if (exact) draft.payments = exact;
-    // Quien aprobó es el contacto del cliente: su correo es el del acceso al portal.
-    draft.clientEmail = a.email;
-    draft.contactName = a.name;
-    draft.clientName = draft.clientName || a.company || a.name;
-    draft.clientPhone = draft.clientPhone || a.phone;
+    const linked = (a as ApprovalRow & { client_id: number | null }).client_id;
+    const client = linked ? db.getClient(linked) : undefined;
+    if (client) {
+      // Cliente que ya existe: el proyecto es para él, con sus datos guardados (aunque apruebe otra persona de su empresa).
+      const k = knownContact(client);
+      draft.clientEmail = k.email;
+      draft.contactName = k.name;
+      draft.clientName = client.name;
+      draft.clientPhone = k.phone || a.phone;
+      if (a.email !== k.email) draft.approvalNotes = [`Aprobó ${a.name} (${a.email}) a nombre de ${client.name}.`, a.notes].filter(Boolean).join('\n');
+    } else {
+      // Quien aprobó es el contacto del cliente: su correo es el del acceso al portal.
+      draft.clientEmail = a.email;
+      draft.contactName = a.name;
+      draft.clientName = draft.clientName || a.company || a.name;
+      draft.clientPhone = draft.clientPhone || a.phone;
+    }
     setApproval(id, {
       status: 'listo',
       draft: JSON.stringify(draft),
@@ -586,7 +657,8 @@ export async function generatePlan(id: number): Promise<void> {
 /** Para la pantalla de revisión en Partners: la aprobación con su plan. */
 export function approvalDetail(a: ApprovalRow) {
   const draft = a.draft ? (JSON.parse(a.draft) as Draft) : null;
-  const existing = draft?.clientEmail ? db.getClientByEmail(draft.clientEmail) : undefined;
+  const linked = (a as ApprovalRow & { client_id: number | null }).client_id;
+  const existing = (linked ? db.getClient(linked) : undefined) ?? (draft?.clientEmail ? db.getClientByEmail(draft.clientEmail) : undefined);
   return {
     approval: approvalSummary(a),
     draft,
