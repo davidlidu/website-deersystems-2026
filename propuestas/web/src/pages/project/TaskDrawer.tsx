@@ -7,17 +7,20 @@ import {
   STATUS,
   STATUSES,
   type Me,
+  type Meeting,
   type Progress,
   type ProjectDetail,
   type Side,
   type Task,
   type TaskStatus,
   type TeamMember,
+  useApi,
 } from '../../lib';
-import { Link, Markdown, StatusPill, useAction, useToast } from '../../ui';
+import { Link, Loading, Markdown, StatusPill, useAction, useToast } from '../../ui';
 import { ActivityFeed } from './Activity';
 import { FilesPanel } from './Files';
 import { NotesPanel } from './Notes';
+import { EditMeeting, ScheduleFromTask } from './Schedule';
 
 export interface TaskDefaults {
   phaseId?: number | null;
@@ -48,6 +51,99 @@ const toForm = (t: Partial<Task>, d: TaskDefaults = {}): Form => ({
   isMeeting: t.isMeeting ?? false,
 });
 
+const meetingWhen = (m: Meeting) => {
+  const start = new Date(m.startAt);
+  const day = start.toLocaleDateString('es-CO', { timeZone: 'America/Bogota', weekday: 'long', day: 'numeric', month: 'long' });
+  const hour = (d: Date) => d.toLocaleTimeString('es-CO', { timeZone: 'America/Bogota', hour: 'numeric', minute: '2-digit' });
+  return `${day} · ${hour(start)} – ${hour(new Date(m.endAt))}`;
+};
+
+/**
+ * Las reuniones del plan, en el mismo detalle: cuándo es (fecha y hora), el enlace de Meet y, para ti, agendarla
+ * en Calendar o cambiarle la fecha y hora sin ir al calendario de reuniones.
+ */
+function MeetingBlock({ me, project, task, form, onChanged }: { me: Me; project: ProjectDetail; task: Task; form: Form; onChanged: () => void }) {
+  const { data, loading, reload } = useApi<{ meeting: Meeting | null; canSchedule: boolean }>(`tasks/${task.id}/meeting`);
+  const [mode, setMode] = useState<null | 'edit' | 'schedule'>(null);
+  const owner = me.role === 'owner';
+  if (loading && !data) return <Loading />;
+  if (!data) return null;
+  const m = data.meeting;
+  const done = (fresh: boolean) => {
+    setMode(null);
+    reload();
+    if (fresh) onChanged();
+  };
+
+  if (mode === 'edit' && m) return <EditMeeting meeting={m} onDone={() => done(true)} onCancel={() => setMode(null)} />;
+  if (mode === 'schedule') {
+    return (
+      <div className="card form-section">
+        <div className="meeting-block__head">
+          <h2>Agendar con Meet</h2>
+          <button className="btn btn--outline btn--xs" onClick={() => setMode(null)}>
+            Cancelar
+          </button>
+        </div>
+        <ScheduleFromTask
+          projectId={project.id}
+          projectName={project.name}
+          preset={{ taskId: task.id, title: form.title, date: form.dueDate || task.dueDate, phaseId: form.phaseId, agenda: form.description }}
+          onDone={() => done(true)}
+        />
+      </div>
+    );
+  }
+
+  if (!m) {
+    if (!owner) return null;
+    return (
+      <div className="meeting-block meeting-block--empty">
+        <span>
+          <small>Reunión</small>
+          Aún no está en tu Google Calendar: no tiene hora ni enlace de Meet.
+        </span>
+        {data.canSchedule ? (
+          <button className="btn btn--primary btn--sm" onClick={() => setMode('schedule')}>
+            Agendar con Meet
+          </button>
+        ) : (
+          <Link to="/configuracion?tab=google">Conecta Google para agendarla</Link>
+        )}
+      </div>
+    );
+  }
+
+  const upcoming = m.status === 'programada';
+  return (
+    <div className="meeting-block">
+      <span>
+        <small>
+          Reunión{m.tentative ? ' · reservada, por confirmar con el cliente' : upcoming ? ' · agendada' : ''}
+        </small>
+        <strong className="meeting-block__when">{meetingWhen(m)}</strong>
+        {m.meetUrl && upcoming && (
+          <a href={m.meetUrl} target="_blank" rel="noopener">
+            {m.meetUrl.replace(/^https?:\/\//, '')}
+          </a>
+        )}
+      </span>
+      <span className="meeting-block__actions">
+        {owner && upcoming && (
+          <button className="btn btn--primary btn--sm" onClick={() => setMode('edit')}>
+            Cambiar fecha u hora
+          </button>
+        )}
+        {owner && m.calendarUrl && (
+          <a className="btn btn--outline btn--sm" href={m.calendarUrl} target="_blank" rel="noopener">
+            Ver en Calendar
+          </a>
+        )}
+      </span>
+    </div>
+  );
+}
+
 /** Panel lateral de una tarea: detalle, edición (equipo), estado, comentarios e historial. */
 export function TaskDrawer({
   me,
@@ -59,6 +155,7 @@ export function TaskDrawer({
   onSaved,
   onDeleted,
   onStatus,
+  onReload,
   context,
 }: {
   me: Me;
@@ -70,6 +167,8 @@ export function TaskDrawer({
   onSaved: (task: Task, progress: Progress, isNew: boolean) => void;
   onDeleted: (id: number, progress: Progress) => void;
   onStatus: (task: Task, status: TaskStatus) => void;
+  /** Para recargar el proyecto cuando un cambio toca más que la tarea (p. ej. agendar o mover su reunión). */
+  onReload?: () => void;
   /** Fuera del proyecto (calendario general): de qué proyecto es, con enlace para abrirlo. */
   context?: { label: string; href: string };
 }) {
@@ -113,8 +212,9 @@ export function TaskDrawer({
         const s = await api<{ task: Task; progress: Progress }>('PATCH', `tasks/${r.task.id}`, { status: defaults.status });
         onSaved(s.task, s.progress, true);
       } else onSaved(r.task, r.progress, isNew);
-      toast(isNew ? 'Tarea creada.' : 'Cambios guardados.');
-      if (isNew) onClose();
+      toast(isNew ? 'Tarea creada.' : `Cambios guardados en «${r.task.title}».`);
+      // Se cierra al guardar: el aviso confirma el cambio y la lista ya lo muestra.
+      onClose();
     });
   };
 
@@ -229,6 +329,7 @@ export function TaskDrawer({
                 </span>
               </label>
             </div>
+            {task?.isMeeting && <MeetingBlock me={me} project={project} task={task} form={form} onChanged={() => onReload?.()} />}
             <label className="check">
               <input type="checkbox" checked={form.isMeeting} onChange={(e) => set({ isMeeting: e.target.checked })} />
               Es una reunión con el cliente (franja naranja en el cronograma)
@@ -284,6 +385,7 @@ export function TaskDrawer({
                   {formatDate(task.dueDate)}
                 </span>
               </div>
+              {task.isMeeting && <MeetingBlock me={me} project={project} task={task} form={toForm(task)} onChanged={() => onReload?.()} />}
               {task.description && <Markdown text={task.description} />}
               {task.side === 'cliente' && task.status !== 'completada' && (
                 <p className="callout">Cuando termines tu parte, cambia el estado a «En revisión». DeerSystems la revisa y la cierra.</p>

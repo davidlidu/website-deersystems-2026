@@ -586,6 +586,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
           onSaved={(task, progress) => patchTask(task, progress)}
           onDeleted={(taskId, progress) => setData({ ...p, progress, tasks: p.tasks.filter((t) => t.id !== taskId) })}
           onStatus={setStatus}
+          onReload={reload}
         />
       )}
     </>

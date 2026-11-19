@@ -16,7 +16,8 @@ function describe(a: ActivityItem): string {
     case 'scope_removed':
       return `retiró del alcance ${d.option ?? 'una parte'}: ${d.tasks ?? 0} tareas${d.meetings ? `, ${d.meetings} reuniones` : ''} y ${d.payments ?? 0} pagos`;
     case 'plan_adjusted':
-      return `ajustó el plan con IA (${d.changes ?? 0} ${d.changes === 1 ? 'cambio' : 'cambios'})${d.instruction ? `: ${q(d.instruction)}` : ''}`;
+      // Al cliente le llega sin la instrucción: ve «ajustó el plan», sin mencionar la IA.
+      return `ajustó el plan${d.instruction ? ' con IA' : ''} (${d.changes ?? 0} ${d.changes === 1 ? 'cambio' : 'cambios'})${d.instruction ? `: ${q(d.instruction)}` : ''}`;
     case 'project_status':
       return `cambió el estado del proyecto a ${PROJECT_STATUS[d.to as ProjectStatus] ?? d.to}`;
     case 'task_created':

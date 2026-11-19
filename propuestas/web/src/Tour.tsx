@@ -41,10 +41,10 @@ function projectSteps(me: Me): Step[] {
       page: 'project',
       tab: 'avances',
       target: 'project-tabs',
-      title: 'Todo el proyecto en cinco pestañas',
+      title: 'Todo el proyecto en seis pestañas',
       body: client
-        ? 'Avances: lo que vamos logrando, con enlaces directos a cada tarea y reunión · Plan de trabajo: tareas, calendario de reuniones y cronograma · Documentación: archivos y notas · Alcance y propuesta · Pagos.'
-        : 'Avances (la principal) · Plan de trabajo: tareas, calendario de reuniones y cronograma · Documentación: archivos y notas, compartidos o internos · ' +
+        ? 'Avances: lo que vamos logrando, con enlaces directos a cada tarea y reunión · Plan de trabajo: tareas, calendario de reuniones y cronograma · Documentación: archivos y notas · Informes: los informes de avance y de cierre · Alcance y propuesta · Pagos.'
+        : 'Avances (la principal) · Plan de trabajo: tareas, calendario de reuniones y cronograma · Documentación: archivos y notas, compartidos o internos · Informes parciales y de cierre · ' +
           (me.role === 'owner' ? 'Alcance y propuesta (tu equipo no ve los valores) · Pagos (al marcarlos pagados van a tu Gestor financiero).' : 'Alcance aprobado.'),
     },
     ...(client

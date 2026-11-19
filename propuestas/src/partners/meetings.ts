@@ -812,6 +812,8 @@ export interface ScheduleInput {
   phaseId?: number | null;
   /** Solo reservar el horario: el cliente no recibe la invitación hasta que confirmes la reunión. */
   tentative?: boolean;
+  /** La reunión del plan (tarea tipo reunión) que se está agendando: queda vinculada a ella en vez de crear otra. */
+  taskId?: number | null;
 }
 
 /**
@@ -854,6 +856,9 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
   emails.delete(SUPERADMIN_EMAIL); // tú eres el organizador
   if (!emails.size) throw new HttpError(400, 'Invita al menos a una persona.');
   if (input.phaseId && db.getPhase(input.phaseId)?.project_id !== project.id) throw new HttpError(400, 'La fase no es de este proyecto.');
+  const planTask = input.taskId ? db.getTask(input.taskId) : undefined;
+  if (input.taskId && (!planTask || planTask.project_id !== project.id)) throw new HttpError(400, 'La tarea no es de este proyecto.');
+  if (planTask && meetingOfTask(planTask.id)) throw new HttpError(409, 'Esta reunión del plan ya está agendada: cámbiale la fecha u hora.');
   await assertFree(start, end);
   const title = meetingTitle(project, client, input.title);
   const agenda = input.agenda.trim().slice(0, 4000);
@@ -906,7 +911,14 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
     await google.cancelCalendarEvent(event.id).catch(() => {});
     throw err;
   }
-  if (input.phaseId) update(m.id, { phase_id: input.phaseId });
+  // Desde una reunión del plan: la tarea queda vinculada (no se crea otra) y sigue la fecha de la reunión.
+  if (planTask) {
+    sqlite.prepare('UPDATE meetings SET plan_task_id = ? WHERE id = ?').run(planTask.id, m.id);
+    if (planTask.kind !== 'reunion') db.updateTask(planTask.id, { kind: 'reunion' });
+  }
+  const phaseId = input.phaseId ?? planTask?.phase_id ?? null;
+  if (phaseId) update(m.id, { phase_id: phaseId });
+  else if (planTask) syncPlanTask(m.id, false);
   if (input.tentative) update(m.id, { tentative: 1, pending_attendees: JSON.stringify(pending) });
   const a = actor(v);
   const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
@@ -1108,8 +1120,20 @@ ${context}
         guests: (Array.isArray(body.guests) ? body.guests : []).map((g) => str(g, 200)),
         phaseId: Number(body.phaseId) || null,
         tentative: body.tentative === true,
+        taskId: Number(body.taskId) || null,
       }, v);
       json(res, 201, view(m, v));
+      return true;
+    }
+
+    // La reunión agendada de una tarea del plan (para ver y cambiar su hora desde el detalle de la tarea).
+    case 'GET tasks/:id/meeting': {
+      const task = db.getTask(id);
+      if (!task) throw new HttpError(404, 'La tarea no existe.');
+      visibleProject(task.project_id, v);
+      const m = sqlite.prepare('SELECT * FROM meetings WHERE plan_task_id = ?').get(task.id) as unknown as Row | undefined;
+      const shown = m && (v.kind === 'owner' || (['programada', 'aprobada'].includes(m.status) && !m.tentative));
+      json(res, 200, { meeting: shown ? view(m, v) : null, canSchedule: v.kind === 'owner' && google.connectionStatus().connected && google.hasAnyScope('calendar.events') });
       return true;
     }
 

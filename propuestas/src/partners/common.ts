@@ -85,7 +85,8 @@ export function noteView(n: db.Note, v: Viewer) {
     authorKind: n.author_kind,
     authorName: n.author_name,
     body: n.body,
-    ai: !!n.ai,
+    // El cliente no ve qué se redactó con IA: para él, lo publica DeerSystems.
+    ai: v.kind !== 'client' && !!n.ai,
     emailedAt: n.emailed_at,
     createdAt: n.created_at,
     updatedAt: n.updated_at,

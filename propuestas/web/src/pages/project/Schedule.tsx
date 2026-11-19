@@ -99,10 +99,19 @@ function nextSlot(): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-function Fields({ projectId, projectName, onDone }: { projectId: number; projectName: string; onDone: (m: Meeting) => void }) {
+/** Valores iniciales al agendar una reunión que ya está en el plan (tarea tipo reunión). */
+export interface SchedulePreset {
+  taskId: number;
+  title: string;
+  date: string | null;
+  phaseId: number | null;
+  agenda: string;
+}
+
+function Fields({ projectId, projectName, preset, onDone }: { projectId: number; projectName: string; preset?: SchedulePreset; onDone: (m: Meeting) => void }) {
   const { data, error, loading, reload } = useApi<Contacts>(`projects/${projectId}/contacts`);
   const [team, setTeam] = useState<Set<number>>(new Set());
-  const [slot, setSlot] = useState({ date: today(), time: nextSlot(), duration: 45 });
+  const [slot, setSlot] = useState({ date: preset?.date && preset.date >= today() ? preset.date : today(), time: preset ? '10:00' : nextSlot(), duration: 45 });
   const [blocked, setBlocked] = useState(true);
   const { busy, run } = useAction();
   const toast = useToast();
@@ -133,6 +142,7 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
         includeClient: fd.get('includeClient') === 'on',
         phaseId: Number(fd.get('phase')) || null,
         tentative: fd.get('tentative') === 'on',
+        taskId: preset?.taskId ?? null,
         team: [...team],
         guests: String(fd.get('guests') ?? '')
           .split(/[,;\s]+/)
@@ -157,7 +167,7 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
         <label className="field field--wide">
           <span className="field__label">Título</span>
           <span className="input">
-            <input name="title" required maxLength={200} defaultValue={`Seguimiento · ${projectName}`} />
+            <input name="title" required maxLength={200} defaultValue={preset?.title ?? `Seguimiento · ${projectName}`} />
           </span>
         </label>
         <label className="field">
@@ -192,7 +202,7 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
         <label className="field">
           <span className="field__label">Fase del proyecto</span>
           <span className="input">
-            <select name="phase" defaultValue="">
+            <select name="phase" defaultValue={preset?.phaseId ?? ''}>
               <option value="">Sin fase (no aparece en el cronograma)</option>
               {c.phases.map((ph) => (
                 <option key={ph.id} value={ph.id}>
@@ -206,7 +216,7 @@ function Fields({ projectId, projectName, onDone }: { projectId: number; project
       )}
       <label className="field">
         <span className="field__label">Agenda (va en la invitación)</span>
-        <textarea name="agenda" rows={3} placeholder="Temas a revisar…" />
+        <textarea name="agenda" rows={3} placeholder="Temas a revisar…" defaultValue={preset?.agenda ?? ''} />
       </label>
       <fieldset className="invitees">
         <legend className="field__label">Invitados</legend>
@@ -279,6 +289,11 @@ export function ScheduleMeeting({ projectId, projectName, onDone }: { projectId?
       {current && <Fields key={current.id} projectId={current.id} projectName={current.name} onDone={onDone} />}
     </div>
   );
+}
+
+/** Agendar en Calendar una reunión que ya está en el plan: título, fecha, fase y agenda vienen de la tarea. */
+export function ScheduleFromTask({ projectId, projectName, preset, onDone }: { projectId: number; projectName: string; preset: SchedulePreset; onDone: (m: Meeting) => void }) {
+  return <Fields projectId={projectId} projectName={projectName} preset={preset} onDone={onDone} />;
 }
 
 /** Fecha (YYYY-MM-DD) y hora (HH:MM) de Colombia a partir de un ISO. */

@@ -7930,3 +7930,67 @@ button.gcal-stat:hover {
   display: grid;
   gap: 10px;
 }
+
+/* Reunión del plan en el detalle de la tarea */
+.meeting-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(251, 133, 0, 0.4);
+  border-left: 3px solid var(--naranja);
+  border-radius: var(--r-sm);
+  background: rgba(251, 133, 0, 0.06);
+}
+
+.meeting-block > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.meeting-block small {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.meeting-block__when {
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.meeting-block__when::first-letter {
+  text-transform: uppercase;
+}
+
+.meeting-block a:not(.btn) {
+  color: var(--cian);
+  word-break: break-all;
+}
+
+.meeting-block--empty > span:first-child {
+  color: var(--body, var(--ink));
+}
+
+.meeting-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.meeting-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.meeting-block__head h2 {
+  margin: 0;
+}

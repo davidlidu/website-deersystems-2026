@@ -318,7 +318,8 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           actorKind: r.actor_kind,
           actorName: r.actor_name,
           type: r.type,
-          data: JSON.parse(r.data),
+          // El cliente ve que se ajustó el plan, no la instrucción que se le dio a la IA.
+          data: !staff && r.type === 'plan_adjusted' ? { changes: (JSON.parse(r.data) as { changes?: number }).changes } : JSON.parse(r.data),
           internal: !!r.internal,
           createdAt: r.created_at,
         })),

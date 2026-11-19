@@ -43,7 +43,7 @@ const monday = (iso: string) => addDays(iso, -((new Date(`${iso}T12:00:00`).getD
 
 export function CalendarPage({ me }: { me: Me }) {
   const [all, setAll] = useState(false);
-  const { data, error, loading, setData } = useApi<Data>(`deliveries${all ? '?all=1' : ''}`);
+  const { data, error, loading, setData, reload } = useApi<Data>(`deliveries${all ? '?all=1' : ''}`);
   const team = useApi<TeamMember[]>(me.role !== 'client' ? 'team' : null);
   const [focus, setFocus] = useState<'todo' | 'atrasadas' | 'semana'>('todo');
   const [openId, setOpenId] = useState<number | null>(null);
@@ -297,6 +297,7 @@ export function CalendarPage({ me }: { me: Me }) {
             });
           }}
           onStatus={setStatus}
+          onReload={reload}
           context={{
             label: me.role === 'client' ? detail.name : `${detail.clientName} · ${detail.name}`,
             href: `/proyectos/${detail.id}?tarea=${openTask.id}`,
