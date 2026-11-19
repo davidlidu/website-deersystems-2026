@@ -413,3 +413,114 @@ export function meetingSummary(p: {
     }),
   };
 }
+
+/**
+ * Una o varias propuestas para un cliente: correo comercial con portada, una tarjeta por propuesta (con su botón)
+ * y por qué trabajar con DeerSystems. Mismo sistema de diseño, pensado para que destaque en la bandeja.
+ */
+export function proposalsOffer(p: {
+  to: string;
+  subject: string;
+  /** Nombre de quien lo recibe, para el saludo; vacío = saludo general. */
+  name: string;
+  message: string;
+  items: { title: string; note: string; url: string }[];
+}): Mail {
+  const first = p.name.trim().split(/\s+/)[0] ?? '';
+  const many = p.items.length > 1;
+  const greeting = first ? `Hola, ${first}:` : 'Hola:';
+  const paragraphs = plainParagraphs(p.message);
+  const num = (i: number) => String(i + 1).padStart(2, '0');
+
+  const cards = p.items
+    .map(
+      (it, i) => `<tr><td style="padding:0 0 14px">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${C.hairline};border-radius:14px;background:${C.canvas}">
+          <tr><td style="height:4px;line-height:4px;font-size:0;border-radius:14px 14px 0 0;background:${C.verde};background-image:linear-gradient(100deg,${C.verde} 0%,#3fcf9c 45%,${C.cian} 100%)">&nbsp;</td></tr>
+          <tr><td style="padding:20px 22px 22px">
+            <div style="font:500 11px/1.4 ${MONO};letter-spacing:.18em;text-transform:uppercase;color:${C.cian}">${many ? `Propuesta ${num(i)}` : 'Tu propuesta'}</div>
+            <div style="margin:8px 0 ${it.note ? '8px' : '16px'};font:700 20px/1.25 ${DISPLAY};letter-spacing:-.02em;color:${C.ink}">${esc(it.title)}</div>
+            ${it.note ? `<div style="margin:0 0 16px;font:400 14px/1.6 ${FONT};color:${C.body}">${esc(it.note).replace(/\n/g, '<br>')}</div>` : ''}
+            <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+              <td style="border-radius:6px;background:${C.verde}">
+                <a href="${esc(it.url)}" style="display:inline-block;padding:12px 20px;font:600 14px/1 ${FONT};color:${C.canvas};text-decoration:none">Ver la propuesta &rarr;</a>
+              </td></tr></table>
+          </td></tr>
+        </table>
+      </td></tr>`,
+    )
+    .join('');
+
+  const why = [
+    ['Por fases', 'Entregas claras por etapa, con fechas y avances que puedes seguir en tu portal.'],
+    ['Acompañamiento', 'Un equipo cercano que te explica cada paso y responde rápido.'],
+    ['Resultados', 'Software, automatización e IA pensados para ahorrarte tiempo y vender más.'],
+  ];
+  const whyHtml = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 22px;border-top:1px solid ${C.hairline}">
+    <tr><td style="padding:18px 0 4px;font:500 11px/1.4 ${MONO};letter-spacing:.18em;text-transform:uppercase;color:${C.mute}">Por qué DeerSystems</td></tr>
+    ${why
+      .map(
+        ([k, v]) => `<tr><td style="padding:8px 0">
+          <span style="display:inline-block;width:8px;height:8px;margin-right:10px;border-radius:50%;background:${C.verde};vertical-align:middle"></span>
+          <span style="font:600 14px/1.5 ${FONT};color:${C.ink}">${esc(k)}.</span>
+          <span style="font:400 14px/1.5 ${FONT};color:${C.body}"> ${esc(v)}</span>
+        </td></tr>`,
+      )
+      .join('')}
+  </table>`;
+
+  const html = `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>${esc(p.subject)}</title></head>
+<body style="margin:0;padding:0;background:${C.canvas}">
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0">${esc(many ? `${p.items.length} propuestas preparadas para ti: ${p.items.map((i) => i.title).join(' · ')}` : `Tu propuesta: ${p.items[0]?.title ?? ''}`)}</div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${C.canvas}"><tr><td align="center" style="padding:32px 16px">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px">
+      <tr><td style="padding:0 4px 20px">
+        <a href="${HOME_URL}" style="text-decoration:none;font:700 18px/1 ${DISPLAY};letter-spacing:-.02em">
+          <span style="color:${C.verde}">Deer</span><span style="color:${C.ink}">Systems</span>
+        </a>
+      </td></tr>
+      <tr><td style="background:${C.card};border:1px solid ${C.hairline};border-radius:18px;overflow:hidden">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr><td style="padding:34px 30px 26px;background:${C.card};background-image:radial-gradient(120% 140% at 100% 0%,rgba(0,180,216,.22) 0%,rgba(126,217,87,.10) 38%,rgba(13,42,56,0) 70%)">
+            <div style="font:500 11px/1.4 ${MONO};letter-spacing:.18em;text-transform:uppercase;color:${C.verde};margin-bottom:12px">${many ? `${p.items.length} propuestas para ti` : 'Propuesta comercial'}</div>
+            <h1 style="margin:0;font:800 28px/1.15 ${DISPLAY};letter-spacing:-.03em;color:${C.ink}">${many ? 'Preparamos estas opciones para tu empresa' : 'Preparamos esta propuesta para tu empresa'}</h1>
+          </td></tr>
+          <tr><td style="padding:4px 30px 8px">
+            <p style="margin:0 0 14px;font:600 15px/1.65 ${FONT};color:${C.ink}">${esc(greeting)}</p>
+            ${paragraphs.map((x) => `<p style="margin:0 0 14px;font:400 15px/1.65 ${FONT};color:${C.body}">${esc(x).replace(/\n/g, '<br>')}</p>`).join('')}
+          </td></tr>
+          <tr><td style="padding:10px 30px 4px">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${cards}</table>
+          </td></tr>
+          <tr><td style="padding:0 30px">${whyHtml}</td></tr>
+          <tr><td style="padding:0 30px 30px">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-radius:12px;background:${C.canvas};border:1px solid ${C.hairline}"><tr>
+              <td style="padding:18px 20px;font:400 14px/1.6 ${FONT};color:${C.body}">
+                <strong style="color:${C.ink}">¿Hablamos?</strong> Responde este correo con tus preguntas o con el día que te sirva para ${many ? 'revisarlas' : 'revisarla'} juntos. Desde ${many ? 'cada propuesta' : 'la propuesta'} también puedes aprobarla en línea.
+              </td></tr></table>
+          </td></tr>
+        </table>
+      </td></tr>
+      <tr><td style="padding:20px 4px 0;font:400 12px/1.6 ${FONT};color:${C.mute}">
+        Sistemas que conectan, soluciones que simplifican.<br>
+        <a href="${HOME_URL}" style="color:${C.cian};text-decoration:none">${esc(HOME_URL.replace(/^https?:\/\//, ''))}</a>
+      </td></tr>
+    </table>
+  </td></tr></table>
+</body></html>`;
+
+  const text = [
+    greeting,
+    '',
+    ...paragraphs.flatMap((x) => [x, '']),
+    ...p.items.flatMap((it, i) => [`${many ? `Propuesta ${num(i)}: ` : ''}${it.title}`, ...(it.note ? [it.note] : []), `Ver la propuesta: ${it.url}`, '']),
+    'Por qué DeerSystems',
+    ...why.map(([k, v]) => `• ${k}. ${v}`),
+    '',
+    `¿Hablamos? Responde este correo con tus preguntas o con el día que te sirva para ${many ? 'revisarlas' : 'revisarla'} juntos.`,
+    '',
+    '— DeerSystems',
+  ].join('\n');
+
+  return { to: p.to, subject: p.subject, html, text };
+}

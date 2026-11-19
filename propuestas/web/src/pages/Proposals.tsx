@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { api, ApiError, formatDateTime, formatSize, timeAgo, useApi } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../ui';
+import { SendProposalsDialog } from './ProposalSend';
 
 export interface ProposalRow {
   id: number;
@@ -17,6 +18,8 @@ export interface ProposalRow {
   projects: { id: number; name: string; clientId: number; approvedOption: string }[];
   /** El cliente aprobó desde el enlace y aún no se crea el proyecto. */
   approvals: ClientApproval[];
+  /** Último envío por correo desde aquí. */
+  lastSent: { to: string; at: string; count: number } | null;
 }
 
 export interface ClientApproval {
@@ -169,11 +172,17 @@ function ProposalItem({
   onChange,
   onRemove,
   onReload,
+  selected,
+  onSelect,
+  onSend,
 }: {
   p: ProposalRow;
   onChange: (p: ProposalRow) => void;
   onRemove: (id: number) => void;
   onReload: () => void;
+  selected: boolean;
+  onSelect: (on: boolean) => void;
+  onSend: () => void;
 }) {
   const [showVersions, setShowVersions] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -214,10 +223,21 @@ function ProposalItem({
   const copy = () => navigator.clipboard.writeText(p.url).then(() => toast('Enlace copiado.'));
 
   return (
-    <article className={`item item--proposal card${p.active ? '' : ' is-paused'}`}>
+    <article className={`item item--proposal card${p.active ? '' : ' is-paused'}${selected ? ' is-selected' : ''}`}>
       <div>
         <div className="item__title">
-          <span className="item__name">{p.title || p.slug}</span>
+          <span className="item__name">
+            <input
+              type="checkbox"
+              className="item__pick"
+              checked={selected}
+              disabled={!p.active}
+              title={p.active ? 'Seleccionar para enviar por correo' : 'Está pausada: actívala para poder enviarla'}
+              aria-label={`Seleccionar ${p.title || p.slug} para enviar`}
+              onChange={(e) => onSelect(e.target.checked)}
+            />
+            {p.title || p.slug}
+          </span>
           {!p.active && <span className="tag tag--pausado">Pausada</span>}
           {p.approvals.length > 0 && <span className="tag tag--finalizado">Aprobada por el cliente</span>}
           {p.projects.length > 0 && (
@@ -236,6 +256,11 @@ function ProposalItem({
           </button>
           <span>Actualizada {timeAgo(p.updatedAt)}</span>
           <span>{p.views ? `${p.views} ${p.views === 1 ? 'apertura' : 'aperturas'} · última ${timeAgo(p.lastViewedAt!)}` : 'Sin abrir'}</span>
+          {p.lastSent && (
+            <span className="item__sent" title={`${p.lastSent.count} ${p.lastSent.count === 1 ? 'envío' : 'envíos'} · último el ${formatDateTime(p.lastSent.at)}`}>
+              ✉ Enviada a {p.lastSent.to} · {timeAgo(p.lastSent.at)}
+            </span>
+          )}
         </div>
         {p.projects.map((pr) => (
           <Link key={pr.id} className="item__project" to={`/proyectos/${pr.id}`}>
@@ -249,6 +274,9 @@ function ProposalItem({
         <Link className={`btn btn--sm ${p.projects.length || p.approvals.length ? 'btn--outline' : 'btn--primary'}`} to={`/propuestas/${p.id}/aprobar`}>
           {p.projects.length ? 'Aprobar de nuevo' : 'Propuesta aprobada'}
         </Link>
+        <button className="btn btn--outline btn--sm" disabled={!p.active} onClick={onSend} title={p.active ? 'Enviarla al cliente en un correo' : 'Está pausada: actívala para enviarla'}>
+          Enviar por correo
+        </button>
         <button className="btn btn--outline btn--sm" onClick={copy}>
           Copiar enlace
         </button>
@@ -293,6 +321,8 @@ export function ProposalsPage() {
   const [filter, setFilter] = useState<'pendientes' | 'todas'>('todas');
   const [pending, setPending] = useState<File | null>(null);
   const [over, setOver] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [sending, setSending] = useState<ProposalRow[] | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const { busy, run } = useAction();
   const toast = useToast();
@@ -433,6 +463,9 @@ export function ProposalsPage() {
                 onChange={(updated) => setData(list.map((x) => (x.id === updated.id ? updated : x)))}
                 onRemove={(id) => setData(list.filter((x) => x.id !== id))}
                 onReload={reload}
+                selected={picked.includes(p.id)}
+                onSelect={(on) => setPicked(on ? [...picked, p.id] : picked.filter((x) => x !== p.id))}
+                onSend={() => setSending([p])}
               />
             ))}
           </div>
@@ -440,6 +473,33 @@ export function ProposalsPage() {
           <Empty>{filter === 'pendientes' ? 'No hay propuestas sin aprobar.' : 'Todavía no has publicado propuestas.'}</Empty>
         )}
       </section>
+
+      {picked.length > 0 && (
+        <div className="send-bar" role="region" aria-label="Propuestas seleccionadas">
+          <span>
+            <strong>{picked.length}</strong> {picked.length === 1 ? 'propuesta seleccionada' : 'propuestas seleccionadas'}
+          </span>
+          <span className="actions actions--tight">
+            <button className="btn btn--outline btn--sm" onClick={() => setPicked([])}>
+              Limpiar
+            </button>
+            <button className="btn btn--primary btn--sm" onClick={() => setSending(picked.map((id) => list.find((x) => x.id === id)).filter((x): x is ProposalRow => !!x))}>
+              Enviar por correo
+            </button>
+          </span>
+        </div>
+      )}
+
+      {sending && (
+        <SendProposalsDialog
+          proposals={sending}
+          onSent={() => {
+            setPicked([]);
+            reload();
+          }}
+          onClose={() => setSending(null)}
+        />
+      )}
     </>
   );
 }

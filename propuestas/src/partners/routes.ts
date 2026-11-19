@@ -32,6 +32,7 @@ import {
 } from './auth.ts';
 import * as db from './db.ts';
 import { handleFiles, handlePage } from './files.ts';
+import { handleProposalMail, lastSend } from './proposalMail.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import { handleBilling } from './billing.ts';
 import { handleScheduled } from './scheduled.ts';
@@ -511,6 +512,8 @@ function proposalView(p: Proposal) {
       .map((pr) => ({ id: pr.id, name: pr.name, clientId: pr.client_id, approvedOption: pr.approved_option })),
     /** Aprobaciones del cliente desde el enlace que aún no se convierten en proyecto. */
     approvals: openApprovals(p.id),
+    /** Último envío por correo (a quién y cuándo) y cuántas veces se ha enviado. */
+    lastSent: lastSend(p.id),
   };
 }
 
@@ -1285,6 +1288,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handleWork(route, id, req, res, v)) return;
   if (await handlePlanAdjust(route, id, req, res, v)) return;
   if (await handleUpdates(route, id, req, res, v)) return;
+  if (await handleProposalMail(route, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
   if (await handlePayments(route, id, req, res, v)) return;

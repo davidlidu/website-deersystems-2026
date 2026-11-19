@@ -7571,3 +7571,96 @@ button.gcal-stat:hover {
 .modal .recipients {
   margin-bottom: 12px;
 }
+
+/* ── Enviar propuestas por correo */
+
+.item__pick {
+  width: 17px;
+  height: 17px;
+  margin: 0 10px 0 0;
+  vertical-align: -2px;
+  accent-color: var(--verde);
+  cursor: pointer;
+  flex: none;
+}
+
+.item--proposal.is-selected {
+  border-color: rgba(126, 217, 87, 0.55);
+  box-shadow: 0 0 0 1px rgba(126, 217, 87, 0.25);
+}
+
+.item__sent {
+  color: var(--cian);
+}
+
+.send-bar {
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid rgba(126, 217, 87, 0.5);
+  border-radius: var(--r-md);
+  background: var(--surface-strong);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.modal--send {
+  width: min(820px, calc(100vw - 32px));
+}
+
+.send-items {
+  display: grid;
+  gap: 8px;
+}
+
+.send-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--verde);
+  border-radius: var(--r-sm);
+  background: rgba(5, 25, 35, 0.5);
+}
+
+.send-item.is-paused {
+  border-left-color: var(--coral);
+}
+
+.send-item__num {
+  padding-top: 8px;
+  color: var(--cian);
+  font-size: 0.8rem;
+}
+
+.send-item__fields {
+  display: grid;
+  gap: 6px;
+}
+
+.send-item__warn {
+  color: var(--coral);
+}
+
+.send-item__order {
+  display: flex;
+  gap: 2px;
+}
+
+@media (max-width: 640px) {
+  .send-item {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .send-item__order {
+    grid-column: 2;
+  }
+}
