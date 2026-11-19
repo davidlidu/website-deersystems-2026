@@ -220,6 +220,8 @@ export interface Attachment {
   viewUrl: string | null;
   downloadName: string;
   linked: boolean;
+  /** Página HTML publicada por el servidor: viewUrl la abre en el portal (con sus animaciones). */
+  page: boolean;
 }
 
 export interface AppNotification {

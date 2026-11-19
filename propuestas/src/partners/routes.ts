@@ -31,7 +31,7 @@ import {
   type Viewer,
 } from './auth.ts';
 import * as db from './db.ts';
-import { handleFiles } from './files.ts';
+import { handleFiles, handlePage } from './files.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import { handleBilling } from './billing.ts';
 import { handleScheduled } from './scheduled.ts';
@@ -1314,6 +1314,7 @@ export async function handlePartners(req: IncomingMessage, res: ServerResponse, 
   if (path === '/api/webhooks/wompi' && req.method === 'POST') return handleWompiWebhook(req, res);
   if (path.startsWith('/api/')) return handleApi(req, res, url);
   if (path.startsWith('/historial/')) return handleHistory(req, res, url);
+  if (path.startsWith('/paginas/')) return handlePage(req, res, url);
   if (req.method !== 'GET' && req.method !== 'HEAD') throw new HttpError(405, 'Método no permitido.');
 
   // Archivos del build de Vite: nombres con hash, se pueden cachear para siempre.

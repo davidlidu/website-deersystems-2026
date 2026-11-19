@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, formatDate, formatDateTime, timeAgo, useApi, type Me, type Meeting, type Note, type ProjectDetail } from '../../lib';
+import { api, formatDate, formatDateTime, timeAgo, upload, useApi, type Attachment, type Me, type Meeting, type Note, type ProjectDetail } from '../../lib';
 import { Empty, ErrorBox, Loading, Markdown, useAction, useToast } from '../../ui';
 import { MdEditor, type InsertGroup, type Variable } from './MdEditor';
 
@@ -303,6 +303,8 @@ export function UpdatesPanel({
   const { data, error, loading, reload, setData } = useApi<Note[]>(`projects/${project.id}/notes?kind=avance`);
   const meetings = useApi<Meeting[]>(staff ? `projects/${project.id}/meetings` : null);
   const mailInfo = useApi<MailInfo>(staff ? `projects/${project.id}/updates/mail` : null);
+  const files = useApi<Attachment[]>(staff ? `projects/${project.id}/attachments` : null);
+  const pageInput = useRef<HTMLInputElement>(null);
   // null = lo que diga Configuración → Avisos para este cliente; al tocar el interruptor, lo que elijas para este avance.
   const [emailChoice, setEmailChoice] = useState<boolean | null>(null);
   const email = !!mailInfo.data?.canSend && (emailChoice ?? mailInfo.data.defaultOn);
@@ -340,9 +342,25 @@ export function UpdatesPanel({
         label: 'Reuniones',
         items: list.map((m) => ({ title: m.title, url: `${origin}/proyectos/${project.id}?tab=reuniones`, hint: formatDateTime(m.startAt) })),
       },
-    ];
+      {
+        label: 'Páginas HTML',
+        items: (files.data ?? [])
+          .filter((a) => a.page && a.viewUrl && a.visibility === 'shared')
+          .map((a) => ({ title: a.name.replace(/\.(html?|zip)$/i, ''), url: origin + a.viewUrl, hint: timeAgo(a.createdAt) })),
+      },
+    ].filter((g) => g.items.length);
     return { variables, links };
-  }, [project, meetings.data]);
+  }, [project, meetings.data, files.data]);
+
+  /** Publica una página HTML (con sus animaciones) y deja su enlace en el avance. */
+  const attachPage = (file: File) =>
+    run(async () => {
+      const a = await upload<Attachment>(`projects/${project.id}/attachments`, file, { visibility: 'shared', page: '1' });
+      files.setData([a, ...(files.data ?? [])]);
+      const link = `[Ver ${a.name.replace(/\.(html?|zip)$/i, '')}](${location.origin}${a.viewUrl})`;
+      setText((t) => (t.trim() ? `${t.trimEnd()}\n\n${link}` : link));
+      toast('Página publicada y enlazada en el avance. El cliente la abre desde el enlace.');
+    });
 
   const generate = async () => {
     if (text.trim() && !confirm('¿Reemplazar lo que llevas escrito por el avance generado?')) return;
@@ -447,6 +465,25 @@ export function UpdatesPanel({
                 {aiDraft && <span className="tag tag--ai">Borrador de la IA</span>}
               </span>
               <span className="actions actions--tight">
+                <button
+                  className="btn btn--outline btn--sm"
+                  disabled={busy}
+                  onClick={() => pageInput.current?.click()}
+                  title="Sube un .html (o un .zip con su index.html y recursos): se publica en el servidor y el avance lleva el enlace para verla."
+                >
+                  Adjuntar página HTML
+                </button>
+                <input
+                  ref={pageInput}
+                  type="file"
+                  accept=".html,.htm,.zip,text/html,application/zip"
+                  hidden
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) attachPage(f);
+                    e.target.value = '';
+                  }}
+                />
                 <button className="btn btn--outline btn--sm" disabled={!text.trim()} onClick={() => setPreview(true)}>
                   Vista previa
                 </button>

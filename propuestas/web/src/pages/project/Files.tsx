@@ -5,6 +5,7 @@ import { Empty, ErrorBox, Loading, useAction, useToast } from '../../ui';
 
 /** Etiqueta corta del tipo de archivo, con color por familia. */
 function kindOf(a: Attachment): { label: string; tone: string } {
+  if (a.page) return { label: 'WEB', tone: 'web' };
   const m = a.mime;
   if (m === 'application/vnd.google-apps.document') return { label: 'DOC', tone: 'doc' };
   if (m === 'application/vnd.google-apps.spreadsheet') return { label: 'HOJA', tone: 'sheet' };
@@ -42,6 +43,12 @@ const Icon = {
       <path d="M9 7V4h6v3" />
     </svg>
   ),
+  web: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 9h18M9.5 13.5 7.5 15l2 1.5M14.5 13.5l2 1.5-2 1.5" />
+    </svg>
+  ),
   drive: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
       <path d="M8.5 3h7l6 10.5-3.5 6h-12L2.5 13.5Z" />
@@ -75,10 +82,17 @@ function FileRow({ a, onChange, onRemove }: { a: Attachment; onChange: (a: Attac
         {kind.label}
       </span>
       <div className="file__main">
-        <a className="file__name" href={download} download={a.downloadName} title={a.name}>
-          {a.name}
-        </a>
+        {a.page && a.viewUrl ? (
+          <a className="file__name" href={a.viewUrl} target="_blank" rel="noopener" title={`Abrir ${a.name}`}>
+            {a.name}
+          </a>
+        ) : (
+          <a className="file__name" href={download} download={a.downloadName} title={a.name}>
+            {a.name}
+          </a>
+        )}
         <span className="file__meta">
+          {a.page && <span className="file__page-tag">Página para ver en el portal · </span>}
           {a.size ? `${formatSize(a.size)} · ` : ''}
           {a.authorName} · <time title={formatDateTime(a.createdAt)}>{timeAgo(a.createdAt)}</time>
           {a.linked && <span title="Enlazado desde tu Drive: quitarlo de aquí no lo borra de Drive"> · desde Drive</span>}
@@ -96,7 +110,7 @@ function FileRow({ a, onChange, onRemove }: { a: Attachment; onChange: (a: Attac
           </button>
         ) : null}
         {a.viewUrl && (
-          <a className="icon-btn" href={a.viewUrl} target="_blank" rel="noopener" title="Ver" aria-label={`Ver ${a.name}`}>
+          <a className="icon-btn" href={a.viewUrl} target="_blank" rel="noopener" title={a.page ? 'Abrir la página' : 'Ver'} aria-label={`Ver ${a.name}`}>
             {Icon.eye}
           </a>
         )}
@@ -138,6 +152,7 @@ export function FilesPanel({
   const [uploading, setUploading] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const pageInput = useRef<HTMLInputElement>(null);
   const { run } = useAction();
   const toast = useToast();
   const staff = me.role !== 'client';
@@ -149,7 +164,7 @@ export function FilesPanel({
     onChange?.(added.length);
   };
 
-  const send = async (files: FileList | File[]) => {
+  const send = async (files: FileList | File[], asPage = false) => {
     const list = [...files];
     if (!list.length) return;
     const tooBig = list.find((f) => f.size > 50 * 1024 * 1024);
@@ -159,9 +174,18 @@ export function FilesPanel({
       try {
         for (const [i, f] of list.entries()) {
           setUploading(list.length > 1 ? `Subiendo ${i + 1} de ${list.length}: ${f.name}` : `Subiendo ${f.name}…`);
-          added.push(await upload<Attachment>(`projects/${projectId}/attachments`, f, { ...(taskId ? { taskId: String(taskId) } : {}), visibility }));
+          added.push(
+            await upload<Attachment>(`projects/${projectId}/attachments`, f, { ...(taskId ? { taskId: String(taskId) } : {}), visibility, ...(asPage ? { page: '1' } : {}) }),
+          );
         }
-        toast(list.length > 1 ? `${list.length} archivos subidos.` : 'Archivo subido.');
+        const pages = added.filter((a) => a.page).length;
+        toast(
+          pages === added.length
+            ? `${pages > 1 ? `${pages} páginas publicadas` : 'Página publicada'}: ${visibility === 'shared' ? 'el cliente la abre desde aquí.' : 'solo la ve tu equipo.'}`
+            : list.length > 1
+              ? `${list.length} archivos subidos.`
+              : 'Archivo subido.',
+        );
       } finally {
         if (added.length) add(added.reverse());
         setUploading(null);
@@ -231,6 +255,15 @@ export function FilesPanel({
               · máx. 50 MB
             </span>
             <span className="dropzone__tools">
+              {staff && (
+                <button
+                  className="btn btn--outline btn--sm"
+                  onClick={() => pageInput.current?.click()}
+                  title="Un .html (o un .zip con su index.html, imágenes y scripts). Se publica en el servidor y el cliente la ve con sus animaciones."
+                >
+                  {Icon.web} Página HTML
+                </button>
+              )}
               {owner && (
                 <button className="btn btn--outline btn--sm" onClick={fromDrive}>
                   {Icon.drive} Desde mi Drive
@@ -256,6 +289,16 @@ export function FilesPanel({
           hidden
           onChange={(e) => {
             if (e.target.files) send(e.target.files);
+            e.target.value = '';
+          }}
+        />
+        <input
+          ref={pageInput}
+          type="file"
+          accept=".html,.htm,.zip,text/html,application/zip"
+          hidden
+          onChange={(e) => {
+            if (e.target.files) send(e.target.files, true);
             e.target.value = '';
           }}
         />

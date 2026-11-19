@@ -341,7 +341,7 @@ export function MdEditor({
           </>
         )}
         {!!links?.length && (
-          <Dropdown label="Insertar tarea/reunión" icon={IconClip} open={menu === 'links'} onToggle={() => setMenu(menu === 'links' ? null : 'links')}>
+          <Dropdown label="Insertar enlace" icon={IconClip} open={menu === 'links'} onToggle={() => setMenu(menu === 'links' ? null : 'links')}>
             <span className="input input--search md-editor__find">
               <input autoFocus placeholder="Buscar…" value={find} onChange={(e) => setFind(e.target.value)} aria-label="Buscar tarea o reunión" />
             </span>

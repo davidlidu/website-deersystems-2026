@@ -978,7 +978,20 @@ export interface AttachmentExtra {
   drive_url: string | null;
   link_shared: number;
   linked: number;
+  /** Página HTML guardada en el servidor (no en Drive): se abre en /paginas/{token}/. */
+  page_token: string | null;
 }
+
+// Páginas HTML (con animaciones, etc.) que el servidor publica para que el cliente las vea en el portal.
+addColumn('attachments', 'page_token', 'TEXT');
+
+export const getAttachmentByPageToken = (token: string) =>
+  one<Attachment & AttachmentExtra>('SELECT * FROM attachments WHERE page_token = ?', token);
+
+export function setAttachmentPage(id: number, token: string): void {
+  db.prepare('UPDATE attachments SET page_token = ?, link_shared = 1 WHERE id = ?').run(token, id);
+}
+
 
 export function updateAttachment(id: number, fields: Partial<{ visibility: 'shared' | 'internal'; link_shared: number; drive_url: string | null }>): void {
   for (const [col, value] of Object.entries(fields)) {
@@ -992,7 +1005,7 @@ export function setAttachmentSource(id: number, fields: { drive_url: string | nu
 
 /** Archivos compartidos que aún no tienen el acceso por enlace (subidos antes de este cambio, o si falló). */
 export const pendingLinkShares = () =>
-  all<Attachment & AttachmentExtra>("SELECT * FROM attachments WHERE visibility = 'shared' AND link_shared = 0 ORDER BY id LIMIT 50");
+  all<Attachment & AttachmentExtra>("SELECT * FROM attachments WHERE visibility = 'shared' AND link_shared = 0 AND page_token IS NULL ORDER BY id LIMIT 50");
 
 // Preferencias de avisos de cada persona (cliente o equipo): {tipo: {app, email}}. Solo pueden apagar.
 addColumn('accounts', 'notify_prefs', "TEXT NOT NULL DEFAULT '{}'");

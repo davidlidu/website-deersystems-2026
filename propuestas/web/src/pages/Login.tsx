@@ -45,7 +45,11 @@ export function LoginPage({ onLogin }: { onLogin: (me: Me) => void }) {
         setError((err as Error).message);
         return;
       }
-      onLogin(await api<Me>('GET', 'me'));
+      const me = await api<Me>('GET', 'me');
+      // Venía de abrir una página HTML de una entrega: la sirve el servidor, no la app.
+      const next = new URLSearchParams(location.search).get('next') ?? '';
+      if (/^\/paginas\/[\w-]+\/?$/.test(next)) return void location.assign(next);
+      onLogin(me);
       navigate('/', true);
     });
   };

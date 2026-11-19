@@ -32,7 +32,8 @@ interface DayFacts {
   completed: Link[];
   review: Link[];
   meetings: (Link & { summary: string })[];
-  files: string[];
+  /** Con url si es una página HTML que se abre en el portal. */
+  files: { title: string; url?: string }[];
   next: (Link & { when: string }) | null;
   progress: db.Progress;
 }
@@ -56,8 +57,13 @@ function facts(project: db.Project, date = today()): DayFacts {
   const files = db
     .listActivity(project.id, { internal: false, limit: 300 })
     .filter((a) => a.type === 'file_added' && dayOf(a.created_at) === date)
-    .map((a) => String(JSON.parse(a.data).name ?? ''))
-    .filter(Boolean);
+    .map((a) => {
+      const d = JSON.parse(a.data) as { name?: string; page?: string };
+      // Solo si la página sigue publicada; se nombra sin la extensión del archivo.
+      const page = d.page && db.getAttachmentByPageToken(d.page.split('/')[2] ?? '') ? `${PARTNERS_URL}${d.page}` : undefined;
+      return { title: label(page ? String(d.name ?? '').replace(/\.(html?|zip)$/i, '') : String(d.name ?? '')), url: page };
+    })
+    .filter((f) => f.title);
 
   const rows = sqlite
     .prepare("SELECT id, title, start_at, status, summary, meet_url FROM meetings WHERE project_id = ? AND status <> 'descartada' ORDER BY start_at")
@@ -89,7 +95,7 @@ function template(project: db.Project, f: DayFacts): string {
     ...f.completed.map((t) => `- Tarea finalizada: [${t.title}](${t.url})`),
     ...f.review.map((t) => `- Lista para su revisión: [${t.title}](${t.url})`),
     ...f.meetings.map((m) => `- Reunión realizada: [${m.title}](${m.url})`),
-    ...f.files.map((n) => `- Archivo compartido: ${n}`),
+    ...f.files.map((n) => (n.url ? `- Página para ver: [${n.title}](${n.url})` : `- Archivo compartido: ${n.title}`)),
   ];
   if (hitos.length) lines.push('', '**Hitos del día:**', ...hitos);
   if (f.next) lines.push('', `**Próxima reunión:** [${f.next.title}](${f.next.url}), ${f.next.when}.`);
@@ -122,7 +128,9 @@ ${list(f.review)}
 Reuniones de hoy:
 ${f.meetings.map((m) => `- [${m.title}](${m.url})${m.summary ? `\n  Resumen aprobado: ${m.summary.replace(/\n+/g, ' ')}` : ''}`).join('\n') || '- ninguna'}
 
-Archivos compartidos hoy: ${f.files.join(', ') || 'ninguno'}
+Archivos compartidos hoy (los que tienen enlace son páginas para ver en el portal):
+${f.files.map((n) => (n.url ? `- [${n.title}](${n.url})` : `- ${n.title}`)).join('\n') || '- ninguno'}
+
 Próxima reunión: ${f.next ? `[${f.next.title}](${f.next.url}), ${f.next.when}` : 'ninguna agendada'}
 
 Escribe el avance:
