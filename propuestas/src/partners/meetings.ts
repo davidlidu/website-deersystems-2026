@@ -191,7 +191,9 @@ function syncPlanTask(id: number, phaseChanged: boolean): void {
   const date = new Date(m.start_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
   const description = m.meet_url ? `Enlace de Meet: ${m.meet_url}` : '';
   if (task) {
-    db.updateTask(task.id, { title: m.title, phase_id: m.phase_id, start_date: date, due_date: date });
+    // En Calendar el título lleva delante a quién es («Carlos Herrán · …»); la tarea del plan conserva su nombre.
+    const title = m.title === task.title || m.title.endsWith(` · ${task.title}`) ? task.title : m.title;
+    db.updateTask(task.id, { title, phase_id: m.phase_id, start_date: date, due_date: date });
   } else {
     if (!phaseChanged || !m.phase_id) return;
     task = db.createTask({
@@ -211,6 +213,35 @@ function syncPlanTask(id: number, phaseChanged: boolean): void {
   }
   const happened = m.status !== 'programada';
   if (happened !== (task.status === 'completada')) db.setTaskStatus(task.id, happened ? 'completada' : 'pendiente');
+}
+
+/**
+ * Reuniones agendadas que no quedaron ligadas a su tarea del plan (p. ej. las agendadas al aprobar la propuesta antes
+ * de este arreglo): se reconocen por el título («Cliente · <título de la tarea>») en el mismo proyecto y se ligan, con
+ * la fase de la tarea, para que la tarea muestre la hora y el Meet y siga los cambios de fecha.
+ */
+export function linkOrphanMeetings(projectId?: number): number {
+  const meetings = sqlite
+    .prepare(
+      `SELECT * FROM meetings WHERE plan_task_id IS NULL AND project_id IS NOT NULL AND status != 'descartada' AND COALESCE(kind, 'proyecto') = 'proyecto'${projectId ? ' AND project_id = ?' : ''} ORDER BY start_at`,
+    )
+    .all(...(projectId ? [projectId] : [])) as unknown as Row[];
+  let linked = 0;
+  for (const m of meetings) {
+    const day = new Date(m.start_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+    const candidates = db
+      .listTasks(m.project_id!)
+      .filter((t) => t.kind === 'reunion' && (m.title === t.title || m.title.endsWith(` · ${t.title}`)))
+      .filter((t) => !sqlite.prepare('SELECT 1 FROM meetings WHERE plan_task_id = ?').get(t.id));
+    // Con títulos repetidos, la de la misma fecha.
+    const task = candidates.find((t) => t.due_date === day) ?? (candidates.length === 1 ? candidates[0] : undefined);
+    if (!task) continue;
+    sqlite.prepare('UPDATE meetings SET plan_task_id = ? WHERE id = ?').run(task.id, m.id);
+    if (task.phase_id && !m.phase_id) update(m.id, { phase_id: task.phase_id });
+    else syncPlanTask(m.id, false);
+    linked++;
+  }
+  return linked;
 }
 
 /** La reunión agendada (con evento en Calendar) que representa una tarea del cronograma, si la hay. */
@@ -1131,6 +1162,7 @@ ${context}
       const task = db.getTask(id);
       if (!task) throw new HttpError(404, 'La tarea no existe.');
       visibleProject(task.project_id, v);
+      linkOrphanMeetings(task.project_id);
       const m = sqlite.prepare('SELECT * FROM meetings WHERE plan_task_id = ?').get(task.id) as unknown as Row | undefined;
       const shown = m && (v.kind === 'owner' || (['programada', 'aprobada'].includes(m.status) && !m.tentative));
       json(res, 200, { meeting: shown ? view(m, v) : null, canSchedule: v.kind === 'owner' && google.connectionStatus().connected && google.hasAnyScope('calendar.events') });
@@ -1261,6 +1293,7 @@ ${context}
 
     case 'GET projects/:id/meetings': {
       const project = visibleProject(id, v);
+      linkOrphanMeetings(project.id);
       const rows = sqlite.prepare('SELECT * FROM meetings WHERE project_id = ? ORDER BY start_at DESC').all(project.id) as unknown as Row[];
       json(res, 200, rows.filter((m) => v.kind === 'owner' || (['programada', 'aprobada'].includes(m.status) && !m.tentative)).map((m) => view(m, v)));
       return true;

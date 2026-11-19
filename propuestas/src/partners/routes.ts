@@ -305,8 +305,9 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
       });
     });
     // Reuniones de avance: también son tareas del cronograma, en su fase y con su fecha.
+    const meetingTaskIds: number[] = [];
     for (const m of draft.meetings) {
-      db.createTask({
+      const mt = db.createTask({
         projectId: p.id,
         phaseId: phaseIds[m.phaseIndex] ?? null,
         title: m.title,
@@ -319,6 +320,7 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
         source: 'propuesta',
         kind: 'reunion',
       });
+      meetingTaskIds.push(mt.id);
     }
     createPayments(p.id, draft.payments);
     // Si vino de una aprobación del cliente desde el enlace, queda cerrada con su proyecto.
@@ -326,7 +328,7 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
     if (approvalId && getApproval(approvalId)?.proposal_id === proposalId) closeApproval(approvalId, 'convertida', p.id);
     const a = actor(v);
     db.logActivity({ projectId: p.id, actorKind: a.kind, actorName: a.name, type: 'project_created', data: { tasks: position } });
-    return { project: p, client: theClient };
+    return { project: p, client: theClient, meetingTaskIds };
   });
 
   const account = db.getClientAccount(created.client.id)!;
@@ -356,6 +358,8 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
           teamIds: [],
           guests: [],
           tentative: (rawMeetings[i] as { tentative?: unknown }).tentative === true,
+          // La reunión queda ligada a su tarea del cronograma (y a su fase), sin crear otra.
+          taskId: created.meetingTaskIds[i] ?? null,
         },
         v,
       );
@@ -426,8 +430,9 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
         tasks++;
       }
     }
+    const meetingTaskIds: number[] = [];
     for (const m of draft.meetings) {
-      db.createTask({
+      const mt = db.createTask({
         projectId,
         phaseId: phaseIds[m.phaseIndex] ?? null,
         title: m.title,
@@ -440,6 +445,7 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
         source: 'propuesta',
         kind: 'reunion',
       });
+      meetingTaskIds.push(mt.id);
     }
     createPayments(projectId, draft.payments);
     const end = optDate(project.endDate) ?? null;
@@ -461,7 +467,7 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
       type: 'project_extended',
       data: { option: draft.approvedOption, phases: draft.phases.map((p) => p.name), tasks },
     });
-    return { tasks };
+    return { tasks, meetingTaskIds };
   });
 
   const updated = db.getProject(projectId)!;
@@ -481,6 +487,7 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
           teamIds: [],
           guests: [],
           tentative: (rawMeetings[i] as { tentative?: unknown }).tentative === true,
+          taskId: added.meetingTaskIds[i] ?? null,
         },
         v,
       );

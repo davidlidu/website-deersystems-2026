@@ -8,7 +8,7 @@ import * as db from './db.ts';
 import { HttpError, json, readJson, redirect, sendFile } from './http.ts';
 import { projectsForProposal, pruneNotifications } from './partners/db.ts';
 import { startShareFixer } from './partners/files.ts';
-import { startScheduler } from './partners/meetings.ts';
+import { linkOrphanMeetings, startScheduler } from './partners/meetings.ts';
 import { startUpdatesScheduler } from './partners/updates.ts';
 import { startScheduledMails } from './partners/scheduled.ts';
 import { flushAll } from './partners/notify.ts';
@@ -225,6 +225,13 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 }
 
 pruneNotifications();
+// Reuniones agendadas al aprobar propuestas que quedaron sin ligar a su tarea del plan.
+try {
+  const n = linkOrphanMeetings();
+  if (n) console.log(`Reuniones ligadas a su tarea del plan: ${n}.`);
+} catch (err) {
+  console.error('No se pudieron ligar las reuniones a sus tareas:', (err as Error).message);
+}
 startScheduler();
 startUpdatesScheduler();
 startScheduledMails();
