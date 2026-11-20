@@ -418,7 +418,8 @@ export function meetingSummary(p: {
   agreements: string[];
   ourTasks: string[];
   clientTasks: string[];
-  url: string;
+  /** null = reunión sin proyecto y cliente sin cuenta en el portal: sin botón. */
+  url: string | null;
 }): Mail {
   return {
     to: p.to,
@@ -432,8 +433,11 @@ export function meetingSummary(p: {
         { heading: 'Tareas de tu equipo', bullets: p.clientTasks },
         { heading: 'Tareas de DeerSystems', bullets: p.ourTasks },
       ],
-      cta: { label: 'Ver el proyecto', url: p.url },
-      footnote: 'Las tareas ya quedaron registradas en DeerSystems Partners. Si algo no quedó bien, respóndenos este correo.',
+      ...(p.url ? { cta: { label: p.url.includes('/proyectos/') ? 'Ver el proyecto' : 'Ir a DeerSystems Partners', url: p.url } } : {}),
+      footnote:
+        p.ourTasks.length || p.clientTasks.length
+          ? 'Las tareas ya quedaron registradas en DeerSystems Partners. Si algo no quedó bien, respóndenos este correo.'
+          : 'Si algo no quedó bien, respóndenos este correo.',
     }),
   };
 }

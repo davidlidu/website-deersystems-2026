@@ -271,8 +271,8 @@ export interface Meeting {
   projectName: string | null;
   /** Fase del proyecto; null = fuera de las fases. */
   phaseId?: number | null;
-  /** proyecto = seguimiento; discovery / proposal = llamadas comerciales. */
-  kind?: 'proyecto' | 'discovery' | 'proposal';
+  /** proyecto = seguimiento; discovery / proposal = llamadas comerciales; cliente = reunión con un cliente sin proyecto. */
+  kind?: 'proyecto' | 'discovery' | 'proposal' | 'cliente';
   prospect?: { company: string; contact: string; email: string } | null;
   /** Solo tú: la propuesta de la Proposal Call y si ya se envió. */
   proposal?: { id: number; title: string; slug: string; url: string; version: number; active: boolean; views: number } | null;

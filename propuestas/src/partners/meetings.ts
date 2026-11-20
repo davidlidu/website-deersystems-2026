@@ -22,7 +22,7 @@ import { onScheduled, readSendAt, scheduleMail } from './scheduled.ts';
  * Estados: programada → esperando (terminó, falta transcripción) → borrador (IA lista) → aprobada.
  * También: sin_transcripcion, error (la IA falló, se puede reintentar) y descartada.
  */
-export type MeetingKind = 'proyecto' | 'discovery' | 'proposal';
+export type MeetingKind = 'proyecto' | 'discovery' | 'proposal' | 'cliente';
 export type MeetingStatus = 'programada' | 'esperando' | 'borrador' | 'aprobada' | 'sin_transcripcion' | 'error' | 'descartada';
 
 export interface Attendee {
@@ -63,7 +63,10 @@ interface Row {
   phase_id: number | null;
   /** La tarea tipo reunión que la muestra en el cronograma (se crea al asignarle una fase). */
   plan_task_id: number | null;
-  /** proyecto = seguimiento de un proyecto; discovery / proposal = llamadas comerciales (antes de haber proyecto). */
+  /**
+   * proyecto = seguimiento de un proyecto; discovery / proposal = llamadas comerciales (antes de haber proyecto);
+   * cliente = reunión con un cliente fuera de un proyecto (p. ej. para hablar de uno futuro): resumen y correo igual.
+   */
   kind: MeetingKind;
   /** Prospecto de la llamada comercial: { company, contact, email } (JSON). */
   prospect: string | null;
@@ -141,7 +144,7 @@ interface Prospect {
   email: string;
 }
 const prospectOf = (m: Row): Prospect | null => parse<Prospect | null>(m.prospect, null);
-export const KIND_LABEL: Record<MeetingKind, string> = { proyecto: 'Seguimiento', discovery: 'Discovery Call', proposal: 'Proposal Call' };
+export const KIND_LABEL: Record<MeetingKind, string> = { proyecto: 'Seguimiento', discovery: 'Discovery Call', proposal: 'Proposal Call', cliente: 'Reunión' };
 
 const now = () => new Date().toISOString();
 const get = (id: number) => sqlite.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as unknown as Row | undefined;
@@ -449,7 +452,7 @@ async function generate(m: Row): Promise<void> {
     purpose: 'reunion',
     system: SYSTEM,
     maxOutputTokens: 8192,
-    prompt: `Proyecto: ${project?.name ?? 'sin proyecto asociado'}
+    prompt: `Proyecto: ${project?.name ?? (m.kind === 'cliente' ? 'ninguno todavía: es una conversación con el cliente fuera de un proyecto (p. ej. sobre un proyecto futuro)' : 'sin proyecto asociado')}
 Alcance aprobado (extracto): ${(project?.scope ?? '').slice(0, 3000) || '—'}
 
 Tareas abiertas del proyecto (no las repitas):
@@ -663,7 +666,7 @@ export function startScheduler(): void {
 /** El mismo correo sirve para enviarlo y para la vista previa: lo que ves es lo que recibe el cliente. */
 function summaryMail(
   m: Row,
-  project: db.Project,
+  project: db.Project | undefined,
   to: string,
   content: { summary: string; agreements: string[]; tasks: { title: string; side: db.Side; dueDate: string | null }[] },
 ) {
@@ -672,16 +675,19 @@ function summaryMail(
     new Date(`${iso}T12:00:00`).toLocaleDateString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'America/Bogota' });
   const bullets = (side: db.Side) =>
     content.tasks.filter((t) => t.side === side).map((t) => (t.dueDate ? `${t.title} · para el ${day(t.dueDate)}` : t.title));
+  // Sin proyecto (reunión con cliente): el nombre del cliente y, si tiene cuenta, el enlace al portal.
+  const clientId = project?.client_id ?? m.client_id;
+  const hasPortal = !!clientId && !!db.getClientAccount(clientId);
   return meetingSummary({
     to,
-    projectName: project.name,
+    projectName: project?.name ?? (clientId ? db.getClient(clientId)?.name : null) ?? prospectOf(m)?.company ?? 'DeerSystems',
     meetingTitle: m.title,
     date,
     summary: content.summary,
     agreements: content.agreements,
     ourTasks: bullets('deersystems'),
     clientTasks: bullets('cliente'),
-    url: `${PARTNERS_URL}/proyectos/${project.id}?tab=reuniones`,
+    url: project ? `${PARTNERS_URL}/proyectos/${project.id}?tab=reuniones` : hasPortal ? PARTNERS_URL : null,
   });
 }
 
@@ -706,8 +712,10 @@ function readContent(body: Record<string, unknown>) {
 
 // ───────── Agendar ─────────
 
+export type SalesKind = 'discovery' | 'proposal' | 'cliente';
+
 export interface SalesCallInput {
-  kind: 'discovery' | 'proposal';
+  kind: SalesKind;
   clientId: number | null;
   company: string;
   contact: string;
@@ -724,8 +732,8 @@ export interface SalesCallInput {
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** «Discovery Call - Empresa (Contacto)» o «Proposal Call - Empresa (Contacto)». */
-export const salesTitle = (kind: 'discovery' | 'proposal', company: string, contact: string) =>
+/** «Discovery Call - Empresa (Contacto)», «Proposal Call - Empresa (Contacto)» o «Reunión - Empresa (Contacto)». */
+export const salesTitle = (kind: SalesKind, company: string, contact: string) =>
   `${KIND_LABEL[kind]} - ${company || 'Cliente'}${contact ? ` (${contact})` : ''}`;
 
 /**
@@ -770,7 +778,9 @@ export async function scheduleSalesCall(input: SalesCallInput): Promise<Row> {
         agenda ||
         (input.kind === 'discovery'
           ? 'Conversación inicial para entender tu negocio, tus retos y cómo podemos ayudarte.'
-          : 'Presentación de la propuesta de DeerSystems.'),
+          : input.kind === 'cliente'
+            ? 'Conversación con DeerSystems sobre tus ideas y los siguientes pasos.'
+            : 'Presentación de la propuesta de DeerSystems.'),
       startIso: start.toISOString(),
       endIso: end.toISOString(),
       attendees: [...emails],
@@ -1021,7 +1031,7 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
       requireOwner(v);
       const body = await readJson(req);
       const m = await scheduleSalesCall({
-        kind: body.kind === 'proposal' ? 'proposal' : 'discovery',
+        kind: body.kind === 'proposal' || body.kind === 'cliente' ? body.kind : 'discovery',
         clientId: Number(body.clientId) || null,
         company: str(body.company, 120),
         contact: str(body.contact, 120),
@@ -1420,9 +1430,11 @@ ${context}
       const m = visible(id, v);
       const body = await readJson(req);
       const project = db.getProject(Number(body.projectId) || m.project_id || 0);
-      if (!project) throw new HttpError(400, 'Elige el proyecto de la reunión.');
-      const to = str(body.to, 200) || db.getClientAccount(project.client_id)?.email || '';
-      const mail = summaryMail(m, project, to, readContent(body));
+      if (!project && m.kind !== 'cliente') throw new HttpError(400, 'Elige el proyecto de la reunión.');
+      const clientId = project?.client_id ?? m.client_id;
+      const to = str(body.to, 200) || (clientId ? db.getClientAccount(clientId)?.email : '') || prospectOf(m)?.email || '';
+      const content = readContent(body);
+      const mail = summaryMail(m, project, to, project ? content : { ...content, tasks: [] });
       json(res, 200, { subject: mail.subject, to, html: mail.html });
       return true;
     }
@@ -1442,8 +1454,10 @@ ${context}
       if (m.status === 'aprobada') throw new HttpError(409, 'La reunión ya fue aprobada.');
       const body = await readJson(req);
       const project = db.getProject(Number(body.projectId) || m.project_id || 0);
-      if (!project) throw new HttpError(400, 'Elige el proyecto de la reunión.');
-      const content = readContent(body);
+      // Una reunión con cliente sin proyecto se aprueba igual: se envía el resumen, sin crear tareas.
+      if (!project && m.kind !== 'cliente') throw new HttpError(400, 'Elige el proyecto de la reunión.');
+      const read = readContent(body);
+      const content = project ? read : { ...read, tasks: [] };
       const { summary, agreements, tasks } = content;
       if (!summary) throw new HttpError(400, 'El resumen está vacío.');
       const recipients = [...new Set((Array.isArray(body.recipients) ? body.recipients : []).map((e) => str(e, 200).toLowerCase()))].filter((e) =>
@@ -1451,26 +1465,28 @@ ${context}
       );
       const sendAt = readSendAt(body.sendAt);
 
-      const created = db.transaction(() =>
-        tasks.map((t) =>
-          db.createTask({
-            projectId: project.id,
-            phaseId: null,
-            title: t.title,
-            description: t.description,
-            side: t.side,
-            assigneeId: t.assigneeId,
-            startDate: null,
-            dueDate: t.dueDate,
-            position: db.nextTaskPosition(project.id),
-            source: 'reunion',
-          }),
-        ),
-      );
+      const created = !project
+        ? []
+        : db.transaction(() =>
+            tasks.map((t) =>
+              db.createTask({
+                projectId: project.id,
+                phaseId: null,
+                title: t.title,
+                description: t.description,
+                side: t.side,
+                assigneeId: t.assigneeId,
+                startDate: null,
+                dueDate: t.dueDate,
+                position: db.nextTaskPosition(project.id),
+                source: 'reunion',
+              }),
+            ),
+          );
       update(m.id, {
         status: 'aprobada',
-        project_id: project.id,
-        client_id: project.client_id,
+        project_id: project?.id ?? null,
+        client_id: project?.client_id ?? m.client_id,
         summary,
         agreements: JSON.stringify(agreements),
         task_ids: JSON.stringify(created.map((t) => t.id)),
@@ -1479,17 +1495,19 @@ ${context}
         sent_to: JSON.stringify(recipients),
       });
       const a = actor(v);
-      db.logActivity({
-        projectId: project.id,
-        actorKind: a.kind,
-        actorName: a.name,
-        type: 'meeting_approved',
-        data: { title: m.title, tasks: created.length, excerpt: summary.slice(0, 140) },
-      });
-      const path = `/proyectos/${project.id}?tab=reuniones`;
-      notify('meeting_summary', { actor: v, projectId: project.id, title: `Resumen de la reunión «${m.title}»`, body: `${created.length} tareas nuevas`, path });
-      for (const t of created) {
-        if (t.assignee_id) {
+      if (project) {
+        db.logActivity({
+          projectId: project.id,
+          actorKind: a.kind,
+          actorName: a.name,
+          type: 'meeting_approved',
+          data: { title: m.title, tasks: created.length, excerpt: summary.slice(0, 140) },
+        });
+        const path = `/proyectos/${project.id}?tab=reuniones`;
+        notify('meeting_summary', { actor: v, projectId: project.id, title: `Resumen de la reunión «${m.title}»`, body: `${created.length} tareas nuevas`, path });
+      }
+      for (const t of project ? created : []) {
+        if (t.assignee_id && project) {
           notify('team_assigned', {
             actor: v,
             projectId: project.id,

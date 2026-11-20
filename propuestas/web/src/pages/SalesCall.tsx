@@ -6,8 +6,11 @@ import { SlotStatus } from './project/Schedule';
 import { ScheduleButton, ScheduledMails } from '../Schedule';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const LABEL = { discovery: 'Discovery Call', proposal: 'Proposal Call' } as const;
+const LABEL = { discovery: 'Discovery Call', proposal: 'Proposal Call', cliente: 'Reunión con cliente' } as const;
+/** Cómo empieza el título del evento: «Reunión - Empresa (Contacto)». */
+const PREFIX: Record<Kind, string> = { discovery: 'Discovery Call', proposal: 'Proposal Call', cliente: 'Reunión' };
 type Kind = keyof typeof LABEL;
+const SALES: Kind[] = ['discovery', 'proposal'];
 
 interface ClientOption {
   id: number;
@@ -24,7 +27,8 @@ function nextSlot(): string {
 }
 
 /**
- * Agendar una llamada comercial: «Discovery Call - Cliente (Contacto)» o «Proposal Call - Cliente (Contacto)».
+ * Agendar una llamada comercial: «Discovery Call - Cliente (Contacto)» o «Proposal Call - Cliente (Contacto)»,
+ * o una reunión con un cliente fuera de un proyecto («Reunión - Cliente (Contacto)»), p. ej. para hablar de uno futuro.
  * Sirve para un cliente que ya existe o para un prospecto nuevo. En la Proposal Call se asigna la propuesta ya subida.
  */
 export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDone: (m: Meeting) => void }) {
@@ -44,7 +48,7 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
   const { busy, run } = useAction();
   const toast = useToast();
 
-  const auto = `${LABEL[kind]} - ${company.trim() || 'Cliente'}${contact.trim() ? ` (${contact.trim()})` : ''}`;
+  const auto = `${PREFIX[kind]} - ${company.trim() || 'Cliente'}${contact.trim() ? ` (${contact.trim()})` : ''}`;
   const active = (proposals.data ?? []).filter((p) => p.active);
 
   const pickClient = (id: number | null) => {
@@ -77,7 +81,7 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
           .split(/[,;\s]+/)
           .filter((x) => x.includes('@')),
       });
-      toast(`${LABEL[kind]} agendada. Google Calendar envió la invitación con el enlace de Meet.`);
+      toast(`${kind === 'cliente' ? 'Reunión' : LABEL[kind]} agendada. Google Calendar envió la invitación con el enlace de Meet.`);
       onDone(m);
     });
   };
@@ -86,20 +90,24 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
 
   return (
     <form className="stack" onSubmit={submit}>
-      <div className="segmented" role="radiogroup" aria-label="Tipo de llamada">
-        {(Object.keys(LABEL) as Kind[]).map((k) => (
-          <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'is-active' : ''} onClick={() => {
-              setKind(k);
-              setSlot((s) => ({ ...s, duration: k === 'discovery' ? 30 : 45 }));
-            }}>
-            {LABEL[k]}
-          </button>
-        ))}
-      </div>
+      {kind !== 'cliente' && (
+        <div className="segmented" role="radiogroup" aria-label="Tipo de llamada">
+          {SALES.map((k) => (
+            <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'is-active' : ''} onClick={() => {
+                setKind(k);
+                setSlot((s) => ({ ...s, duration: k === 'discovery' ? 30 : 45 }));
+              }}>
+              {LABEL[k]}
+            </button>
+          ))}
+        </div>
+      )}
       <p className="hint">
         {kind === 'discovery'
           ? 'Primera conversación para entender el negocio y sus retos. Al terminar, la IA resume la llamada para armar la propuesta.'
-          : 'Presentación de la propuesta. Al terminar, desde la reunión la envías con un mensaje de agradecimiento, o subes antes una versión nueva según lo que se habló.'}
+          : kind === 'cliente'
+            ? 'Para hablar con un cliente fuera de un proyecto en marcha, por ejemplo sobre un proyecto futuro. Al terminar se busca la transcripción, la IA prepara el resumen y los acuerdos, y tú lo revisas y se lo envías. Si después nace el proyecto, se la asignas desde la reunión.'
+            : 'Presentación de la propuesta. Al terminar, desde la reunión la envías con un mensaje de agradecimiento, o subes antes una versión nueva según lo que se habló.'}
       </p>
 
       <div className="form-grid">
@@ -199,7 +207,17 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
       <SlotStatus date={slot.date} time={slot.time} duration={slot.duration} onPick={(date, time) => setSlot({ ...slot, date, time })} onConflict={setBlocked} />
       <label className="field">
         <span className="field__label">Agenda (va en la invitación)</span>
-        <textarea name="agenda" rows={3} placeholder={kind === 'discovery' ? 'Conocer el negocio, los procesos actuales y lo que quieren lograr…' : 'Presentación de la propuesta, preguntas y siguientes pasos…'} />
+        <textarea
+          name="agenda"
+          rows={3}
+          placeholder={
+            kind === 'discovery'
+              ? 'Conocer el negocio, los procesos actuales y lo que quieren lograr…'
+              : kind === 'cliente'
+                ? 'Lo que quieren lograr con el nuevo proyecto, alcance inicial y siguientes pasos…'
+                : 'Presentación de la propuesta, preguntas y siguientes pasos…'
+          }
+        />
       </label>
       {(team.data ?? []).some((m) => m.active) && (
         <fieldset className="invitees">
@@ -229,10 +247,14 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
           <input name="guests" placeholder="socio@empresa.com" />
         </span>
       </label>
-      <p className="hint">Activa la transcripción en Meet: con ella la IA resume la llamada y personaliza el correo de la propuesta.</p>
+      <p className="hint">
+        {kind === 'cliente'
+          ? 'Activa la transcripción en Meet: con ella la IA resume la reunión y te deja listo el correo con el resumen y los acuerdos.'
+          : 'Activa la transcripción en Meet: con ella la IA resume la llamada y personaliza el correo de la propuesta.'}
+      </p>
       <div className="actions actions--tight">
         <button className="btn btn--primary" disabled={busy || blocked}>
-          {busy ? 'Agendando…' : `Agendar ${LABEL[kind]}`}
+          {busy ? 'Agendando…' : `Agendar ${kind === 'cliente' ? 'reunión' : LABEL[kind]}`}
         </button>
       </div>
     </form>

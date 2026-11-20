@@ -40,11 +40,13 @@ function MeetingRow({ m }: { m: Meeting }) {
         <strong>{m.title}</strong>
         <small>
           {m.clientName ?? 'Sin cliente'}
-          {m.kind && m.kind !== 'proyecto'
+          {m.kind === 'discovery' || m.kind === 'proposal'
             ? ` · ${m.kind === 'discovery' ? 'Discovery Call' : 'Proposal Call'}${m.proposalSentAt ? ' · propuesta enviada' : ''}`
             : m.projectName
               ? ` · ${m.projectName}`
-              : ' · sin proyecto'}
+              : m.kind === 'cliente'
+                ? ' · reunión con cliente'
+                : ' · sin proyecto'}
         </small>
       </span>
       <span className="mono">{formatMeetingTime(m.startAt)}</span>
@@ -59,7 +61,7 @@ function MeetingRow({ m }: { m: Meeting }) {
 export function MeetingsPage() {
   const { data, error, loading, reload, setData } = useApi<{ items: Meeting[]; sync: SyncState; settings: { importExternal: boolean } }>('meetings');
   const [scheduling, setScheduling] = useState(false);
-  const [callKind, setCallKind] = useState<'proyecto' | 'discovery' | 'proposal'>('proyecto');
+  const [callKind, setCallKind] = useState<'proyecto' | 'cliente' | 'discovery' | 'proposal'>('proyecto');
   const { busy, run } = useAction();
   const toast = useToast();
   const [showOld, setShowOld] = useState(false);
@@ -98,8 +100,9 @@ export function MeetingsPage() {
       <ClientsTabs active="reuniones" />
       <PageHead eyebrow="Clientes · Reuniones" title={<>Reuniones con <span className="grad">clientes</span></>}>
         <p>
-          Agenda aquí las reuniones de cada proyecto en marcha: se crean en tu Google Calendar con Meet y quedan asignadas al proyecto. Al
-          terminar, se busca la transcripción y la IA prepara el resumen y las tareas. Tú lo revisas y lo envías.
+          Agenda aquí las reuniones de cada proyecto en marcha, las que tengas con un cliente sin proyecto (por ejemplo, para hablar de uno futuro) y
+          las llamadas comerciales: se crean en tu Google Calendar con Meet. Al terminar, se busca la transcripción y la IA prepara el resumen y las tareas.
+          Tú lo revisas y lo envías.
         </p>
         <div className="sync-bar">
           <button className="btn btn--primary btn--sm" onClick={() => setScheduling(!scheduling)}>
@@ -134,6 +137,7 @@ export function MeetingsPage() {
             {(
               [
                 ['proyecto', 'Seguimiento de proyecto'],
+                ['cliente', 'Reunión con cliente'],
                 ['discovery', 'Discovery Call'],
                 ['proposal', 'Proposal Call'],
               ] as const
@@ -152,7 +156,7 @@ export function MeetingsPage() {
             />
           ) : (
             <div className="card form-section">
-              <h2>Agendar llamada comercial</h2>
+              <h2>{callKind === 'cliente' ? 'Agendar reunión con cliente' : 'Agendar llamada comercial'}</h2>
               <SalesCallForm
                 key={callKind}
                 kind={callKind}
@@ -341,7 +345,9 @@ export function MeetingReviewPage({ id }: { id: number }) {
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const m = data!;
-  const sales = !!m.kind && m.kind !== 'proyecto';
+  const sales = m.kind === 'discovery' || m.kind === 'proposal';
+  // Reunión con cliente sin proyecto: se aprueba y se envía el resumen, pero las tareas solo se crean si le asignas un proyecto.
+  const loose = m.kind === 'cliente' && !m.projectId;
   // Las llamadas comerciales no tienen proyecto: su resumen se lee aquí, sin aprobar ni crear tareas.
   const editable = !sales && (m.status === 'borrador' || (m.status === 'error' && !!m.summary));
   const canGenerate = ['esperando', 'sin_transcripcion', 'error', 'borrador'].includes(m.status);
@@ -388,13 +394,16 @@ export function MeetingReviewPage({ id }: { id: number }) {
   };
 
   const approve = (sendAt?: string) => {
-    if (!m.projectId) return toast('Elige el proyecto de la reunión.', true);
+    if (!m.projectId && !loose) return toast('Elige el proyecto de la reunión.', true);
     if (!summary.trim()) return toast('El resumen está vacío.', true);
     const to = [...recipients];
     if (sendAt && !to.length) return toast('Marca al menos un destinatario para programar el correo.', true);
-    const chosen = tasks.filter((t) => t.include && t.title.trim());
-    const mailPart = !to.length ? '' : sendAt ? ` y el resumen saldrá a ${to.join(', ')} el ${formatDateTime(sendAt)}` : ` y se enviará el resumen a ${to.join(', ')}`;
-    if (!confirm(`Se crearán ${chosen.length} tareas en «${m.projectName}»${mailPart}. ¿Continuar?`)) return;
+    const chosen = loose ? [] : tasks.filter((t) => t.include && t.title.trim());
+    const mailPart = !to.length ? '' : sendAt ? ` el resumen saldrá a ${to.join(', ')} el ${formatDateTime(sendAt)}` : ` se enviará el resumen a ${to.join(', ')}`;
+    const ask = loose
+      ? `La reunión no tiene proyecto: no se crean tareas${to.length ? ' y' + mailPart : ' ni se envía correo'}. ¿Continuar?`
+      : `Se crearán ${chosen.length} tareas en «${m.projectName}»${to.length ? ' y' + mailPart : ''}. ¿Continuar?`;
+    if (!confirm(ask)) return;
     run(async () => {
       const r = await api<{ meeting: Meeting; tasks: number; mail: { sent: string[]; failed: string[]; error: string | null; scheduledAt: string | null } }>(
         'POST',
@@ -503,7 +512,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
       {result && (
         <div className="stack">
           <p className="callout">
-            Listo: se crearon {result.tasks} tareas.{' '}
+            {m.projectId ? `Listo: se crearon ${result.tasks} tareas.` : 'Listo: resumen aprobado.'}{' '}
             {result.mail.scheduledAt
               ? `El resumen saldrá el ${formatDateTime(result.mail.scheduledAt)}.`
               : result.mail.sent.length
@@ -695,9 +704,15 @@ export function MeetingReviewPage({ id }: { id: number }) {
             <div className="form-section__head">
               <h2>Tareas que salen de la reunión</h2>
               <span className="mono">
-                {tasks.filter((t) => t.include).length} de {tasks.length} se crearán
+                {loose ? 'no se crean' : `${tasks.filter((t) => t.include).length} de ${tasks.length} se crearán`}
               </span>
             </div>
+            {loose && (
+              <p className="callout">
+                Esta reunión no tiene proyecto: se envían el resumen y los acuerdos, sin tareas. Si ya hay un proyecto con este cliente, asígnaselo arriba y las
+                tareas marcadas se crearán en él.
+              </p>
+            )}
             {tasks.map((t) => (
               <div key={t.key} className={`draft-task side-${t.side}${t.include ? '' : ' is-excluded'}`}>
                 <div className="draft-task__row">
@@ -746,7 +761,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
               projectId: m.projectId,
               summary,
               agreements: agreements.filter((a) => a.trim()),
-              tasks: tasks.filter((t) => t.include && t.title.trim()).map((t) => ({ title: t.title, side: t.side, dueDate: t.dueDate || null })),
+              tasks: loose ? [] : tasks.filter((t) => t.include && t.title.trim()).map((t) => ({ title: t.title, side: t.side, dueDate: t.dueDate || null })),
               to: [...recipients].join(', '),
             }}
           />
@@ -809,7 +824,11 @@ export function MeetingReviewPage({ id }: { id: number }) {
                 Descartar
               </button>
             </div>
-            <p className="hint">Con «Programar» las tareas entran ya y el resumen sale a la hora que elijas. Al aprobar, las tareas entran al proyecto y a la bitácora, y el cliente ve el resumen en la pestaña Reuniones.</p>
+            <p className="hint">
+              {loose
+                ? 'Con «Programar» el resumen sale a la hora que elijas. La reunión queda aprobada aquí, en Reuniones; si después nace el proyecto, se la asignas.'
+                : 'Con «Programar» las tareas entran ya y el resumen sale a la hora que elijas. Al aprobar, las tareas entran al proyecto y a la bitácora, y el cliente ve el resumen en la pestaña Reuniones.'}
+            </p>
           </section>
         </div>
       )}
