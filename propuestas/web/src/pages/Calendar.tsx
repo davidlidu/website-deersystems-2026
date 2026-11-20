@@ -38,6 +38,17 @@ interface Data {
 const COLORS = ['#7ed957', '#38bdf8', '#fb8500', '#c084fc', '#f472b6', '#facc15', '#2dd4bf', '#f87171', '#a3e635', '#60a5fa'];
 
 const dayOf = (t: Task) => t.dueDate ?? t.startDate;
+
+type Focus = 'todo' | 'atrasadas' | 'hoy' | 'semana' | 'revision' | 'reuniones';
+const FOCUS_LABEL: Record<Exclude<Focus, 'todo'>, string> = {
+  atrasadas: 'las atrasadas',
+  hoy: 'lo que vence hoy',
+  semana: 'lo de esta semana',
+  revision: 'lo que está en revisión del cliente',
+  reuniones: 'las reuniones de esta semana',
+};
+/** Cuántos proyectos se muestran en la leyenda antes de «+N». */
+const LEGEND_MAX = 5;
 /** Lunes de la semana de una fecha. */
 const monday = (iso: string) => addDays(iso, -((new Date(`${iso}T12:00:00`).getDay() + 6) % 7));
 
@@ -45,7 +56,8 @@ export function CalendarPage({ me }: { me: Me }) {
   const [all, setAll] = useState(false);
   const { data, error, loading, setData, reload } = useApi<Data>(`deliveries${all ? '?all=1' : ''}`);
   const team = useApi<TeamMember[]>(me.role !== 'client' ? 'team' : null);
-  const [focus, setFocus] = useState<'todo' | 'atrasadas' | 'semana'>('todo');
+  const [focus, setFocus] = useState<Focus>('todo');
+  const [legendOpen, setLegendOpen] = useState(false);
   const [openId, setOpenId] = useState<number | null>(null);
   const { run } = useAction();
   const [view, setView] = useState<'mes' | 'agenda'>(() => (window.matchMedia?.('(max-width: 720px)').matches ? 'agenda' : 'mes'));
@@ -73,7 +85,17 @@ export function CalendarPage({ me }: { me: Me }) {
     const d = dayOf(t);
     return !!d && d >= today() && d < addDays(week, 7) && t.status !== 'completada';
   };
-  const shown = focus === 'atrasadas' ? tasks.filter(isOverdue) : focus === 'semana' ? tasks.filter(inWeek) : tasks;
+  const isToday = (t: Task) => dayOf(t) === today() && t.status !== 'completada';
+  const inReview = (t: Task) => t.status === 'en_revision';
+  const FILTERS: Record<Focus, (t: Task) => boolean> = {
+    todo: () => true,
+    atrasadas: isOverdue,
+    hoy: isToday,
+    semana: inWeek,
+    revision: inReview,
+    reuniones: (t) => t.isMeeting && inWeek(t),
+  };
+  const shown = tasks.filter(FILTERS[focus]);
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} />;
@@ -81,6 +103,32 @@ export function CalendarPage({ me }: { me: Me }) {
 
   const overdue = tasks.filter(isOverdue).length;
   const thisWeek = tasks.filter(inWeek).length;
+  const weekClient = tasks.filter((t) => inWeek(t) && t.side === 'cliente').length;
+  const dueToday = tasks.filter(isToday).length;
+  const review = tasks.filter(inReview).length;
+  const weekMeetings = tasks.filter((t) => t.isMeeting && inWeek(t)).length;
+  const pending = tasks.filter((t) => t.status !== 'completada' && !t.isMeeting).length;
+  const totals = data.projects.reduce((s, p) => ({ done: s.done + p.progress.done, total: s.total + p.progress.total }), { done: 0, total: 0 });
+  const avgProgress = totals.total ? Math.round((totals.done / totals.total) * 100) : 0;
+  const stat = (f: Exclude<Focus, 'todo'>, n: number, label: string, sub: string, tone = '') => (
+    <button
+      className={`gcal-stat${tone ? ` is-${tone}` : ''}${focus === f ? ' is-active' : ''}`}
+      aria-pressed={focus === f}
+      onClick={() => setFocus(focus === f ? 'todo' : f)}
+      title={`Ver solo ${FOCUS_LABEL[f]}`}
+    >
+      <strong>{n}</strong>
+      <span>{label}</span>
+      <small>{sub}</small>
+    </button>
+  );
+  // Leyenda corta: el cliente (o el proyecto, para el cliente); el nombre completo va en el título.
+  const legendName = (p: (typeof data.projects)[number]) => {
+    if (me.role === 'client') return p.name;
+    const same = data.projects.filter((x) => x.clientName === p.clientName).length > 1;
+    return same ? `${p.clientName} · ${p.name}` : p.clientName || p.name;
+  };
+  const legend = legendOpen ? data.projects : data.projects.slice(0, LEGEND_MAX);
   // Lo más importante de la semana: lo atrasado primero, luego lo que vence antes; las entregas pesan más que las reuniones.
   const key = [...tasks.filter((t) => isOverdue(t) || inWeek(t))]
     .sort(
@@ -141,36 +189,27 @@ export function CalendarPage({ me }: { me: Me }) {
               </>
             }
           >
-            <p>Qué se entrega y cuándo en cada proyecto. Haz clic en una entrega para verla y actualizarla aquí mismo.</p>
+            <p className="gcal-lead">Qué se entrega y cuándo en cada proyecto. Toca un indicador para filtrar, o una entrega para actualizarla aquí mismo.</p>
           </PageHead>
 
           <div className="gcal-stats" role="group" aria-label="Ver solo">
-            <button
-              className={`gcal-stat${overdue ? ' is-bad' : ''}${focus === 'atrasadas' ? ' is-active' : ''}`}
-              aria-pressed={focus === 'atrasadas'}
-              onClick={() => setFocus(focus === 'atrasadas' ? 'todo' : 'atrasadas')}
-              title="Ver solo las atrasadas"
-            >
-              <strong>{overdue}</strong>
-              <span>atrasadas</span>
-            </button>
-            <button
-              className={`gcal-stat${focus === 'semana' ? ' is-active' : ''}`}
-              aria-pressed={focus === 'semana'}
-              onClick={() => setFocus(focus === 'semana' ? 'todo' : 'semana')}
-              title="Ver solo lo de esta semana"
-            >
-              <strong>{thisWeek}</strong>
-              <span>para esta semana</span>
-            </button>
+            {stat('atrasadas', overdue, 'Atrasadas', overdue ? `de ${pending} entregas pendientes` : 'todo al día', overdue ? 'bad' : 'good')}
+            {stat('hoy', dueToday, 'Vencen hoy', dueToday ? 'para cerrar hoy' : 'nada para hoy', dueToday ? 'warn' : '')}
+            {stat('semana', thisWeek, 'Esta semana', weekClient ? `${weekClient} a cargo del cliente` : 'todo de nuestro lado')}
+            {stat('revision', review, 'En revisión', review ? 'esperando visto bueno del cliente' : 'nada esperando al cliente')}
+            {stat('reuniones', weekMeetings, 'Reuniones', 'esta semana')}
             <div className="gcal-stat is-static">
               <strong>{data.projects.length}</strong>
-              <span>{all ? 'proyectos' : 'proyectos en curso'}</span>
+              <span>{all ? 'Proyectos' : 'Proyectos en curso'}</span>
+              <small>avance promedio {avgProgress} %</small>
+              <span className="gcal-stat__bar" aria-hidden="true">
+                <span style={{ width: `${avgProgress}%` }} />
+              </span>
             </div>
           </div>
           {focus !== 'todo' && (
             <p className="hint">
-              Viendo solo {focus === 'atrasadas' ? 'las atrasadas' : 'lo de esta semana'} ·{' '}
+              Viendo solo {FOCUS_LABEL[focus]} ·{' '}
               <button className="linklike" onClick={() => setFocus('todo')}>
                 ver todo
               </button>
@@ -252,13 +291,23 @@ export function CalendarPage({ me }: { me: Me }) {
       </div>
 
       {project === 'todos' && data.projects.length > 1 && (
-        <div className="gcal-legend">
-          {data.projects.map((p) => (
-            <button key={p.id} className="gcal-legend__item" onClick={() => setProject(p.id)} title="Ver solo este proyecto">
+        <div className="gcal-legend" aria-label="Proyectos (clic para ver solo uno)">
+          {legend.map((p) => (
+            <button
+              key={p.id}
+              className="gcal-legend__item"
+              onClick={() => setProject(p.id)}
+              title={`${me.role === 'client' ? p.name : `${p.clientName} · ${p.name}`} — ver solo este proyecto`}
+            >
               <span className="gcal-dot" style={{ background: color.get(p.id) }} />
-              {me.role === 'client' ? p.name : `${p.clientName} · ${p.name}`}
+              <span className="gcal-legend__name">{legendName(p)}</span>
             </button>
           ))}
+          {data.projects.length > LEGEND_MAX && (
+            <button className="gcal-legend__more" onClick={() => setLegendOpen(!legendOpen)}>
+              {legendOpen ? 'Ver menos' : `+${data.projects.length - LEGEND_MAX}`}
+            </button>
+          )}
         </div>
       )}
       {project !== 'todos' && (
