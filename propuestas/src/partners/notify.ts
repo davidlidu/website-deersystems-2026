@@ -3,6 +3,7 @@ import * as google from '../google.ts';
 import { notificationDigest } from '../mail.ts';
 import type { Viewer } from './auth.ts';
 import * as db from './db.ts';
+import * as telegram from './telegram.ts';
 
 /**
  * Tipos de aviso. "staff" = te llega a ti y al equipo; "team" = a la persona del equipo asignada;
@@ -27,8 +28,13 @@ export const EVENTS = {
 
 export type EventType = keyof typeof EVENTS;
 
+type Channels = { app: boolean; email: boolean; telegram: boolean };
+
+/** Por Telegram solo te llega a ti: los avisos tuyos o del cliente para el equipo (no los que van al cliente). */
+export const telegramAllowed = (type: EventType) => EVENTS[type].audience === 'owner' || EVENTS[type].audience === 'staff';
+
 export interface NotifySettings {
-  events: Record<EventType, { app: boolean; email: boolean }>;
+  events: Record<EventType, Channels>;
   /** Los avisos del cliente también llegan por correo al equipo (si no, solo a ti). */
   teamEmail: boolean;
   /** Minutos que se esperan para juntar varios avisos en un solo correo. */
@@ -36,25 +42,30 @@ export interface NotifySettings {
 }
 
 const DEFAULTS: NotifySettings = {
-  events: Object.fromEntries(Object.entries(EVENTS).map(([k, e]) => [k, { app: e.app, email: e.email }])) as NotifySettings['events'],
+  events: Object.fromEntries(
+    Object.entries(EVENTS).map(([k, e]) => [k, { app: e.app, email: e.email, telegram: telegramAllowed(k as EventType) }]),
+  ) as NotifySettings['events'],
   teamEmail: false,
   digestMinutes: 3,
 };
 
 export function getSettings(): NotifySettings {
   const saved = db.getSetting<Partial<NotifySettings>>('notifications') ?? {};
-  return { ...DEFAULTS, ...saved, events: { ...DEFAULTS.events, ...(saved.events ?? {}) } };
+  const events = { ...DEFAULTS.events };
+  for (const [k, e] of Object.entries(saved.events ?? {})) if (k in EVENTS) events[k as EventType] = { ...DEFAULTS.events[k as EventType], ...e };
+  return { ...DEFAULTS, ...saved, events };
 }
 
 export function saveSettings(body: Record<string, unknown>): NotifySettings {
   const s = getSettings();
   if (body.events && typeof body.events === 'object') {
-    for (const [k, v] of Object.entries(body.events as Record<string, { app?: unknown; email?: unknown }>)) {
+    for (const [k, v] of Object.entries(body.events as Record<string, { app?: unknown; email?: unknown; telegram?: unknown }>)) {
       if (!(k in EVENTS) || !v) continue;
       const key = k as EventType;
       s.events[key] = {
         app: typeof v.app === 'boolean' ? v.app : s.events[key].app,
         email: typeof v.email === 'boolean' ? v.email : s.events[key].email,
+        telegram: telegramAllowed(key) && (typeof v.telegram === 'boolean' ? v.telegram : s.events[key].telegram),
       };
     }
   }
@@ -133,7 +144,7 @@ export function notify(
   try {
     const s = getSettings();
     const pref = s.events[type];
-    if (!pref.app && !pref.email) return;
+    if (!pref.app && !pref.email && !pref.telegram) return;
     const audience = EVENTS[type].audience;
     const project = ctx.projectId ? db.getProject(ctx.projectId) : undefined;
     // Solo los avisos para ti pueden no tener proyecto (p. ej. una reunión aún sin asociar).
@@ -176,6 +187,9 @@ export function notify(
           link: ctx.path,
           collapse: type === 'client_status',
         });
+      }
+      if (pref.telegram && t.recipient.kind === 'owner' && telegramAllowed(type)) {
+        telegram.sendAlert({ title: ctx.title, body: body || project?.name, path: ctx.path });
       }
       if (email && t.email && !ctx.skipEmail) {
         enqueueMail(t.email, t.name, t.client, { title: ctx.title, body: body || (project?.name ?? ''), url: `${PARTNERS_URL}${ctx.path}` }, s.digestMinutes);

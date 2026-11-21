@@ -2637,7 +2637,7 @@ textarea:focus {
 
 .notify-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 130px 110px;
+  grid-template-columns: minmax(0, 1fr) 130px 110px 100px;
   align-items: center;
   gap: 12px;
   padding: 10px 4px;
@@ -2660,6 +2660,18 @@ textarea:focus {
 
 .notify-row--head > :not(:first-child) {
   color: var(--mute);
+}
+
+.notify-row__na {
+  color: var(--mute);
+}
+
+.steps-list {
+  margin: 0;
+  padding-left: 1.2em;
+  display: grid;
+  gap: 6px;
+  color: var(--body);
 }
 
 .switch {
@@ -2717,7 +2729,7 @@ textarea:focus {
 
 @media (max-width: 720px) {
   .notify-row {
-    grid-template-columns: minmax(0, 1fr) 64px 64px;
+    grid-template-columns: minmax(0, 1fr) 52px 52px 52px;
     font-size: 0.82rem;
   }
 

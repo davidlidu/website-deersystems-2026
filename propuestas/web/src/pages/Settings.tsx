@@ -1033,12 +1033,137 @@ function FinanceTab() {
 
 // ───────── Avisos ─────────
 
-type Channel = 'app' | 'email';
+type Channel = 'app' | 'email' | 'telegram';
 interface NotifySettings {
   events: Record<string, Record<Channel, boolean>>;
   teamEmail: boolean;
   digestMinutes: number;
-  catalog: { key: string; label: string; audience: 'owner' | 'staff' | 'team' | 'client' }[];
+  catalog: { key: string; label: string; audience: 'owner' | 'staff' | 'team' | 'client'; telegram: boolean }[];
+}
+
+interface TelegramStatus {
+  configured: boolean;
+  tokenHint: string | null;
+  botUsername: string | null;
+  linked: boolean;
+  chatName: string | null;
+  linkCode: string | null;
+  linkUrl: string | null;
+}
+
+const CHANNEL_LABEL: Record<Channel, string> = { app: 'en la plataforma', email: 'por correo', telegram: 'por Telegram' };
+
+/** Conectar tu bot de Telegram: token de @BotFather, vincular tu chat con /start y mandar una prueba. */
+function TelegramCard() {
+  const { data, error, loading, reload, setData } = useApi<TelegramStatus>('settings/telegram');
+  const [token, setToken] = useState('');
+  const [changing, setChanging] = useState(false);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  if (loading && !data) return <Loading />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
+  const t = data!;
+
+  const saveToken = () =>
+    run(async () => {
+      setData(await api<TelegramStatus>('PUT', 'settings/telegram', { token }));
+      setToken('');
+      setChanging(false);
+      toast('Bot guardado. Ahora vincula tu chat.');
+    });
+  const link = () =>
+    run(async () => {
+      setData(await api<TelegramStatus>('POST', 'settings/telegram/link'));
+      toast('Chat vinculado: te llegó un mensaje de confirmación.');
+    });
+  const test = () =>
+    run(async () => {
+      await api('POST', 'settings/telegram/test');
+      toast('Aviso de prueba enviado a Telegram.');
+    });
+  const disconnect = () => {
+    if (!confirm('¿Desconectar Telegram? Dejarán de llegarte los avisos por ahí.')) return;
+    run(async () => {
+      setData(await api<TelegramStatus>('POST', 'settings/telegram/disconnect'));
+      toast('Telegram desconectado.');
+    });
+  };
+
+  return (
+    <section className="card form-section">
+      <h2>Telegram</h2>
+      {t.linked ? (
+        <>
+          <p className="callout">
+            Conectado: los avisos te llegan a <strong>{t.chatName}</strong> desde <strong>@{t.botUsername}</strong>. Elige arriba cuáles, en la columna Telegram.
+          </p>
+          <div className="actions actions--tight">
+            <button className="btn btn--primary btn--sm" disabled={busy} onClick={test}>
+              Enviar aviso de prueba
+            </button>
+            <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => setChanging(!changing)}>
+              Cambiar de bot
+            </button>
+            <button className="btn btn--outline btn--sm btn--danger" disabled={busy} onClick={disconnect}>
+              Desconectar
+            </button>
+          </div>
+        </>
+      ) : (
+        <ol className="steps-list">
+          <li>
+            En Telegram, abre <a href="https://t.me/BotFather" target="_blank" rel="noopener">@BotFather</a>, escribe <code>/newbot</code>, ponle un nombre (p. ej.
+            «DeerSystems Avisos») y copia el token que te da.
+          </li>
+          <li>Pégalo aquí y guárdalo.</li>
+          <li>Abre el enlace que aparece, toca «Iniciar» y vuelve a esta página para vincular el chat.</li>
+        </ol>
+      )}
+      {(!t.configured || changing) && (
+        <div className="row-edit">
+          <span className="input">
+            <input
+              type="password"
+              autoComplete="off"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={t.tokenHint ? `Guardado: ${t.tokenHint}` : '123456789:AA…'}
+              aria-label="Token del bot"
+            />
+          </span>
+          <button className="btn btn--primary btn--sm" disabled={busy || !token.trim()} onClick={saveToken}>
+            {busy ? 'Validando…' : 'Guardar token'}
+          </button>
+        </div>
+      )}
+      {t.configured && !t.linked && (
+        <>
+          <p className="hint">
+            Bot <strong>@{t.botUsername}</strong> guardado ({t.tokenHint}). Abre el enlace, toca «Iniciar» en Telegram y luego pulsa «Ya le escribí».
+          </p>
+          <div className="actions actions--tight">
+            {t.linkUrl && (
+              <a className="btn btn--outline btn--sm" href={t.linkUrl} target="_blank" rel="noopener">
+                Abrir @{t.botUsername} en Telegram
+              </a>
+            )}
+            <button className="btn btn--primary btn--sm" disabled={busy} onClick={link}>
+              {busy ? 'Buscando…' : 'Ya le escribí'}
+            </button>
+            <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => setChanging(!changing)}>
+              Cambiar token
+            </button>
+          </div>
+          {t.linkCode && (
+            <p className="hint">
+              Si el enlace no abre, escríbele al bot: <code>/start {t.linkCode}</code>
+            </p>
+          )}
+        </>
+      )}
+      <p className="hint">Por Telegram solo te llegan a ti los avisos marcados; al equipo y a los clientes les siguen llegando en la plataforma y por correo.</p>
+    </section>
+  );
 }
 
 const AUDIENCE: Record<NotifySettings['catalog'][number]['audience'], string> = {
@@ -1063,6 +1188,7 @@ function NotificationsTab() {
       toast('Avisos actualizados.');
     });
   const toggle = (key: string, channel: Channel) => save({ events: { [key]: { ...n.events[key], [channel]: !n.events[key][channel] } } });
+  const channelsOf = (aud: string): Channel[] => (aud === 'owner' || aud === 'staff' ? ['app', 'email', 'telegram'] : ['app', 'email']);
 
   const groups = (['owner', 'staff', 'team', 'client'] as const).map((aud) => ({ aud, rows: n.catalog.filter((c) => c.audience === aud) }));
 
@@ -1072,7 +1198,7 @@ function NotificationsTab() {
         <h2>Qué avisar y por dónde</h2>
         <p className="hint">
           «En la plataforma» aparece en la campana del encabezado. «Por correo» llega desde tu Gmail con el diseño de DeerSystems; si pasan varias
-          cosas seguidas, se juntan en un solo correo.
+          cosas seguidas, se juntan en un solo correo. «Telegram» te llega al instante a ti, al chat que conectes abajo.
         </p>
         {groups.map(({ aud, rows }) => (
           <div key={aud} className="notify-group">
@@ -1080,23 +1206,25 @@ function NotificationsTab() {
               <span>{AUDIENCE[aud]}</span>
               <span>En la plataforma</span>
               <span>Por correo</span>
+              <span>Telegram</span>
             </div>
             {rows.map((r) => (
               <div key={r.key} className="notify-row">
                 <span>{r.label}</span>
-                {(['app', 'email'] as Channel[]).map((ch) => (
+                {channelsOf(aud).map((ch) => (
                   <label key={ch} className="switch">
                     <input
                       type="checkbox"
                       role="switch"
-                      checked={n.events[r.key][ch]}
+                      checked={!!n.events[r.key][ch]}
                       disabled={busy}
-                      aria-label={`${r.label}: ${ch === 'app' ? 'en la plataforma' : 'por correo'}`}
+                      aria-label={`${r.label}: ${CHANNEL_LABEL[ch]}`}
                       onChange={() => toggle(r.key, ch)}
                     />
                     <span className="switch__track" />
                   </label>
                 ))}
+                {channelsOf(aud).length === 2 && <span className="notify-row__na" title="Por Telegram solo te llegan tus avisos">—</span>}
               </div>
             ))}
           </div>
@@ -1123,6 +1251,8 @@ function NotificationsTab() {
         </label>
         <p className="hint">Los correos solo salen con Google conectado (pestaña Google y correo).</p>
       </section>
+
+      <TelegramCard />
     </div>
   );
 }

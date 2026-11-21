@@ -45,6 +45,7 @@ import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { handleReports } from './reports.ts';
 import { handleScope } from './scope.ts';
+import { handleTelegram } from './telegram.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
 import { actor, clientSees, EMAIL_RE, isStaff, seesMoney, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { approvalDetail, closeApproval, generatePlan, getApproval, openApprovals, proposalClient, setProposalClient } from './approvals.ts';
@@ -1269,7 +1270,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
       requireOwner(v);
       return json(res, 200, {
         ...notifications.getSettings(),
-        catalog: Object.entries(notifications.EVENTS).map(([key, e]) => ({ key, label: e.label, audience: e.audience })),
+        catalog: Object.entries(notifications.EVENTS).map(([key, e]) => ({ key, label: e.label, audience: e.audience, telegram: notifications.telegramAllowed(key as notifications.EventType) })),
       });
 
     case 'PUT settings/notifications':
@@ -1277,7 +1278,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
       notifications.saveSettings(await readJson(req));
       return json(res, 200, {
         ...notifications.getSettings(),
-        catalog: Object.entries(notifications.EVENTS).map(([key, e]) => ({ key, label: e.label, audience: e.audience })),
+        catalog: Object.entries(notifications.EVENTS).map(([key, e]) => ({ key, label: e.label, audience: e.audience, telegram: notifications.telegramAllowed(key as notifications.EventType) })),
       });
 
     // ── Configuración: Google
@@ -1310,6 +1311,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handleProposalMail(route, req, res, v)) return;
   if (await handleScope(route, id, req, res, v)) return;
   if (await handleReports(route, id, req, res, v)) return;
+  if (await handleTelegram(route, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
   if (await handlePayments(route, id, req, res, v)) return;
