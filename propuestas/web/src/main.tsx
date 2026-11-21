@@ -45,6 +45,7 @@ function GoTo({ to }: { to: string }) {
 }
 import { ErrorBox, Link, Loading, ToastProvider } from './ui';
 import './styles.css';
+import { reportVitals } from './vitals';
 
 const PUBLIC_PATHS = ['/login', '/recuperar', '/restablecer'];
 
@@ -245,6 +246,8 @@ function App() {
     </Shell>
   );
 }
+
+reportVitals();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

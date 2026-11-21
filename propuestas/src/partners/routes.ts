@@ -588,6 +588,20 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   const id = Number(parts.find(isId));
 
   switch (route) {
+    // ── Velocidad real (solo llegan las mediciones malas): se registra sin ids ni datos personales.
+    case 'POST vitals': {
+      const m = await readJson(req, 2000).catch(() => ({}) as Record<string, unknown>);
+      const name = String(m.name ?? '');
+      const value = Number(m.value);
+      if (!['LCP', 'INP', 'CLS', 'FCP', 'TTFB'].includes(name) || !Number.isFinite(value)) return json(res, 400, { error: 'Medición no válida.' });
+      const path = String(m.path ?? '').split('?')[0].replace(/\/\d+(?=\/|$)/g, '/:id').slice(0, 120);
+      const conn = String(m.conn ?? '').replace(/[^a-z0-9-]/gi, '').slice(0, 10);
+      const shown = name === 'CLS' ? value.toFixed(3) : `${Math.round(value)} ms`;
+      console.warn(`[vitals] ${name}=${shown} ${path} rol=${v.kind}${conn ? ` red=${conn}` : ''}${m.mobile === true ? ' móvil' : ''}`);
+      res.writeHead(204).end();
+      return;
+    }
+
     // ── Sesión
     case 'GET me':
       return json(res, 200, {
@@ -1254,7 +1268,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
           read: !!n.read_at,
           createdAt: n.created_at,
         })),
-      });
+      }, { etag: true });
     }
 
     case 'POST notifications/read': {

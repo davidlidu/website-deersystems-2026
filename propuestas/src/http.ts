@@ -2,6 +2,7 @@ import { createReadStream } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname } from 'node:path';
+import { createHash } from 'node:crypto';
 import zlib, { brotliCompressSync, gzipSync } from 'node:zlib';
 
 export const MIME: Record<string, string> = {
@@ -59,14 +60,29 @@ function compress(data: Buffer, encoding: 'br' | 'gzip', fast: boolean): Buffer 
 
 const compressedCache = new Map<string, Buffer>();
 
-export function json(res: ServerResponse, status: number, body: unknown): void {
+/**
+ * Respuesta JSON. Con `etag` (solo para lo que se consulta periódicamente, como la campana), el navegador revalida
+ * con If-None-Match y, si nada cambió, recibe un 304 sin cuerpo. El resto sigue con no-store: datos del cliente
+ * (transcripciones, valores) no quedan guardados en la caché del navegador.
+ */
+export function json(res: ServerResponse, status: number, body: unknown, opts: { etag?: boolean } = {}): void {
   const raw = Buffer.from(JSON.stringify(body));
+  if (opts.etag && status === 200 && res.req?.method === 'GET') {
+    // Se calcula sobre la respuesta completa: cualquier cambio da otro ETag.
+    const etag = `"${createHash('sha1').update(raw).digest('base64url')}"`;
+    const headers = { ETag: etag, 'Cache-Control': 'private, no-cache', Vary: 'Accept-Encoding, Cookie' };
+    if (res.req.headers['if-none-match'] === etag) {
+      res.writeHead(304, headers);
+      return void res.end();
+    }
+    res.setHeader('ETag', etag);
+  }
   const encoding = raw.length > 1024 ? pickEncoding(res.req) : null;
   const data = encoding ? compress(raw, encoding, true) : raw;
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store',
-    Vary: 'Accept-Encoding',
+    'Cache-Control': res.hasHeader('ETag') ? 'private, no-cache' : 'no-store',
+    Vary: res.hasHeader('ETag') ? 'Accept-Encoding, Cookie' : 'Accept-Encoding',
     'Content-Length': data.length,
     ...(encoding ? { 'Content-Encoding': encoding } : {}),
   });

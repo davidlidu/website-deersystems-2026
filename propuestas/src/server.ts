@@ -14,6 +14,7 @@ import { startScheduledMails } from './partners/scheduled.ts';
 import { flushAll } from './partners/notify.ts';
 import { approveScript, handleApprovalPage } from './partners/approvals.ts';
 import { handlePartners } from './partners/routes.ts';
+import { ensureIndexes } from './partners/indexes.ts';
 import * as proposals from './proposals.ts';
 import { resolveFile, UploadError } from './storage.ts';
 
@@ -224,6 +225,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   return handleProposal(req, res, url);
 }
 
+ensureIndexes();
 pruneNotifications();
 // Reuniones agendadas al aprobar propuestas que quedaron sin ligar a su tarea del plan.
 try {
@@ -245,11 +247,26 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   });
 }
 
+// Una promesa rechazada que nadie atrapó (p. ej. en una tarea programada) se registra, pero no tumba el servidor.
+process.on('unhandledRejection', (reason) => {
+  console.error('[sin atrapar] promesa rechazada:', reason instanceof Error ? (reason.stack ?? reason.message) : reason);
+});
+// Una excepción sin atrapar deja el proceso en un estado incierto: se registra y se sale para que Docker lo reinicie.
+process.on('uncaughtException', (err) => {
+  console.error('[sin atrapar] excepción:', err.stack ?? err.message);
+  flushAll().finally(() => process.exit(1));
+  setTimeout(() => process.exit(1), 5000).unref();
+});
+
+/** Ruta sin ids ni datos (para los registros): /api/projects/12/tasks → /api/projects/:id/tasks. */
+const routeOf = (req: IncomingMessage) =>
+  `${req.method} ${(req.url ?? '/').split('?')[0].replace(/\/\d+(?=\/|$)/g, '/:id').slice(0, 120)}`;
+
 createServer((req, res) => {
   handle(req, res).catch((err) => {
     const badInput = err instanceof UploadError || err instanceof URIError;
     const status = err instanceof HttpError ? err.status : badInput ? 400 : 500;
-    if (status === 500) console.error(err);
+    if (status === 500) console.error(`[500] ${req.headers.host === PARTNERS_HOST ? 'partners ' : ''}${routeOf(req)}`, err);
     if (res.headersSent) return void res.destroy();
     // Si el cliente sigue enviando el archivo, cerrar tras responder evita dejar la conexión colgada.
     res.setHeader('Connection', 'close');

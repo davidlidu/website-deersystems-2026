@@ -32,7 +32,7 @@ export function authUrl(state: string, mode: 'login' | 'connect'): string {
 
 /** Canjea el código. Devuelve el correo verificado y, al conectar, el refresh token. */
 export async function exchangeCode(code: string) {
-  const r = await fetch('https://oauth2.googleapis.com/token', {
+  const r = await gfetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     body: new URLSearchParams({
       code,
@@ -93,6 +93,20 @@ export function hasAnyScope(...scopes: string[]): boolean {
 
 export class GoogleError extends Error {}
 
+/**
+ * fetch con tiempo máximo hasta que Google responde (no corta la descarga del cuerpo: los archivos de Drive se
+ * reenvían en streaming). Una llamada colgada ya no deja la petición ni la sincronización esperando para siempre.
+ */
+function gfetch(url: string, init: RequestInit = {}, ms = 30_000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(new GoogleError('Google no respondió a tiempo. Inténtalo de nuevo.')), ms);
+  return fetch(url, { ...init, signal: ctrl.signal })
+    .catch((err: unknown) => {
+      throw ctrl.signal.aborted ? ctrl.signal.reason : err;
+    })
+    .finally(() => clearTimeout(timer));
+}
+
 let cached: { token: string; expires: number } | null = null;
 
 /** Access token vigente de la cuenta conectada; lo renueva con el refresh token cuando vence. */
@@ -101,7 +115,7 @@ export async function accessToken(): Promise<string> {
   const c = getSetting<Connection>('google');
   const refresh = decrypt(c?.refreshToken);
   if (!c || !refresh) throw new GoogleError('Google no está conectado. Conéctalo en Configuración.');
-  const r = await fetch('https://oauth2.googleapis.com/token', {
+  const r = await gfetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     body: new URLSearchParams({
       client_id: GOOGLE_CLIENT_ID,
@@ -209,7 +223,7 @@ export async function sendMail(mail: Mail): Promise<void> {
     raw = [...head, `Content-Type: multipart/alternative; boundary="${boundary}"`, '', ...body].join('\r\n');
   }
 
-  const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+  const r = await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
     headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ raw: Buffer.from(raw).toString('base64url') }),
@@ -228,7 +242,7 @@ const DRIVE = 'https://www.googleapis.com/drive/v3';
 const FOLDER = 'application/vnd.google-apps.folder';
 
 async function driveFetch(url: string, init: RequestInit = {}): Promise<Response> {
-  const r = await fetch(url, { ...init, headers: { Authorization: `Bearer ${await accessToken()}`, ...init.headers } });
+  const r = await gfetch(url, { ...init, headers: { Authorization: `Bearer ${await accessToken()}`, ...init.headers } });
   if (!r.ok && r.status !== 404) {
     const data = (await r.clone().json().catch(() => ({}))) as { error?: { message?: string } };
     throw new GoogleError(`Drive ${r.status}: ${data.error?.message ?? 'error'}`);
@@ -295,7 +309,7 @@ export async function uploadFile(folderId: string, name: string, mime: string, d
   });
   const location = init.headers.get('location');
   if (!location) throw new GoogleError('Drive no aceptó la subida.');
-  const r = await fetch(location, { method: 'PUT', headers: { 'Content-Type': mime }, body: new Uint8Array(data) });
+  const r = await gfetch(location, { method: 'PUT', headers: { 'Content-Type': mime }, body: new Uint8Array(data) }, 180_000);
   if (!r.ok) throw new GoogleError(`Drive ${r.status}: no se pudo subir el archivo.`);
   return (await r.json()) as DriveFile;
 }
@@ -348,7 +362,7 @@ export async function createCalendarEvent(e: {
   privateProps: Record<string, string>;
 }): Promise<CalendarEvent> {
   const params = new URLSearchParams({ conferenceDataVersion: '1', sendUpdates: 'all' });
-  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+  const r = await gfetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -383,7 +397,7 @@ export async function updateCalendarEvent(
   const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
   const headers = { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' };
   // La lista de invitados se reemplaza entera: se conservan los que siguen (con su respuesta) y el organizador.
-  const current = (await (await fetch(url, { headers })).json().catch(() => ({}))) as CalendarEvent;
+  const current = (await (await gfetch(url, { headers })).json().catch(() => ({}))) as CalendarEvent;
   const keep = new Map((current.attendees ?? []).filter((a) => a.email).map((a) => [a.email!.toLowerCase(), a]));
   const wanted = new Set(e.attendees.map((x) => x.toLowerCase()));
   const attendees = [
@@ -391,7 +405,7 @@ export async function updateCalendarEvent(
     ...[...wanted].filter((email) => !keep.get(email)?.organizer && !keep.get(email)?.self).map((email) => keep.get(email) ?? { email }),
   ];
   const params = new URLSearchParams({ sendUpdates: notify ? 'all' : 'none' });
-  const r = await fetch(`${url}?${params}`, {
+  const r = await gfetch(`${url}?${params}`, {
     method: 'PATCH',
     headers,
     body: JSON.stringify({
@@ -411,7 +425,7 @@ export async function updateCalendarEvent(
 
 /** Cancela el evento y avisa a los invitados. */
 export async function cancelCalendarEvent(eventId: string): Promise<void> {
-  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`, {
+  const r = await gfetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${await accessToken()}` },
   });
@@ -435,7 +449,7 @@ export async function calendarEvents(timeMin: string, timeMax: string): Promise<
       showDeleted: 'true',
       ...(pageToken ? { pageToken } : {}),
     });
-    const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+    const r = await gfetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
       headers: { Authorization: `Bearer ${await accessToken()}` },
     });
     const data = (await r.json().catch(() => ({}))) as { items?: CalendarEvent[]; nextPageToken?: string; error?: { message?: string } };
@@ -452,7 +466,7 @@ export async function calendarEvents(timeMin: string, timeMax: string): Promise<
 const MEET = 'https://meet.googleapis.com/v2';
 
 async function meetGet<T>(path: string): Promise<T> {
-  const r = await fetch(`${MEET}/${path}`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
+  const r = await gfetch(`${MEET}/${path}`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
   const data = (await r.json().catch(() => ({}))) as T & { error?: { message?: string } };
   if (!r.ok) throw new GoogleError(`Meet ${r.status}: ${data.error?.message ?? 'error'}`);
   return data;
@@ -594,7 +608,7 @@ const docsText = (content: DocsElement[] = []): string =>
  * si hay una pestaña de transcripción se usa esa, que es la conversación completa.
  */
 async function docTabsText(fileId: string): Promise<string | null> {
-  const r = await fetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(fileId)}?includeTabsContent=true`, {
+  const r = await gfetch(`https://docs.googleapis.com/v1/documents/${encodeURIComponent(fileId)}?includeTabsContent=true`, {
     headers: { Authorization: `Bearer ${await accessToken()}` },
   });
   if (!r.ok) return null; // p. ej. la API de Docs no está habilitada: se usa la exportación de Drive

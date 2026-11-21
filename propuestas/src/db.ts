@@ -29,6 +29,8 @@ mkdirSync(DATA_DIR, { recursive: true });
 export const db = new DatabaseSync(join(DATA_DIR, 'propuestas.sqlite'));
 db.exec(`
   PRAGMA journal_mode = WAL;
+  -- Con WAL, NORMAL es seguro ante caídas del proceso y evita un fsync en cada escritura.
+  PRAGMA synchronous = NORMAL;
   CREATE TABLE IF NOT EXISTS proposals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     slug TEXT NOT NULL UNIQUE,

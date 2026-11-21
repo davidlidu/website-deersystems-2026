@@ -148,6 +148,17 @@ export const KIND_LABEL: Record<MeetingKind, string> = { proyecto: 'Seguimiento'
 
 const now = () => new Date().toISOString();
 const get = (id: number) => sqlite.prepare('SELECT * FROM meetings WHERE id = ?').get(id) as unknown as Row | undefined;
+
+/**
+ * Columnas para los listados: todo menos la transcripción completa (cada una puede pesar cientos de KB y el listado
+ * solo necesita saber si existe). En su lugar va '1' o NULL, así `!!m.transcript` sigue funcionando.
+ */
+let listCols: string | null = null;
+const LIST = () =>
+  (listCols ??= [
+    ...(sqlite.prepare('PRAGMA table_info(meetings)').all() as { name: string }[]).map((c) => c.name).filter((c) => c !== 'transcript'),
+    "CASE WHEN transcript IS NULL OR transcript = '' THEN NULL ELSE '1' END AS transcript",
+  ].join(', '));
 const byEvent = (eventId: string) => sqlite.prepare('SELECT * FROM meetings WHERE event_id = ?').get(eventId) as unknown as Row | undefined;
 const parse = <T>(s: string | null, fallback: T): T => {
   try {
@@ -226,7 +237,7 @@ function syncPlanTask(id: number, phaseChanged: boolean): void {
 export function linkOrphanMeetings(projectId?: number): number {
   const meetings = sqlite
     .prepare(
-      `SELECT * FROM meetings WHERE plan_task_id IS NULL AND project_id IS NOT NULL AND status != 'descartada' AND COALESCE(kind, 'proyecto') = 'proyecto'${projectId ? ' AND project_id = ?' : ''} ORDER BY start_at`,
+      `SELECT ${LIST()} FROM meetings WHERE plan_task_id IS NULL AND project_id IS NOT NULL AND status != 'descartada' AND COALESCE(kind, 'proyecto') = 'proyecto'${projectId ? ' AND project_id = ?' : ''} ORDER BY start_at`,
     )
     .all(...(projectId ? [projectId] : [])) as unknown as Row[];
   let linked = 0;
@@ -978,7 +989,7 @@ export async function handleMeetings(route: string, id: number, req: IncomingMes
   switch (route) {
     case 'GET meetings': {
       requireOwner(v);
-      const rows = sqlite.prepare('SELECT * FROM meetings ORDER BY start_at DESC LIMIT 300').all() as unknown as Row[];
+      const rows = sqlite.prepare(`SELECT ${LIST()} FROM meetings ORDER BY start_at DESC LIMIT 300`).all() as unknown as Row[];
       json(res, 200, { items: rows.map((m) => view(m, v)), sync: syncState(), settings: meetingSettings() });
       return true;
     }
@@ -1304,7 +1315,7 @@ ${context}
     case 'GET projects/:id/meetings': {
       const project = visibleProject(id, v);
       linkOrphanMeetings(project.id);
-      const rows = sqlite.prepare('SELECT * FROM meetings WHERE project_id = ? ORDER BY start_at DESC').all(project.id) as unknown as Row[];
+      const rows = sqlite.prepare(`SELECT ${LIST()} FROM meetings WHERE project_id = ? ORDER BY start_at DESC`).all(project.id) as unknown as Row[];
       json(res, 200, rows.filter((m) => v.kind === 'owner' || (['programada', 'aprobada'].includes(m.status) && !m.tentative)).map((m) => view(m, v)));
       return true;
     }

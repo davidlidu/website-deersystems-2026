@@ -1,5 +1,33 @@
 /* Portal partners · mismos tokens que el panel de propuestas y el sitio (DESIGN.md en la raíz). */
 
+/*
+ * Fuentes propias (variables, subconjunto latino: incluye tildes, ñ, «» y €). Se sirven desde /assets con caché
+ * permanente: sin pedidos a Google Fonts ni bloqueo del primer pintado. Solo los grosores que se usan.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('./fonts/inter-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 500;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url('./fonts/montserrat-latin.woff2') format('woff2');
+}
+
 :root {
   --verde: #7ed957;
   --cian: #00b4d8;

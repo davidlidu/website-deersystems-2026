@@ -76,6 +76,7 @@ export async function googleCallback(req: IncomingMessage, res: ServerResponse, 
   if (!code) return { error: 'google' };
 
   const r = await fetch('https://oauth2.googleapis.com/token', {
+    signal: AbortSignal.timeout(15_000),
     method: 'POST',
     body: new URLSearchParams({
       code,

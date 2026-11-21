@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 // ───────── API ─────────
 
@@ -10,12 +10,26 @@ export class ApiError extends Error {
   }
 }
 
+/** Tiempo máximo de una consulta (GET). Las acciones no lo tienen: generar con IA puede tardar varios minutos. */
+const GET_TIMEOUT_MS = 45_000;
+
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path.startsWith('/') ? path : `/api/${path}`, {
-    method,
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(path.startsWith('/') ? path : `/api/${path}`, {
+      method,
+      headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: method === 'GET' ? AbortSignal.timeout(GET_TIMEOUT_MS) : undefined,
+    });
+  } catch (err) {
+    throw new ApiError(
+      0,
+      (err as Error).name === 'TimeoutError'
+        ? 'El servidor tardó demasiado en responder. Inténtalo de nuevo.'
+        : 'No hay conexión con el servidor. Revisa tu internet e inténtalo de nuevo.',
+    );
+  }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && !path.startsWith('/auth/')) {
     navigate('/login');
@@ -32,19 +46,31 @@ export function useApi<T>(path: string | null) {
     error: null,
     loading: !!path,
   });
+  // Si cambia la ruta (otro mes, otro filtro) antes de que llegue la respuesta anterior, esa respuesta vieja se descarta.
+  const seq = useRef(0);
   const load = useCallback(async () => {
     if (!path) return;
+    const n = ++seq.current;
     setState((s) => ({ ...s, loading: true }));
     try {
-      setState({ data: await api<T>('GET', path), error: null, loading: false });
+      const data = await api<T>('GET', path);
+      if (n === seq.current) setState({ data, error: null, loading: false });
     } catch (err) {
-      setState({ data: null, error: (err as Error).message, loading: false });
+      if (n === seq.current) setState({ data: null, error: (err as Error).message, loading: false });
     }
   }, [path]);
   useEffect(() => {
     load();
   }, [load]);
-  return { ...state, reload: load, setData: (data: T) => setState({ data, error: null, loading: false }) };
+  return {
+    ...state,
+    reload: load,
+    // Lo que deja una acción es lo más nuevo: una recarga que siga en camino ya no lo pisa.
+    setData: (data: T) => {
+      seq.current++;
+      setState({ data, error: null, loading: false });
+    },
+  };
 }
 
 /**

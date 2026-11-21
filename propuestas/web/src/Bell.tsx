@@ -13,10 +13,18 @@ export function Bell() {
   const box = useRef<HTMLDivElement>(null);
   // Último aviso conocido: si llega uno más nuevo, suena. En la primera carga no suena.
   const lastSeen = useRef<number | null>(null);
+  // Un pedido a la vez (el sondeo no se apila si la red va lenta) y sin re-pintar si llegó lo mismo.
+  const inFlight = useRef(false);
+  const lastBody = useRef('');
 
   const load = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     try {
       const r = await api<{ unread: number; items: AppNotification[] }>('GET', 'notifications');
+      const body = JSON.stringify(r);
+      if (body === lastBody.current) return;
+      lastBody.current = body;
       const newest = r.items[0]?.id ?? 0;
       if (lastSeen.current !== null && newest > lastSeen.current && r.items.some((n) => !n.read && n.id > lastSeen.current!)) {
         playSpaceBeep();
@@ -26,6 +34,8 @@ export function Bell() {
       setItems(r.items);
     } catch {
       /* sin conexión: se reintenta en el próximo ciclo */
+    } finally {
+      inFlight.current = false;
     }
   }, []);
 
