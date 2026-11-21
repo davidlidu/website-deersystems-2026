@@ -7,6 +7,7 @@ Un solo servidor Node atiende dos subdominios:
 
 | Documento | De qué trata |
 |---|---|
+| [**Especificación técnica completa**](./especificacion-tecnica.md) | Todo en un documento, al día: datos, API, procesos, integraciones, interfaz y guía para una versión de otro cliente |
 | [Arquitectura](./arquitectura.md) | Stack, cómo se reparten los subdominios, carpetas, procesos en segundo plano |
 | [Roles, acceso y seguridad](./roles-y-seguridad.md) | Quién ve qué, inicio de sesión, contraseñas, sesiones y protecciones |
 | [Propuestas](./propuestas.md) | Publicar, reemplazar, versiones, restaurar, visitas |
