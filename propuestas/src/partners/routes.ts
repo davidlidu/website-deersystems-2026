@@ -47,6 +47,7 @@ import { handleReports } from './reports.ts';
 import { handleReviews } from './reviews.ts';
 import { handleScope } from './scope.ts';
 import { handleTelegram } from './telegram.ts';
+import { handleMcpHttp, handleMcpSettings, takeNext } from './mcp.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
 import { actor, clientSees, EMAIL_RE, isStaff, seesMoney, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { approvalDetail, closeApproval, generatePlan, getApproval, openApprovals, proposalClient, setProposalClient } from './approvals.ts';
@@ -199,13 +200,13 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, url: URL): 
         return redirect(res, `${back}ok`);
       }
       startOwnerSession(res, result.email);
-      return redirect(res, '/');
+      return redirect(res, takeNext(req, res) ?? '/');
     }
 
     case 'GET /auth/dev':
       if (!DEV_LOGIN) break;
       startOwnerSession(res, SUPERADMIN_EMAIL);
-      return redirect(res, '/');
+      return redirect(res, takeNext(req, res) ?? '/');
   }
   throw new HttpError(404, 'Ruta no encontrada.');
 }
@@ -1333,6 +1334,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handleReviews(route, id, req, res, v)) return;
   if (await handleReports(route, id, req, res, v)) return;
   if (await handleTelegram(route, req, res, v)) return;
+  if (await handleMcpSettings(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
   if (await handlePayments(route, id, req, res, v)) return;
@@ -1360,6 +1362,8 @@ export async function handlePartners(req: IncomingMessage, res: ServerResponse, 
   if (path.startsWith('/auth/')) return handleAuth(req, res, url);
   // Webhook de Wompi: sin sesión ni Origin; lo autentica la firma del evento.
   if (path === '/api/webhooks/wompi' && req.method === 'POST') return handleWompiWebhook(req, res);
+  // Conector MCP para Claude y su autorización OAuth (token Bearer, sin cookies).
+  if (await handleMcpHttp(req, res, url)) return;
   if (path.startsWith('/api/')) return handleApi(req, res, url);
   if (path.startsWith('/historial/')) return handleHistory(req, res, url);
   if (path.startsWith('/paginas/')) return handlePage(req, res, url);

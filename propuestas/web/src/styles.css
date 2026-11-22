@@ -8247,3 +8247,23 @@ button.gcal-stat:hover {
   font-size: 0.68rem;
   white-space: nowrap;
 }
+
+/* ── Configuración → Claude (MCP) */
+.mcp-code {
+  margin: 6px 0 10px;
+  flex-wrap: nowrap;
+}
+.mcp-code code {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.secret code {
+  overflow-wrap: anywhere;
+}

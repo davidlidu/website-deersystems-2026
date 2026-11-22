@@ -93,6 +93,11 @@ export function startOwnerSession(res: ServerResponse, email: string): void {
   setCookie(res, SESSION_COOKIE, sign({ k: 'owner', email, exp }), SESSION_SECONDS);
 }
 
+/** Cookie de sesión del administrador, corta, para las llamadas internas del MCP a la API (nunca sale del servidor). */
+export function internalOwnerCookie(): string {
+  return `${SESSION_COOKIE}=${sign({ k: 'owner', email: SUPERADMIN_EMAIL, exp: Math.floor(Date.now() / 1000) + 120 })}`;
+}
+
 export function startAccountSession(res: ServerResponse, account: Account): void {
   const exp = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
   setCookie(res, SESSION_COOKIE, sign({ k: 'acct', id: account.id, v: account.session_version, exp }), SESSION_SECONDS);

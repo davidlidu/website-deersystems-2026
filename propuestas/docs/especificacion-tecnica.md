@@ -1,6 +1,6 @@
 # Especificación técnica completa
 
-Estado al **21 de noviembre de 2026** (commit `897075d`). Reúne en un solo lugar todo lo que está implementado: arquitectura, datos, API, procesos, integraciones e interfaz. Al final hay una guía de **qué tocar para hacer una versión para otro cliente**.
+Estado al **22 de noviembre de 2026**. Reúne en un solo lugar todo lo que está implementado: arquitectura, datos, API, procesos, integraciones e interfaz. Al final hay una guía de **qué tocar para hacer una versión para otro cliente**.
 
 Los demás archivos de `docs/` explican cada área para quien la usa. Este explica cómo está construida.
 
@@ -17,7 +17,7 @@ Un solo servidor Node (sin framework) atiende dos subdominios desde un contenedo
 
 Ambos comparten la base de datos SQLite y los módulos de IA, Google, correo y cifrado.
 
-**Tamaño:** unos 14.000 líneas de servidor (TypeScript) y 18.500 de interfaz (React). Hay 190 rutas de API y 28 tablas.
+**Tamaño:** unos 14.000 líneas de servidor (TypeScript) y 18.500 de interfaz (React). Hay unas 200 rutas de API, 30 tablas y un servidor MCP para conectar Claude.
 
 ## 2. Stack
 
@@ -35,6 +35,7 @@ Ambos comparten la base de datos SQLite y los módulos de IA, Google, correo y c
 | TRM | Datos abiertos de la Superfinanciera (datos.gov.co, recurso `32sa-8pi3`) | Caché en memoria |
 | Pago en línea | Wompi (links de pago y webhook firmado) | Opcional, apagado por defecto |
 | Avisos | Campana en la app, correo agrupado y Telegram (solo el administrador) | `notify.ts`, `telegram.ts` |
+| Claude | Servidor MCP (Streamable HTTP, JSON) con OAuth 2.1 propio (registro dinámico + PKCE) o token personal | `partners/mcp.ts` |
 | Fuentes | Inter, JetBrains Mono y Montserrat servidas desde el propio dominio (woff2 variables) | `web/src/fonts/` |
 
 ## 3. Estructura del repositorio
@@ -64,7 +65,9 @@ propuestas/
       approvals.ts        Aprobación pública desde /{slug}/aprobar, opciones, plan con IA en segundo plano
       extract.ts          Propuesta HTML → texto → plan con IA; ajuste del plan antes de crear el proyecto
       planAdjust.ts       Ajuste con IA del plan de un proyecto en marcha (vista previa → aplicar)
-      scope.ts            Retirar del alcance una opción o fase aprobada
+      scope.ts            Retirar del alcance una opción o fase aprobada; agregar un adicional (tareas + cobro + nota)
+      reviews.ts          Entregas al cliente: aprobar o pedir ajustes, rondas incluidas, detección con IA
+      mcp.ts              Servidor MCP para Claude, OAuth 2.1 y tokens personales
       work.ts             Tareas, fases, notas, bitácora
       updates.ts          Avances diarios con IA, destinatarios, envío automático a las 5:00 p. m.
       reports.ts          Informes parciales y de cierre con IA, PDF imprimible, envío
@@ -136,6 +139,7 @@ propuestas/
 | `auto_updates_day` | Último día en que corrió el envío automático de avances | Automático |
 | `update_recipients:{proyecto}` / `update_extra_emails:{proyecto}` | Destinatarios de los avances del proyecto | Pestaña Avances |
 | `owner_tour_done` | El administrador terminó el tour | Automático |
+| `reviews` | `revisionRounds`: rondas de ajustes incluidas por defecto (0 = sin límite; 2 si no se ha configurado) | Configuración → Entregas y ajustes |
 
 ## 5. Servidor HTTP
 
@@ -144,6 +148,7 @@ propuestas/
 1. Si `Host === PARTNERS_HOST` → `handlePartners` (`partners/routes.ts`):
    - `/auth/*` → login con contraseña, Google, recuperación, desarrollo.
    - `POST /api/webhooks/wompi` → webhook sin sesión ni `Origin`.
+   - `/mcp`, `/oauth/*` y `/.well-known/oauth-*` → conector MCP y su autorización (token Bearer, sin cookies; ver §10, Claude).
    - `/api/*` → API con sesión.
    - `/historial/{id}/{versión}/…` → versión antigua de una propuesta (solo el administrador).
    - `/paginas/{token}/…` → página HTML subida como entrega, en sandbox.
@@ -214,6 +219,11 @@ Todos los temporizadores usan `.unref()`.
 - **Límite de intentos:** 8 por clave cada 15 minutos (login y recuperación), en memoria.
 - **Login con Google:** `state` en una cookie de 10 minutos. `GET /auth/google` sirve para entrar y `GET /auth/google/connect` para conectar Gmail, Drive y Calendar.
 - **CSRF:** toda petición no GET a `/api` y los POST de `/auth` exigen `Origin === PARTNERS_URL`.
+- **Conector MCP:** `/mcp` solo acepta `Authorization: Bearer` (nunca la cookie). Los tokens son de dos tipos, ambos guardados como hash SHA-256 en `mcp_tokens`:
+  - **Personal:** lo crea el administrador en Configuración → Claude (MCP), se muestra una vez y no vence.
+  - **OAuth:** lo obtiene Claude al agregar el conector. Acceso de 8 h y renovación de 90 días, que rota en cada uso.
+
+  Cualquiera de los dos actúa como el administrador.
 
 ### `Viewer` (quién mira)
 
@@ -248,7 +258,7 @@ Lo que nunca recibe el cliente:
 - Lo generado con IA mientras no esté aprobado o publicado.
 - La TRM y los datos del Gestor.
 
-## 7. Modelo de datos (28 tablas)
+## 7. Modelo de datos (30 tablas)
 
 Todas las fechas son texto ISO. Los JSON se guardan como `TEXT`.
 
@@ -277,13 +287,13 @@ Los archivos de las propuestas están en disco, en `DATA_DIR/files/{id}/v{versi�
 
 | Tabla | Para qué | Columnas clave |
 |---|---|---|
-| `projects` | Proyecto | `client_id`, `proposal_id`, `name`, `scope` (alcance sin valores, Markdown), `pricing` (valores; nunca al equipo), `status` (`activo`/`pausado`/`finalizado`), `start_date`, `end_date`, `approved_option`, `approval_notes`, `auto_updates`, `drive_folder_id` |
+| `projects` | Proyecto | `client_id`, `proposal_id`, `name`, `scope` (alcance sin valores, Markdown), `pricing` (valores; nunca al equipo), `status` (`activo`/`pausado`/`finalizado`), `start_date`, `end_date`, `approved_option`, `approval_notes`, `auto_updates`, `drive_folder_id`, `revision_rounds` (null = las de Configuración) |
 | `phases` | Fases del plan | `project_id`, `name`, `position` |
-| `tasks` | Tareas y reuniones del cronograma | `phase_id`, `title`, `description`, `status` (`pendiente`/`en_progreso`/`en_revision`/`bloqueada`/`completada`), `side` (`deersystems`/`cliente`), `assignee_id`, `start_date`, `due_date`, `position`, `source` (`propuesta`/`manual`/`reunion`), `kind` (`tarea`/`reunion`: la reunión se pinta con franja naranja), `completed_at` |
+| `tasks` | Tareas y reuniones del cronograma | `phase_id`, `title`, `description`, `status` (`pendiente`/`en_progreso`/`en_revision`/`bloqueada`/`completada`), `side` (`deersystems`/`cliente`), `assignee_id`, `start_date`, `due_date`, `position`, `source` (`propuesta`/`manual`/`reunion`), `kind` (`tarea`/`reunion`: la reunión se pinta con franja naranja), `completed_at`, `client_delivery` (entrega que revisa el cliente), `revision_round` (rondas de ajustes pedidas), `approved_at`/`approved_by` |
 | `notes` | Comentarios y avances | `task_id` (null = del proyecto), `kind` (`nota`/`avance`), `visibility` (`shared`/`internal`), autor, `body` (Markdown), `ai` (lo generó la IA), `emailed_at` |
 | `activity` | Bitácora | `type`, `data` (JSON), `actor_*`, `internal` |
 | `attachments` | Archivos en Drive | `task_id`, `drive_file_id`, `drive_url`, `name`, `mime`, `size`, `visibility`, `link_shared`, `linked` (elegido del Drive propio, no subido), `page_token` (página HTML publicada en `/paginas/{token}`) |
-| `scope_changes` | Retiros del alcance | `option_id`/`option_name`, `amount`, `currency`, `reason`, `label_before`/`label_after`, `phases` (JSON), `tasks_removed`, `payments` (JSON) |
+| `scope_changes` | Cambios del alcance: retiros y adicionales | `kind` (`retiro`/`adicional`), `detail` (JSON del adicional: tareas, valor, descuento, pago), `option_id`/`option_name`, `amount`, `currency`, `reason`, `label_before`/`label_after`, `phases` (JSON), `tasks_removed`, `payments` (JSON) |
 | `project_reports` | Informes | `kind` (`parcial`/`final`), `title`, `period_from`/`period_to`, `context`, `include_payments`, `body`, `ai`, `status` (`borrador`/`publicado`), `published_at`, `emailed_at`, `emailed_to` |
 
 ### Reuniones
@@ -300,7 +310,7 @@ Los archivos de las propuestas están en disco, en `DATA_DIR/files/{id}/v{versi�
   - Desvíos: `sin_transcripcion`, `error`, `descartada`.
 - **Google:** `event_id` (Calendar, único), `meet_code`, `meet_url`, `calendar_url`, `attendees` (JSON), `pending_attendees`, `tentative`.
 - **Relaciones:** `client_id`, `project_id`, `phase_id`, `plan_task_id` (la tarea `kind='reunion'` que la representa en el cronograma; se mantienen sincronizadas en título, fecha, fase y estado).
-- **Contenido:** `transcript`, `transcript_source` (`meet`/`drive`/`manual`), `transcript_url`, `summary`, `agreements` (JSON), `proposed_tasks` (JSON), `task_ids` (tareas creadas al aprobar), `ai`, `error`, `approved_at`/`approved_by`, `sent_to`.
+- **Contenido:** `transcript`, `transcript_source` (`meet`/`drive`/`manual`), `transcript_url`, `summary`, `agreements` (JSON), `proposed_tasks` (JSON), `proposed_changes` (JSON: ajustes que pidió el cliente sobre entregas), `task_ids` (tareas creadas al aprobar), `ai`, `error`, `approved_at`/`approved_by`, `sent_to`.
 - **Ventas:** `prospect` (JSON: empresa, contacto, correo), `proposal_id`, `proposal_sent_at`, `proposal_sent_to`.
 
 ### Dinero
@@ -322,6 +332,8 @@ Los archivos de las propuestas están en disco, en `DATA_DIR/files/{id}/v{versi�
 | `notifications` | Campana: `recipient_kind` (`owner`/`account`), `recipient_id`, `project_id`, `task_id`, `type`, `title`, `body`, `link`, `read_at` |
 | `scheduled_mails` | Correos programados: `kind` (`proposal`/`summary`/`invoice`), `ref_id`, `send_at`, `mail` (el correo completo con adjuntos, ya armado), `meta`, `status`, `error`, `sent_at` |
 | `ai_usage` | Cada llamada a la IA: proveedor, modelo, `purpose`, tokens, `cost_usd`, `latency_ms`, `ok`, `error` |
+| `mcp_clients` | Clientes OAuth registrados por Claude (registro dinámico): `id`, `name`, `redirect_uris` (JSON), `secret_hash` (si pidió secreto). Los que nunca se autorizaron se borran a los 7 días |
+| `mcp_tokens` | Conexiones de Claude: `kind` (`personal`/`oauth`), `name`, `client_id`, `token_hash`, `expires_at`, `refresh_hash`, `refresh_expires_at`, `last_used_at` |
 
 ### Índices
 
@@ -331,7 +343,7 @@ Hay 19 índices en `partners/indexes.ts` (más los que crea cada módulo). Cubre
 
 Se crean al arrancar con `IF NOT EXISTS` y después se ejecuta `PRAGMA optimize=0x10002`.
 
-## 8. API (190 rutas)
+## 8. API (unas 200 rutas)
 
 Todas cuelgan de `/api/` en `partners.`, salvo las de `/auth/`. La tabla indica quién puede usar cada grupo: **A** = administrador, **E** = equipo, **C** = cliente.
 
@@ -379,7 +391,12 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 | `GET/POST projects/:id/notes`, `PATCH/DELETE notes/:id` | Comentarios y avances |
 | `GET projects/:id/activity` | Bitácora |
 | `POST projects/:id/plan/adjust` → `POST projects/:id/plan/apply` | Ajuste con IA: vista previa y luego aplicar. Mueve también los eventos de Calendar |
+| `POST projects/:id/plan/adjust` con `allowWeekends` | Por defecto la IA no pone tareas en sábado ni domingo; con la casilla «Permitir fin de semana» sí (las reuniones siguen siendo entre semana) |
 | `GET projects/:id/scope`, `POST projects/:id/scope/remove` | Retirar una opción o fase del alcance |
+| `POST projects/:id/scope/add/suggest`, `POST projects/:id/scope/add` | Adicional: la IA arma las tareas a partir del pedido; al confirmar se crean la fase «Adicional: X», sus tareas, el pago con descuento (al aprobar, al entregar o en una fecha), la nota en `pricing`, el registro en `scope_changes` y, si se elige, una nota para el cliente. Solo mueve la entrega del proyecto si el adicional termina después |
+| `POST tasks/:id/review` | `{decision: 'approve'\|'changes', note}`: el cliente aprueba o pide ajustes; el equipo registra lo que dijo el cliente o reabre una completada. Solo para entregas al cliente (409 en tareas operativas) |
+| `PUT projects/:id/reviews`, `GET/PUT settings/reviews` | Rondas de ajustes incluidas, por proyecto o por defecto (0–20; 0 = sin límite) |
+| `POST projects/:id/deliveries/detect`, `PUT projects/:id/deliveries` | La IA propone qué tareas del equipo son entregas al cliente; se guarda la lista confirmada |
 
 ### Avances e informes (`updates.ts`, `reports.ts`)
 
@@ -444,9 +461,21 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 | `GET notifications` (con ETag), `POST notifications/read` | Campana |
 | `GET/PUT settings/notifications` | Canales por tipo de aviso |
 | `GET/PUT settings/telegram`, `POST settings/telegram/link`, `/test`, `/disconnect` | Bot de Telegram |
+| `GET settings/mcp`, `POST settings/mcp/tokens`, `DELETE settings/mcp/connections/:id` | Conexiones de Claude: dirección del conector, crear un token personal, desconectar |
 | `GET/PUT settings/ai`, `GET settings/ai/models`, `POST settings/ai/test`, `GET settings/ai/usage` | IA |
 | `GET/PUT settings/ai/instructions`, `POST settings/ai/instructions/suggest` | Instrucciones propias, redactadas a mano o con la IA |
 | `GET settings/google`, `POST settings/google/disconnect`, `POST settings/google/test-mail`, `GET settings/mail-preview` | Google y plantillas |
+
+### Conector MCP y OAuth (`mcp.ts`, sin `/api/`)
+
+| Ruta | Qué hace |
+|---|---|
+| `POST /mcp` | JSON-RPC: `initialize`, `ping`, `tools/list`, `tools/call` (también lotes). Sin token responde 401 con `WWW-Authenticate: Bearer resource_metadata=…`. `GET`/`DELETE` → 405 (no hay flujo SSE ni sesiones) |
+| `GET /.well-known/oauth-protected-resource[/mcp]`, `GET /.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | Metadatos (RFC 9728 y 8414) |
+| `POST /oauth/register` | Registro dinámico (RFC 7591). Destinos https, o http solo en localhost. Máximo 8 cada 15 min por IP |
+| `GET/POST /oauth/authorize` | Pantalla «Conectar Claude». Sin sesión guarda el destino en la cookie `dp_next` y manda a `/login`; al volver del login con Google regresa ahí. Solo el administrador puede permitir. Exige PKCE S256 |
+| `POST /oauth/token` | `authorization_code` (código de un solo uso, 5 min, en memoria) y `refresh_token` (rota). Reconectar el mismo cliente reemplaza su conexión anterior |
+| `POST /oauth/revoke` | Revoca un acceso OAuth |
 
 ### Panel de propuestas (`server.ts`, host `propuestas.`)
 
@@ -482,6 +511,8 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
   - Pagos.
   - Informes.
 - **Ajuste con IA del plan:** propone operaciones sobre las tareas existentes (mover, cambiar fechas o fase, reprogramar reuniones). Se revisan antes de aplicarlas, y aplicarlas mueve también los eventos de Calendar sin cruces.
+- **Adicionales:** «Agregar adicional» (pestaña Alcance) registra en un paso un pedido extra del cliente: tareas (la IA las propone), cobro con descuento y nota. Sirve para excepciones como trabajar el fin de semana sin mover la entrega.
+- **Entregas y ajustes:** solo las tareas marcadas como entrega al cliente pasan por su revisión. Al ponerlas «En revisión» se le avisa (`delivery_ready`); el cliente aprueba o pide ajustes desde la tarea (`client_review` al equipo). Cada pedido suma una ronda, devuelve la tarea a «En progreso» y deja el pedido como comentario compartido. Las rondas que pasan de las incluidas se marcan como adicionales. Las tareas operativas las cierra el equipo sin aprobación del cliente. La marca la propone la IA al armar el plan y los adicionales, o en «◆ Entregas al cliente» para proyectos existentes.
 - **Retirar del alcance:** se borran las tareas pendientes y los pagos sin pagar de esa opción o fase, y se recalcula la etiqueta de lo aprobado. Lo terminado se queda y el retiro queda registrado en `scope_changes`. La opción vuelve a estar disponible para aprobarse después.
 - **Avances:** se arman con los hechos del día (tareas completadas o en revisión, reuniones, archivos, próxima reunión) con enlaces internos, y la IA los redacta. Se pueden publicar a mano o automáticamente a las 17:00, y van por correo a los destinatarios elegidos.
 - **Informes:**
@@ -498,6 +529,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
   2. La IA (perfil *reuniones*, privado) devuelve resumen, acuerdos y tareas para cada lado.
   3. La reunión queda en `borrador` y se avisa con `meeting_draft`.
   4. Se revisa, se ve la vista previa del correo y se aprueba. Se crean las tareas, se envía el resumen (se puede programar) y se avisa con `meeting_summary`.
+  5. Si en la reunión el cliente pidió ajustes sobre entregas ya entregadas, la IA los propone (`proposed_changes`). Al aprobar se registra una ronda en cada una; los que caen sobre tareas operativas o no entregadas se saltan con aviso.
 - **Ventas (`discovery`/`proposal`):** la reunión tiene un prospecto sin cliente. Tras la llamada, la IA redacta el correo con el enlace de la propuesta (tarea `correo`).
 - **Reunión con cliente (`cliente`):** cliente sin proyecto. Al aprobarla no se crean tareas ni bitácora. El correo lleva el enlace al portal solo si el cliente tiene cuenta.
 
@@ -563,6 +595,14 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 
 Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 
+### Claude (`partners/mcp.ts`)
+
+- **Conectar:** en claude.ai (Configuración → Conectores → conector personalizado) con la URL `{PARTNERS_URL}/mcp`, que queda disponible también en la app de escritorio y el móvil. En Claude Code: `claude mcp add --transport http deersystems {PARTNERS_URL}/mcp`, con OAuth o con `--header "Authorization: Bearer {token}"`.
+- **Cómo actúa:** cada herramienta llama a la API del propio servidor por `127.0.0.1:{PORT}` con una cookie de administrador de 2 minutos que nunca sale del servidor (`internalOwnerCookie`). Así valida, avisa y deja bitácora igual que la app (a nombre de «DeerSystems»).
+- **Herramientas de lectura:** `list_projects`, `list_clients`, `get_project`, `search_tasks` (filtros por proyecto, estado, lado, responsable, fechas, texto, entregas), `get_task` (con comentarios), `list_updates`, `get_activity`, `list_meetings`, `get_meeting` (transcripción opcional), `get_payments`, `get_client_statement`, `list_team`.
+- **Herramientas de acción:** `create_task`, `update_task` (estado y campos) y `add_comment` (interno por defecto; `shared: true` lo ve el cliente). No hay herramientas para borrar ni para facturar.
+- **Respuestas:** JSON compacto, sin nulos ni campos vacíos.
+
 ### Correo (`src/mail.ts`)
 
 - Plantillas HTML en línea con la paleta de la marca (`canvas #051923`, `card #0d2a38`, `verde #7ED957`, `cian #00B4D8`…).
@@ -579,6 +619,8 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | `team_assigned` | team (la persona asignada) | ✓ | ✓ |
 | `client_task`, `staff_update`, `staff_comment` | client | ✓ | ✓ |
 | `staff_file`, `meeting_scheduled`, `meeting_summary` | client | ✓ | — |
+| `client_review` | staff | ✓ | ✓ |
+| `delivery_ready` | client | ✓ | ✓ |
 | `meeting_draft`, `online_payment`, `proposal_approved` | owner | ✓ | ✓ |
 | `scheduled_mail` | owner | ✓ | — |
 
@@ -611,7 +653,7 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | `/propuestas`, `/propuestas/:id/aprobar` | `Proposals.tsx`, `Approve.tsx`, `ProposalSend.tsx` | A |
 | `/reuniones`, `/reuniones/:id` | `Meetings.tsx` (lista, agendar, revisión del resumen), `SalesCall.tsx` | A |
 | `/facturacion`, `/facturacion/nueva`, `/cuentas-de-cobro/:id/editar` | `billing/*` | A |
-| `/configuracion?tab=…` | `Settings.tsx` (IA, instrucciones en `PromptSettings.tsx`, Google, Finanzas, Avisos y Telegram, Equipo en `Team.tsx`) | A |
+| `/configuracion?tab=…` | `Settings.tsx` (IA, instrucciones en `PromptSettings.tsx`, Google, Finanzas, Avisos y Telegram, Entregas y ajustes, Claude en `ClaudeMcp.tsx`, Equipo en `Team.tsx`) | A |
 
 ### Componentes del proyecto (`pages/project/`)
 
@@ -628,7 +670,8 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | `Payments.tsx` | Plan de pagos |
 | `Reports.tsx` | Informes |
 | `PlanAdjust.tsx` | Ajuste del plan con IA |
-| `ScopeAdjust.tsx` | Retirar del alcance |
+| `ScopeAdjust.tsx` | Retirar del alcance, agregar adicional e historial de cambios |
+| `Review.tsx` | Aprobar o pedir ajustes, etiquetas «◆ Entrega» y «↺ Ajuste N», diálogo «Entregas al cliente» |
 | `Activity.tsx` | Bitácora |
 
 ### Componentes de facturación (`pages/billing/`)
@@ -650,6 +693,7 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | Archivos subidos | En línea solo imágenes y PDF; las páginas HTML, en sandbox con un token |
 | HTML de ítems de facturación | Lista blanca de etiquetas sin atributos |
 | Webhook | Firma de Wompi |
+| Conector MCP | Solo Bearer (sin cookies, así no aplica CSRF); tokens guardados como hash; OAuth con PKCE S256, códigos de un solo uso y destinos registrados; solo el administrador autoriza; las herramientas no borran ni facturan |
 | Registros | Rutas sin ids; ni tokens ni datos personales |
 | Clickjacking e indexación | `X-Frame-Options: DENY`, `noindex` |
 
@@ -719,6 +763,7 @@ Hoy el sistema es de **un solo dueño**: un administrador, una cuenta de Google,
 - **`import-smartbilling.ts`**: solo sirvió para migrar. Hay que quitar su ruta, la pantalla `billing/Import.tsx` y las columnas `sb_id` (pueden quedarse vacías).
 - **`online-payments.ts`** (Wompi): ya viene apagado por defecto.
 - **`telegram.ts`**: sin bot configurado no hace nada.
+- **`mcp.ts`**: sin conexiones creadas, `/mcp` solo responde 401. Para quitarlo, borrar su línea en `handlePartners` y la pestaña Claude de Configuración.
 - **Gestor financiero**: si el cliente no lo usa, `finance.ts` puede devolver «no configurado» y la interfaz ocultar el estado de sincronización.
 - **Reuniones de ventas** (`discovery`/`proposal`) y **envío comercial de propuestas**, si el cliente no vende con propuestas.
 

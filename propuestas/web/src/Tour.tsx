@@ -185,7 +185,7 @@ function stepsFor(me: Me): Step[] {
     {
       target: 'nav-/configuracion',
       title: 'Configuración',
-      body: 'Equipo, IA, avisos (correo y Telegram), rondas de ajustes por defecto, Google y finanzas.',
+      body: 'Equipo, IA, avisos (correo y Telegram), rondas de ajustes, Google, finanzas y la conexión con Claude (MCP).',
     },
     bell,
     help,

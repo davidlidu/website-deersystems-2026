@@ -4,6 +4,7 @@ import { ErrorBox, Loading, PageHead, useAction, useToast } from '../ui';
 import { TeamPage } from './Team';
 import { CatchUpSwitch } from './billing/CatchUp';
 import { PromptSettings } from './PromptSettings';
+import { ClaudeTab } from './ClaudeMcp';
 
 type Provider = 'gemini' | 'openrouter';
 interface Target {
@@ -1314,6 +1315,7 @@ const TABS = {
   avisos: 'Avisos',
   entregas: 'Entregas y ajustes',
   google: 'Google y correo',
+  claude: 'Claude (MCP)',
   finanzas: 'Finanzas',
 } as const;
 type Tab = keyof typeof TABS;
@@ -1363,6 +1365,7 @@ export function SettingsPage() {
       {tab === 'avisos' && <NotificationsTab />}
       {tab === 'entregas' && <ReviewsTab />}
       {tab === 'google' && <GoogleTab />}
+      {tab === 'claude' && <ClaudeTab />}
       {tab === 'finanzas' && <FinanceTab />}
       {tab === 'equipo' && <TeamPage embedded />}
     </>
