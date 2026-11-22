@@ -8267,3 +8267,16 @@ button.gcal-stat:hover {
 .secret code {
   overflow-wrap: anywhere;
 }
+
+/* Orden en que se aplica un abono repartido entre varias cuentas de cobro */
+.apply__order {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--hairline);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--mute);
+  vertical-align: middle;
+}

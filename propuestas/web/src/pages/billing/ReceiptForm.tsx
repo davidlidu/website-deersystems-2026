@@ -68,7 +68,9 @@ export function ReceiptForm({
     .filter((i) => i.status !== 'anulada' && (pendingOf(i) > 0.5 || f.invoiceIds.includes(i.id)))
     .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
   const toggleInvoice = (id: number, on: boolean) => set({ invoiceIds: on ? [...f.invoiceIds, id] : f.invoiceIds.filter((x) => x !== id) });
-  const plan = distribute(open.filter((i) => f.invoiceIds.includes(i.id)), usd ? Number(f.amountCop) : Number(f.amount), pendingOf);
+  // El abono se reparte en el orden en que se marcan las cuentas de cobro.
+  const chosen = f.invoiceIds.map((id) => open.find((i) => i.id === id)).filter((i): i is InvoiceSummary => !!i);
+  const plan = distribute(chosen, usd ? Number(f.amountCop) : Number(f.amount), pendingOf);
 
   const submit = () =>
     run(async () => {
@@ -170,7 +172,14 @@ export function ReceiptForm({
                     <label className="check apply__item">
                       <input type="checkbox" checked={f.invoiceIds.includes(i.id)} onChange={(e) => toggleInvoice(i.id, e.target.checked)} />
                       <span className="apply__what">
-                        <strong>{i.number}</strong>
+                        <strong>
+                          {i.number}
+                          {f.invoiceIds.length > 1 && f.invoiceIds.includes(i.id) && (
+                            <span className="apply__order" title="Orden en que se aplica el abono">
+                              {f.invoiceIds.indexOf(i.id) + 1}.º
+                            </span>
+                          )}
+                        </strong>
                         <small>
                           {docDate(i.date)}
                           {i.projectName ? ` · ${i.projectName}` : ''}
@@ -196,7 +205,7 @@ export function ReceiptForm({
                 ? 'Sin marcar ninguna, el abono queda en la cuenta del cliente.'
                 : f.invoiceIds.length === 1
                   ? 'Todo el abono se aplica a esa cuenta de cobro.'
-                  : 'Se cubren de la más antigua a la más reciente; la última recibe lo que alcance y le queda el saldo pendiente.'}
+                  : 'Se cubren en el orden en que las marcas; la última recibe lo que alcance y le queda el saldo pendiente.'}
               {f.invoiceIds.length > 1 && plan.left > 0.5 && ` Sobran ${formatMoney(plan.left)}: quedan a favor en la cuenta del cliente.`}
             </small>
           </>
@@ -259,7 +268,7 @@ export function ReceiptForm({
   );
 }
 
-/** El mismo reparto que hace el servidor: de la más antigua a la más reciente, cada una hasta su saldo. Con una sola, va todo a ella. */
+/** El mismo reparto que hace el servidor: en el orden en que se marcaron, cada una hasta su saldo. Con una sola, va todo a ella. */
 function distribute(selected: InvoiceSummary[], amount: number, pendingOf: (i: InvoiceSummary) => number) {
   const lines = new Map<number, { take: number; rest: number }>();
   let left = amount > 0 ? amount : 0;

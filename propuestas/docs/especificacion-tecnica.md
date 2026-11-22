@@ -541,7 +541,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 2. **Cuentas de cobro:**
    - La numeración continúa la de SmartBilling.
    - El PDF se genera en el navegador y se envía por Gmail con adjuntos; el envío se puede programar.
-   - Un abono puede repartirse entre varias cuentas de cobro (`receipt_invoices`).
+   - Un abono puede repartirse entre varias cuentas de cobro (`receipt_invoices`): se cubren en el orden en que se marcan y la última recibe lo que alcance.
    - Varios abonos pueden unirse en un solo ingreso del Gestor (`finance_groups`).
 3. **«Poner al día»:** mientras está encendido, los abonos marcan las cuentas de cobro como pagadas sin llevar el ingreso al Gestor (`skip_finance = 1`, `catch_up = 1`).
 4. **Wompi (opcional):** crea un link de pago de un solo uso por el saldo. El webhook, validado con la firma SHA-256 e idempotente por transacción, registra el abono aplicado a esa cuenta de cobro.

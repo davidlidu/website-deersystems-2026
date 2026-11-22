@@ -408,28 +408,27 @@ export interface Application {
   amountCop: number;
 }
 
-/** A qué cuentas de cobro quedó aplicado un abono y cuánto a cada una (de la más antigua a la más reciente). */
+/** A qué cuentas de cobro quedó aplicado un abono y cuánto a cada una (en el orden en que se aplicó). */
 function applicationsOf(r: ReceiptRow): Application[] {
   if (r.invoice_id) return [{ invoiceId: r.invoice_id, number: getInvoice(r.invoice_id)?.number ?? '', amountCop: r.amount_cop }];
   return (
     sqlite
       .prepare(
-        'SELECT ri.invoice_id, ri.amount_cop, i.number FROM receipt_invoices ri JOIN invoices i ON i.id = ri.invoice_id WHERE ri.receipt_id = ? ORDER BY i.date, i.id',
+        'SELECT ri.invoice_id, ri.amount_cop, i.number FROM receipt_invoices ri JOIN invoices i ON i.id = ri.invoice_id WHERE ri.receipt_id = ? ORDER BY ri.rowid',
       )
       .all(r.id) as { invoice_id: number; amount_cop: number; number: string }[]
   ).map((a) => ({ invoiceId: a.invoice_id, number: a.number, amountCop: a.amount_cop }));
 }
 
 /**
- * Reparte un abono entre varias cuentas de cobro: de la más antigua a la más reciente, cubriendo el saldo de cada una.
+ * Reparte un abono entre varias cuentas de cobro en el orden en que se eligieron, cubriendo el saldo de cada una.
  * La última recibe lo que alcance (y le queda el saldo pendiente); si sobra, queda a favor en la cuenta del cliente.
  */
 function allocate(receiptId: number, amountCop: number, invoiceIds: number[]): void {
   sqlite.prepare('DELETE FROM receipt_invoices WHERE receipt_id = ?').run(receiptId);
   const invoices = invoiceIds
     .map((id) => getInvoice(id))
-    .filter((i): i is InvoiceRow => !!i)
-    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+    .filter((i): i is InvoiceRow => !!i);
   const ins = sqlite.prepare('INSERT INTO receipt_invoices (receipt_id, invoice_id, amount_cop) VALUES (?, ?, ?)');
   let left = amountCop;
   for (const inv of invoices) {
@@ -821,7 +820,7 @@ function readReceipt(body: Record<string, unknown>, current?: ReceiptRow): Recei
   } else if (body.invoiceId !== undefined) invoiceIds = [];
   else if (current && !current.invoice_id) {
     // Al editar sin tocar las cuentas: el reparto se recalcula con el monto nuevo.
-    const prev = (sqlite.prepare('SELECT invoice_id FROM receipt_invoices WHERE receipt_id = ?').all(current.id) as { invoice_id: number }[]).map((a) => a.invoice_id);
+    const prev = (sqlite.prepare('SELECT invoice_id FROM receipt_invoices WHERE receipt_id = ? ORDER BY rowid').all(current.id) as { invoice_id: number }[]).map((a) => a.invoice_id);
     if (prev.length) invoiceIds = prev;
   }
   for (const iid of invoiceId ? [invoiceId] : (invoiceIds ?? [])) {
