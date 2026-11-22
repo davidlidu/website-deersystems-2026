@@ -145,7 +145,7 @@ export function CalendarPage({ me }: { me: Me }) {
   // El panel de la tarea trabaja con el proyecto: sus fases y su avance bastan para editarla aquí.
   const detail: ProjectDetail | null =
     openTask && openProject
-      ? { ...openProject, scope: '', approvalNotes: '', tasks: data.tasks.filter((t) => t.projectId === openProject.id) }
+      ? { ...openProject, scope: '', approvalNotes: '', revisionRounds: null, revisionsIncluded: openTask.revisionsIncluded, tasks: data.tasks.filter((t) => t.projectId === openProject.id) }
       : null;
   const patch = (task: Task, progress?: Progress) =>
     setData({

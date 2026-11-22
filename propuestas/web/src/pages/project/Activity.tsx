@@ -13,6 +13,8 @@ function describe(a: ActivityItem): string {
       return `sumó al proyecto lo aprobado después${d.option ? ` (${d.option})` : ''}: ${d.tasks === 1 ? '1 tarea nueva' : `${d.tasks ?? 0} tareas nuevas`}`;
     case 'report_published':
       return `publicó el ${d.kind === 'final' ? 'informe de cierre' : 'informe'} ${q(d.title)}`;
+    case 'scope_added':
+      return `agregó el adicional ${d.option ? q(String(d.option)) : ''}: ${d.tasks === 1 ? '1 tarea' : `${d.tasks ?? 0} tareas`}`;
     case 'scope_removed':
       return `retiró del alcance ${d.option ?? 'una parte'}: ${d.tasks ?? 0} tareas${d.meetings ? `, ${d.meetings} reuniones` : ''} y ${d.payments ?? 0} pagos`;
     case 'plan_adjusted':
@@ -41,7 +43,13 @@ function describe(a: ActivityItem): string {
     case 'update_posted':
       return 'publicó un avance';
     case 'meeting_approved':
-      return `envió el resumen de la reunión ${q(d.title)} con ${d.tasks ?? 0} tareas`;
+      return `envió el resumen de la reunión ${q(d.title)} con ${d.tasks ?? 0} tareas${d.changes ? ` y ajustes en ${d.changes === 1 ? '1 entrega' : `${d.changes} entregas`}` : ''}`;
+    case 'deliveries_marked':
+      return `marcó ${d.deliveries === 1 ? '1 entrega' : `${d.deliveries ?? 0} entregas`} al cliente (${d.changed ?? 0} ${d.changed === 1 ? 'cambio' : 'cambios'})`;
+    case 'task_approved':
+      return `aprobó la entrega ${q(d.title)}${d.round ? ` después de ${d.round === 1 ? '1 ronda' : `${d.round} rondas`} de ajustes` : ' a la primera'}`;
+    case 'task_changes':
+      return `pidió ajustes en ${q(d.title)} (ronda ${d.round ?? 1}${d.extra ? ', adicional' : ''})${d.meeting ? ` en la reunión ${q(d.meeting)}` : ''}`;
     case 'meeting_scheduled':
       return `agendó la reunión ${q(d.title)} para el ${d.when}`;
     case 'meeting_reserved':
@@ -71,10 +79,13 @@ const ICON: Record<string, string> = {
   project_created: '✓',
   project_extended: '＋',
   scope_removed: '−',
+  scope_added: '＋',
   report_published: '▤',
   plan_adjusted: '✦',
   file_added: '📎',
   meeting_approved: '🎙',
+  task_approved: '✓',
+  task_changes: '↺',
   meeting_scheduled: '📅',
   meeting_updated: '📅',
 };

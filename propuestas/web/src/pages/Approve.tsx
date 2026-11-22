@@ -10,6 +10,8 @@ interface DraftTask {
   title: string;
   description: string;
   side: Side;
+  /** Entrega al cliente (la revisa y aprueba o pide ajustes); si no, es operativa del equipo. */
+  clientDelivery: boolean;
   assigneeId: number | null;
   startDate: string | null;
   dueDate: string | null;
@@ -98,7 +100,7 @@ function priceExcerpt(text: string): string | null {
   return `${from > 0 ? '…' : ''}${text.slice(from, to).trim()}${to < text.length ? '…' : ''}`;
 }
 
-const emptyTask = (): DraftTask => ({ key: key(), title: '', description: '', side: 'deersystems', assigneeId: null, startDate: null, dueDate: null });
+const emptyTask = (): DraftTask => ({ key: key(), title: '', description: '', side: 'deersystems', clientDelivery: false, assigneeId: null, startDate: null, dueDate: null });
 
 /** Estado del plan que se puede deshacer tras un ajuste con IA. */
 interface PlanSnapshot {
@@ -1000,12 +1002,23 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                         <select
                           value={t.side}
                           aria-label="Quién la resuelve"
-                          onChange={(e) => updateTask(ph.key, t.key, { side: e.target.value as Side, assigneeId: null })}
+                          onChange={(e) => updateTask(ph.key, t.key, { side: e.target.value as Side, assigneeId: null, clientDelivery: false })}
                         >
                           <option value="deersystems">DeerSystems</option>
                           <option value="cliente">Cliente</option>
                         </select>
                       </span>
+                      {t.side === 'deersystems' && (
+                        <label className="check check--chip" title="Entrega al cliente: la revisa y la aprueba o pide ajustes. Sin marcar, es operativa del equipo.">
+                          <input
+                            type="checkbox"
+                            checked={!!t.clientDelivery}
+                            onChange={(e) => updateTask(ph.key, t.key, { clientDelivery: e.target.checked })}
+                            aria-label="Entrega al cliente"
+                          />
+                          Entrega
+                        </label>
+                      )}
                       {t.side === 'deersystems' && activeTeam.length > 0 && (
                         <span className="input">
                           <select

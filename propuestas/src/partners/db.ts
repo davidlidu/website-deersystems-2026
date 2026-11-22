@@ -66,6 +66,8 @@ export interface Project {
   end_date: string | null;
   approved_at: string;
   approved_by: string;
+  /** Rondas de ajustes incluidas en este proyecto; null = las de Configuración (por defecto 2). */
+  revision_rounds: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -93,6 +95,13 @@ export interface Task {
   /** 'reunion' = reunión con el cliente en el cronograma (se pinta con la franja naranja). */
   kind: 'tarea' | 'reunion';
   completed_at: string | null;
+  /** 1 = entrega al cliente: la revisa, la aprueba o pide ajustes (con rondas). 0 = tarea operativa del equipo. */
+  client_delivery: number;
+  /** Rondas de ajustes pedidas sobre esta entrega (0 = primera versión). */
+  revision_round: number;
+  /** Cuándo y quién aprobó la entrega («Paula Méndez» o «Laura (por el cliente)»). */
+  approved_at: string | null;
+  approved_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -193,6 +202,11 @@ function addColumn(table: string, column: string, definition: string): void {
 }
 addColumn('projects', 'approved_option', "TEXT NOT NULL DEFAULT ''");
 addColumn('projects', 'approval_notes', "TEXT NOT NULL DEFAULT ''");
+addColumn('projects', 'revision_rounds', 'INTEGER');
+addColumn('tasks', 'revision_round', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('tasks', 'client_delivery', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('tasks', 'approved_at', 'TEXT');
+addColumn('tasks', 'approved_by', 'TEXT');
 
 const now = () => new Date().toISOString();
 const all = <T>(sql: string, ...params: (string | number | null)[]) => db.prepare(sql).all(...params) as unknown as T[];
@@ -459,7 +473,7 @@ export function createProject(p: {
 
 export function updateProject(
   id: number,
-  fields: Partial<Pick<Project, 'name' | 'scope' | 'pricing' | 'approved_option' | 'approval_notes' | 'status' | 'start_date' | 'end_date'>>,
+  fields: Partial<Pick<Project, 'name' | 'scope' | 'pricing' | 'approved_option' | 'approval_notes' | 'status' | 'start_date' | 'end_date' | 'revision_rounds'>>,
 ): void {
   for (const [col, value] of Object.entries(fields)) {
     if (value !== undefined) db.prepare(`UPDATE projects SET ${col} = ?, updated_at = ? WHERE id = ?`).run(value, now(), id);
@@ -496,23 +510,58 @@ export function createTask(t: {
   position: number;
   source: Task['source'];
   kind?: Task['kind'];
+  /** Entrega al cliente (solo tareas del equipo que no son reuniones). */
+  clientDelivery?: boolean;
 }): Task {
   const ts = now();
+  const delivery = t.clientDelivery && t.side === 'deersystems' && (t.kind ?? 'tarea') === 'tarea' ? 1 : 0;
   const { lastInsertRowid } = db
     .prepare(
-      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, kind, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, kind, client_delivery, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(t.projectId, t.phaseId, t.title, t.description, t.side, t.assigneeId, t.startDate, t.dueDate, t.position, t.source, t.kind ?? 'tarea', ts, ts);
+    .run(t.projectId, t.phaseId, t.title, t.description, t.side, t.assigneeId, t.startDate, t.dueDate, t.position, t.source, t.kind ?? 'tarea', delivery, ts, ts);
   return getTask(Number(lastInsertRowid))!;
 }
 
 export function setTaskStatus(id: number, status: TaskStatus): void {
+  // Si deja de estar completada, deja de estar aprobada.
   db.prepare(
     `UPDATE tasks SET status = ?, updated_at = ?,
-       completed_at = CASE WHEN ? = 'completada' THEN COALESCE(completed_at, ?) ELSE NULL END
+       completed_at = CASE WHEN ? = 'completada' THEN COALESCE(completed_at, ?) ELSE NULL END,
+       approved_at = CASE WHEN ? = 'completada' THEN approved_at ELSE NULL END,
+       approved_by = CASE WHEN ? = 'completada' THEN approved_by ELSE NULL END
      WHERE id = ?`,
-  ).run(status, now(), status, now(), id);
+  ).run(status, now(), status, now(), status, status, id);
+}
+
+// ───────── Entregas y ajustes ─────────
+
+/** Rondas de ajustes incluidas por defecto (Configuración → Entregas y ajustes). 0 = sin límite. */
+export function defaultRevisionRounds(): number {
+  const n = Number(getSetting<{ revisionRounds?: number }>('reviews')?.revisionRounds);
+  return Number.isInteger(n) && n >= 0 && n <= 20 ? n : 2;
+}
+
+/** Las del proyecto si se fijaron (p. ej. lo que dice la propuesta); si no, las de Configuración. */
+export function includedRounds(project: Pick<Project, 'revision_rounds'> | undefined): number {
+  const n = project?.revision_rounds;
+  return n !== null && n !== undefined && n >= 0 ? n : defaultRevisionRounds();
+}
+
+/** El cliente (o el equipo por él) aprueba la entrega: queda completada y firmada. */
+export function approveTask(id: number, by: string): void {
+  const t = now();
+  db.prepare(
+    `UPDATE tasks SET status = 'completada', completed_at = COALESCE(completed_at, ?), approved_at = ?, approved_by = ?, updated_at = ? WHERE id = ?`,
+  ).run(t, t, by.slice(0, 200), t, id);
+}
+
+/** Se piden ajustes: suma una ronda y la entrega vuelve a En progreso. */
+export function requestTaskChanges(id: number): void {
+  db.prepare(
+    `UPDATE tasks SET revision_round = revision_round + 1, status = 'en_progreso', completed_at = NULL, approved_at = NULL, approved_by = NULL, updated_at = ? WHERE id = ?`,
+  ).run(now(), id);
 }
 
 // ───────── Consumo de IA ─────────
@@ -593,7 +642,7 @@ addColumn('notes', 'emailed_at', 'TEXT');
 addColumn('projects', 'auto_updates', 'INTEGER NOT NULL DEFAULT 0');
 
 export type TaskFields = Partial<
-  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position' | 'kind'>
+  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position' | 'kind' | 'client_delivery'>
 >;
 
 export function updateTask(id: number, fields: TaskFields): void {

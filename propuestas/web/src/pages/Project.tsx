@@ -24,8 +24,9 @@ import { NotesPanel } from './project/Notes';
 import { TaskDrawer, type TaskDefaults } from './project/TaskDrawer';
 import { PaymentsPanel } from './project/Payments';
 import { PlanAdjustButton } from './project/PlanAdjust';
+import { DeliveriesButton } from './project/Review';
 import { ReportsPanel } from './project/Reports';
-import { ScopeHistory, ScopeRemoveDialog } from './project/ScopeAdjust';
+import { ScopeAddDialog, ScopeHistory, ScopeRemoveDialog } from './project/ScopeAdjust';
 import { ProjectSummary } from './project/Summary';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
 import { UpdatesPanel } from './project/Updates';
@@ -144,6 +145,7 @@ function PlanPdfButton({ project, tasks }: { project: ProjectDetail; tasks: Task
 export function ProjectPage({ me, id }: { me: Me; id: number }) {
   const { data, error, loading, reload, setData } = useApi<ProjectDetail>(`projects/${id}`);
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [scopeVersion, setScopeVersion] = useState(0);
   const staff = me.role !== 'client';
   const team = useApi<TeamMember[]>(staff ? 'team' : null);
@@ -272,6 +274,8 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
 
   // Lo que ya mandó a revisión no cuenta: está en manos de DeerSystems.
   const mine = p.tasks.filter((t) => t.side === 'cliente' && t.status !== 'completada' && t.status !== 'en_revision').length;
+  // Entregas del equipo esperando que el cliente las apruebe o pida ajustes.
+  const toReview = p.tasks.filter((t) => t.canReview && t.status === 'en_revision');
   const hasCommercial = seesMoney(me) && (p.pricing || p.proposalUrl);
   const openTask = drawer?.taskId ? p.tasks.find((t) => t.id === drawer.taskId) : null;
 
@@ -334,6 +338,21 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
             )}
           </div>
         </div>
+        {me.role === 'client' && toReview.length > 0 && (
+          <div className="review-banner" data-tour="review-banner">
+            <span>
+              <strong>
+                Tienes {toReview.length} {toReview.length === 1 ? 'entrega lista' : 'entregas listas'} para revisar.
+              </strong>{' '}
+              Apruébala o pide ajustes:
+            </span>
+            {toReview.slice(0, 6).map((t) => (
+              <button key={t.id} className="btn btn--outline btn--sm" onClick={() => setDrawer({ taskId: t.id })}>
+                {t.title}
+              </button>
+            ))}
+          </div>
+        )}
         {me.role === 'client' && mine > 0 && (
           <p className="callout" data-tour="project-callout">
             Tienes <strong>{mine}</strong> {mine === 1 ? 'tarea pendiente' : 'tareas pendientes'} de tu lado. Cuando la termines, márcala{' '}
@@ -390,8 +409,9 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
                 ['reuniones', 'Calendario de reuniones'],
               ]}
             />
-            <div className="actions actions--tight">
+            <div className="actions actions--tight" data-tour="plan-actions">
               {me.role === 'owner' && plan !== 'reuniones' && <PlanAdjustButton projectId={p.id} onApplied={reload} />}
+              {me.role === 'owner' && plan !== 'reuniones' && <DeliveriesButton projectId={p.id} tasks={p.tasks} onSaved={reload} />}
               {plan !== 'reuniones' && <PlanPdfButton project={p} tasks={tasks} />}
               {staff && plan !== 'reuniones' && (
                 <button className="btn btn--primary btn--sm" onClick={() => setDrawer({ taskId: null, defaults: {} })}>
@@ -515,9 +535,14 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
             {me.role === 'owner' ? (
               <div className="scope-page__head">
                 <h2 className="scope-page__title">Alcance aprobado</h2>
-                <button className="btn btn--outline btn--sm" onClick={() => setScopeOpen(true)}>
-                  Retirar del alcance…
-                </button>
+                <span className="actions actions--tight" data-tour="scope-actions">
+                  <button className="btn btn--outline btn--sm" onClick={() => setAddOpen(true)}>
+                    Agregar adicional…
+                  </button>
+                  <button className="btn btn--outline btn--sm" onClick={() => setScopeOpen(true)}>
+                    Retirar del alcance…
+                  </button>
+                </span>
               </div>
             ) : (
               <h2 className="scope-page__title">Alcance aprobado</h2>
@@ -538,6 +563,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
                 )}
               </div>
             )}
+            {me.role === 'owner' && <RoundsField project={p} onSaved={reload} />}
             {me.role === 'owner' && <ScopeHistory projectId={p.id} version={scopeVersion} />}
             {p.scope ? <Markdown text={p.scope} /> : <p>Sin alcance registrado.</p>}
           </div>
@@ -561,6 +587,17 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
         <section className="section section--flush">
           <PaymentsPanel me={me} projectId={p.id} clientId={p.clientId} />
         </section>
+      )}
+
+      {addOpen && (
+        <ScopeAddDialog
+          projectId={p.id}
+          onClose={() => setAddOpen(false)}
+          onDone={() => {
+            setScopeVersion((n) => n + 1);
+            reload();
+          }}
+        />
       )}
 
       {scopeOpen && (
@@ -590,5 +627,33 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
         />
       )}
     </>
+  );
+}
+
+/** Rondas de ajustes incluidas en este proyecto (p. ej. lo que dice la propuesta); vacío = las de Configuración. */
+function RoundsField({ project, onSaved }: { project: ProjectDetail; onSaved: () => void }) {
+  const [value, setValue] = useState(project.revisionRounds === null ? '' : String(project.revisionRounds));
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const saved = project.revisionRounds === null ? '' : String(project.revisionRounds);
+  const save = () =>
+    run(async () => {
+      await api('PUT', `projects/${project.id}/reviews`, { revisionRounds: value.trim() === '' ? null : Number(value) });
+      toast('Rondas de ajustes guardadas.');
+      onSaved();
+    });
+  return (
+    <div className="rounds-field">
+      <span>Rondas de ajustes incluidas por entrega:</span>
+      <span className="input">
+        <input inputMode="numeric" value={value} placeholder={String(project.revisionsIncluded)} disabled={busy} aria-label="Rondas de ajustes incluidas" onChange={(e) => setValue(e.target.value.replace(/\D/g, '').slice(0, 2))} />
+      </span>
+      <span>{value.trim() === '' ? `las de Configuración (${project.revisionsIncluded || 'sin límite'})` : value === '0' ? 'sin límite' : ''}</span>
+      {value !== saved && (
+        <button className="btn btn--outline btn--sm" disabled={busy} onClick={save}>
+          Guardar
+        </button>
+      )}
+    </div>
   );
 }

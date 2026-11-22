@@ -12,9 +12,11 @@ import * as telegram from './telegram.ts';
 export const EVENTS = {
   client_comment: { audience: 'staff', label: 'El cliente comenta una tarea o deja una nota', app: true, email: true },
   client_status: { audience: 'staff', label: 'El cliente cambia el estado de una tarea', app: true, email: true },
+  client_review: { audience: 'staff', label: 'El cliente aprueba una entrega o pide ajustes', app: true, email: true },
   client_file: { audience: 'staff', label: 'El cliente sube un archivo', app: true, email: true },
   team_assigned: { audience: 'team', label: 'A alguien del equipo le asignan una tarea', app: true, email: true },
   client_task: { audience: 'client', label: 'Hay una tarea nueva para el cliente', app: true, email: true },
+  delivery_ready: { audience: 'client', label: 'Una entrega queda lista para que el cliente la revise', app: true, email: true },
   staff_update: { audience: 'client', label: 'DeerSystems publica un avance', app: true, email: true },
   staff_comment: { audience: 'client', label: 'DeerSystems comenta o deja una nota compartida', app: true, email: true },
   staff_file: { audience: 'client', label: 'DeerSystems comparte un archivo', app: true, email: false },

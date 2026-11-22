@@ -8,10 +8,11 @@ import { getProposal } from '../db.ts';
 import { meetingSummary, proposalAfterCall } from '../mail.ts';
 import { publicUrl } from '../proposals.ts';
 import type { Viewer } from './auth.ts';
-import { actor, optDate, requireOwner, str, visibleProject } from './common.ts';
+import { actor, isDelivery, optDate, requireOwner, str, visibleProject } from './common.ts';
 import { assertFree, checkSlots } from './availability.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
+import { requestChanges } from './reviews.ts';
 import { onScheduled, readSendAt, scheduleMail } from './scheduled.ts';
 
 /**
@@ -39,6 +40,12 @@ export interface ProposedTask {
   dueDate: string | null;
 }
 
+/** Ajustes que el cliente pidió en la reunión sobre una entrega que ya existe (en revisión o completada). */
+export interface ProposedChange {
+  taskId: number;
+  request: string;
+}
+
 interface Row {
   id: number;
   event_id: string | null;
@@ -58,6 +65,8 @@ interface Row {
   summary: string;
   agreements: string;
   proposed_tasks: string;
+  /** Ajustes sobre entregas existentes que detectó la IA (JSON: ProposedChange[]). */
+  proposed_changes: string;
   task_ids: string;
   /** Fase del proyecto a la que pertenece la reunión (null = fuera de las fases). */
   phase_id: number | null;
@@ -132,6 +141,7 @@ if (!(sqlite.prepare('PRAGMA table_info(meetings)').all() as { name: string }[])
   add('plan_task_id', 'INTEGER');
   add('tentative', 'INTEGER NOT NULL DEFAULT 0');
   add('pending_attendees', 'TEXT');
+  add('proposed_changes', "TEXT NOT NULL DEFAULT '[]'");
 }
 
 /** En Calendar, la reserva se distingue por el título hasta que el cliente confirma. */
@@ -370,6 +380,10 @@ function view(m: Row, v: Viewer) {
           calendarUrl: m.calendar_url,
           pendingAttendees: parse<string[]>(m.pending_attendees, []),
           proposedTasks: parse<ProposedTask[]>(m.proposed_tasks, []),
+          proposedChanges: parse<ProposedChange[]>(m.proposed_changes, []).flatMap((c) => {
+            const t = db.getTask(c.taskId);
+            return t && t.project_id === m.project_id ? [{ ...c, title: t.title, status: t.status, round: t.revision_round ?? 0 }] : [];
+          }),
           hasTranscript: !!m.transcript,
           transcriptSource: m.transcript_source,
           transcriptUrl: m.transcript_url,
@@ -455,10 +469,14 @@ async function generate(m: Row): Promise<void> {
   if (!m.transcript) throw new AiError('La reunión no tiene transcripción.');
   const project = m.project_id ? db.getProject(m.project_id) : undefined;
   const open = project ? db.listTasks(project.id).filter((t) => t.status !== 'completada') : [];
+  // Entregas que el cliente pudo revisar en la reunión: sobre estas la IA detecta ajustes pedidos.
+  const deliveries = project
+    ? db.listTasks(project.id).filter((t) => isDelivery(t) && (t.status === 'en_revision' || t.status === 'completada'))
+    : [];
   const attendees = parse<Attendee[]>(m.attendees, []);
   const date = new Date(m.start_at).toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
 
-  const { data, completion } = await completeJson<{ summary?: unknown; agreements?: unknown; tasks?: unknown }>({
+  const { data, completion } = await completeJson<{ summary?: unknown; agreements?: unknown; tasks?: unknown; changes?: unknown }>({
     profile: 'reuniones',
     purpose: 'reunion',
     system: SYSTEM,
@@ -469,6 +487,9 @@ Alcance aprobado (extracto): ${(project?.scope ?? '').slice(0, 3000) || '—'}
 Tareas abiertas del proyecto (no las repitas):
 ${open.map((t) => `- ${t.title} [${t.side}]`).join('\n') || '- ninguna'}
 
+Entregas al cliente que ya puede revisar (id, título, estado). Las tareas operativas internas no están aquí y no llevan ajustes:
+${deliveries.map((t) => `- ${t.id}: ${t.title} [${t.status === 'completada' ? 'aprobada/completada' : 'en revisión'}${t.revision_round ? `, ${t.revision_round} rondas de ajustes` : ''}]`).join('\n') || '- ninguna'}
+
 Reunión: «${m.title}» del ${date}.
 Asistentes: ${attendees.map((a) => `${a.name || a.email} (${a.side === 'deersystems' ? 'DeerSystems' : a.side === 'cliente' ? 'cliente' : 'invitado'})`).join(', ') || 'sin datos'}
 
@@ -478,6 +499,9 @@ Devuelve:
   "agreements": ["acuerdo concreto y verificable", "..."],
   "tasks": [
     { "title": "tarea accionable que empiece con verbo", "description": "qué hay que hacer y para qué, 1-2 frases", "side": "deersystems | cliente", "dueDate": "YYYY-MM-DD o null" }
+  ],
+  "changes": [
+    { "taskId": 12, "request": "los ajustes que el cliente pidió sobre esa entrega, concretos y en viñetas si son varios" }
   ]
 }
 
@@ -485,6 +509,7 @@ Reglas:
 - Solo tareas con un compromiso claro en la conversación. Nada inventado ni genérico.
 - "side" es "cliente" si el compromiso lo asumió el cliente (enviar información, aprobar, dar accesos, pagar…); si no, "deersystems".
 - Si se habló de una tarea que ya está abierta, no la crees de nuevo.
+- "changes": solo cuando el cliente pidió cambios, correcciones o ajustes sobre una de las ENTREGAS listadas arriba (usa su id). Un ajuste a una entrega existente va en "changes", no como tarea nueva. Si el cliente la aprobó o no pidió cambios, no la incluyas. Si no hay, [].
 - Convierte las fechas relativas ("el viernes", "en dos semanas") a YYYY-MM-DD tomando como referencia el ${date}. Si no se dijo fecha, null.
 - No incluyas comentarios internos ni opiniones sobre el cliente: este texto lo leerá el cliente.
 
@@ -503,7 +528,13 @@ ${m.transcript.slice(0, 400_000)}
       dueDate: optDate(t?.dueDate) ?? null,
     }))
     .filter((t) => t.title);
+  const deliveryIds = new Set(deliveries.map((t) => t.id));
+  const changes: ProposedChange[] = (Array.isArray(data.changes) ? data.changes : [])
+    .map((c: Record<string, unknown>) => ({ taskId: Number(c?.taskId), request: str(c?.request, 4000) }))
+    .filter((c, i, list) => deliveryIds.has(c.taskId) && c.request.length >= 5 && list.findIndex((x) => x.taskId === c.taskId) === i)
+    .slice(0, 20);
   update(m.id, {
+    proposed_changes: JSON.stringify(changes),
     summary: str(data.summary, 20_000),
     agreements: JSON.stringify((Array.isArray(data.agreements) ? data.agreements : []).map((a) => str(a, 500)).filter(Boolean).slice(0, 30)),
     proposed_tasks: JSON.stringify(tasks),
@@ -515,7 +546,7 @@ ${m.transcript.slice(0, 400_000)}
     actor: null,
     projectId: m.project_id,
     title: `Resumen listo para revisar: «${m.title}»`,
-    body: `${tasks.length} tareas propuestas`,
+    body: `${tasks.length} tareas propuestas${changes.length ? ` · ${changes.length} ${changes.length === 1 ? 'entrega con ajustes' : 'entregas con ajustes'}` : ''}`,
     path: `/reuniones/${m.id}`,
   });
 }
@@ -679,7 +710,7 @@ function summaryMail(
   m: Row,
   project: db.Project | undefined,
   to: string,
-  content: { summary: string; agreements: string[]; tasks: { title: string; side: db.Side; dueDate: string | null }[] },
+  content: { summary: string; agreements: string[]; tasks: { title: string; side: db.Side; dueDate: string | null }[]; changes?: ProposedChange[] },
 ) {
   const date = new Date(m.start_at).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' });
   const day = (iso: string) =>
@@ -695,7 +726,14 @@ function summaryMail(
     meetingTitle: m.title,
     date,
     summary: content.summary,
-    agreements: content.agreements,
+    // Los ajustes pedidos sobre entregas van con los acuerdos: el cliente ve que quedaron registrados.
+    agreements: [
+      ...content.agreements,
+      ...(content.changes ?? []).flatMap((c) => {
+        const t = db.getTask(c.taskId);
+        return t ? [`Ajustes en «${t.title}»: ${c.request.replace(/\s*\n\s*[-*•]?\s*/g, '; ').replace(/^[-*•]\s*/, '')}`] : [];
+      }),
+    ],
     ourTasks: bullets('deersystems'),
     clientTasks: bullets('cliente'),
     url: project ? `${PARTNERS_URL}/proyectos/${project.id}?tab=reuniones` : hasPortal ? PARTNERS_URL : null,
@@ -718,6 +756,10 @@ function readContent(body: Record<string, unknown>) {
       }))
       .filter((t) => t.title)
       .slice(0, 40),
+    changes: (Array.isArray(body.changes) ? (body.changes as Record<string, unknown>[]) : [])
+      .map((c) => ({ taskId: Number(c.taskId), request: str(c.request, 4000) }))
+      .filter((c, i, list) => c.taskId > 0 && c.request.length >= 5 && list.findIndex((x) => x.taskId === c.taskId) === i)
+      .slice(0, 20),
   };
 }
 
@@ -1445,7 +1487,7 @@ ${context}
       const clientId = project?.client_id ?? m.client_id;
       const to = str(body.to, 200) || (clientId ? db.getClientAccount(clientId)?.email : '') || prospectOf(m)?.email || '';
       const content = readContent(body);
-      const mail = summaryMail(m, project, to, project ? content : { ...content, tasks: [] });
+      const mail = summaryMail(m, project, to, project ? content : { ...content, tasks: [], changes: [] });
       json(res, 200, { subject: mail.subject, to, html: mail.html });
       return true;
     }
@@ -1468,7 +1510,7 @@ ${context}
       // Una reunión con cliente sin proyecto se aprueba igual: se envía el resumen, sin crear tareas.
       if (!project && m.kind !== 'cliente') throw new HttpError(400, 'Elige el proyecto de la reunión.');
       const read = readContent(body);
-      const content = project ? read : { ...read, tasks: [] };
+      const content = project ? read : { ...read, tasks: [], changes: [] };
       const { summary, agreements, tasks } = content;
       if (!summary) throw new HttpError(400, 'El resumen está vacío.');
       const recipients = [...new Set((Array.isArray(body.recipients) ? body.recipients : []).map((e) => str(e, 200).toLowerCase()))].filter((e) =>
@@ -1494,6 +1536,23 @@ ${context}
               }),
             ),
           );
+      // Ajustes sobre entregas existentes: cada uno es una ronda, con el pedido escrito en la tarea.
+      const adjusted: { title: string; round: number; extra: boolean }[] = [];
+      const skippedChanges: string[] = [];
+      for (const c of project ? content.changes : []) {
+        const t = db.getTask(c.taskId);
+        if (!t || t.project_id !== project!.id) continue;
+        if (!isDelivery(t)) {
+          skippedChanges.push(`«${t.title}» no es una entrega al cliente: anota el pedido como comentario o crea una tarea.`);
+          continue;
+        }
+        if (t.status !== 'en_revision' && t.status !== 'completada') {
+          skippedChanges.push(`«${t.title}» ya está en ajustes o no está entregada: anota el pedido como comentario.`);
+          continue;
+        }
+        const r = requestChanges(t, project!, c.request, v, { meeting: m.title });
+        adjusted.push({ title: t.title, round: r.round, extra: r.extra });
+      }
       update(m.id, {
         status: 'aprobada',
         project_id: project?.id ?? null,
@@ -1512,7 +1571,7 @@ ${context}
           actorKind: a.kind,
           actorName: a.name,
           type: 'meeting_approved',
-          data: { title: m.title, tasks: created.length, excerpt: summary.slice(0, 140) },
+          data: { title: m.title, tasks: created.length, changes: adjusted.length, excerpt: summary.slice(0, 140) },
         });
         const path = `/proyectos/${project.id}?tab=reuniones`;
         notify('meeting_summary', { actor: v, projectId: project.id, title: `Resumen de la reunión «${m.title}»`, body: `${created.length} tareas nuevas`, path });
@@ -1553,7 +1612,7 @@ ${context}
           }
         }
       }
-      json(res, 200, { meeting: view(get(m.id)!, v), tasks: created.length, mail });
+      json(res, 200, { meeting: view(get(m.id)!, v), tasks: created.length, adjusted, skippedChanges, mail });
       return true;
     }
   }

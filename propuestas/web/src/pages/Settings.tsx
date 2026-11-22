@@ -1031,6 +1031,55 @@ function FinanceTab() {
 
 // ───────── Página ─────────
 
+// ───────── Entregas y ajustes ─────────
+
+/** Rondas de ajustes incluidas por entrega. Cada proyecto puede fijar las suyas en «Alcance y propuesta». */
+function ReviewsTab() {
+  const { data, error, loading, reload, setData } = useApi<{ revisionRounds: number }>('settings/reviews');
+  const [value, setValue] = useState<string | null>(null);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  if (loading) return <Loading />;
+  if (error) return <ErrorBox message={error} onRetry={reload} />;
+  const current = value ?? String(data!.revisionRounds);
+  const save = () =>
+    run(async () => {
+      setData(await api<{ revisionRounds: number }>('PUT', 'settings/reviews', { revisionRounds: Number(current) }));
+      setValue(null);
+      toast('Rondas de ajustes guardadas.');
+    });
+  return (
+    <section className="card form-section narrow-col">
+      <h2>Entregas y ajustes</h2>
+      <p className="hint">
+        Cuando una entrega del equipo pasa a «En revisión», el cliente recibe el aviso y desde la plataforma la aprueba o pide ajustes. También puedes
+        registrar lo que te dijo por otro medio, y los ajustes que pida en una reunión salen del resumen de la transcripción. Cada pedido de ajustes es una
+        ronda: las que pasan de las incluidas quedan marcadas como adicionales (cobrarlas o no lo decides tú).
+      </p>
+      <label className="field narrow">
+        <span className="field__label">Rondas de ajustes incluidas por entrega</span>
+        <span className="input">
+          <select value={current} disabled={busy} onChange={(e) => setValue(e.target.value)}>
+            {Array.from({ length: 21 }, (_, i) => (
+              <option key={i} value={i}>
+                {i === 0 ? 'Sin límite' : i === 1 ? '1 ronda' : `${i} rondas`}
+              </option>
+            ))}
+          </select>
+        </span>
+      </label>
+      <p className="hint">Rige para los proyectos que no tengan las suyas. Si la propuesta dice otra cosa, cámbialo en el proyecto (pestaña «Alcance y propuesta»).</p>
+      {current !== String(data!.revisionRounds) && (
+        <div className="actions actions--tight">
+          <button className="btn btn--primary btn--sm" disabled={busy} onClick={save}>
+            Guardar
+          </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ───────── Avisos ─────────
 
 type Channel = 'app' | 'email' | 'telegram';
@@ -1257,7 +1306,16 @@ function NotificationsTab() {
   );
 }
 
-const TABS = { equipo: 'Equipo', ia: 'Inteligencia artificial', prompts: 'Instrucciones de la IA', consumo: 'Consumo de IA', avisos: 'Avisos', google: 'Google y correo', finanzas: 'Finanzas' } as const;
+const TABS = {
+  equipo: 'Equipo',
+  ia: 'Inteligencia artificial',
+  prompts: 'Instrucciones de la IA',
+  consumo: 'Consumo de IA',
+  avisos: 'Avisos',
+  entregas: 'Entregas y ajustes',
+  google: 'Google y correo',
+  finanzas: 'Finanzas',
+} as const;
 type Tab = keyof typeof TABS;
 
 const GOOGLE_MESSAGES: Record<string, [string, boolean]> = {
@@ -1303,6 +1361,7 @@ export function SettingsPage() {
       {tab === 'prompts' && <PromptSettings />}
       {tab === 'consumo' && <UsageTab />}
       {tab === 'avisos' && <NotificationsTab />}
+      {tab === 'entregas' && <ReviewsTab />}
       {tab === 'google' && <GoogleTab />}
       {tab === 'finanzas' && <FinanceTab />}
       {tab === 'equipo' && <TeamPage embedded />}

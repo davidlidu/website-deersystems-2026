@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { AiError, completeJson } from '../ai.ts';
 import { db as sqlite, getProposal } from '../db.ts';
 import { HttpError, json, readJson } from '../http.ts';
 import { combined, generatedData, optionsOf, shortName, type PublicOption } from './approvals.ts';
@@ -6,6 +7,9 @@ import type { Viewer } from './auth.ts';
 import * as billing from './billing.ts';
 import { actor, requireOwner, str, visibleProject } from './common.ts';
 import * as db from './db.ts';
+import { createPayments } from './payments.ts';
+import { weekdaysRule } from './planAdjust.ts';
+import { DELIVERY_RULE } from './extract.ts';
 
 /**
  * Retirar del alcance una opción o fase ya aprobada (el cliente pidió quitarla a mitad de camino):
@@ -37,6 +41,106 @@ interface ChangeRow {
   payments: string;
   created_at: string;
   created_by: string;
+  kind: string;
+  detail: string;
+}
+
+/** Cuándo se cobra un adicional: al aprobarlo (hoy), al entregarlo (la última tarea) o en una fecha. */
+type PayWhen = 'aprobar' | 'entregar' | 'fecha';
+
+interface AdditionTask {
+  title: string;
+  description: string;
+  side: 'deersystems' | 'cliente';
+  clientDelivery: boolean;
+  startDate: string | null;
+  dueDate: string | null;
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const day = (v: unknown) => (typeof v === 'string' && DATE_RE.test(v) ? v : null);
+const todayBogota = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
+const isWeekend = (d: string) => [0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay());
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const pct = (n: number) => String(n).replace('.', ',');
+
+function normalizeTasks(raw: unknown): AdditionTask[] {
+  return ((Array.isArray(raw) ? raw : []) as Record<string, unknown>[])
+    .slice(0, 30)
+    .map((t) => {
+      let start = day(t?.startDate);
+      let due = day(t?.dueDate);
+      if (start && due && start > due) [start, due] = [due, start];
+      return {
+        title: str(t?.title, 200).trim(),
+        description: str(t?.description, 4000),
+        side: t?.side === 'cliente' ? ('cliente' as const) : ('deersystems' as const),
+        clientDelivery: t?.side !== 'cliente' && t?.clientDelivery === true,
+        startDate: start,
+        dueDate: due ?? start,
+      };
+    })
+    .filter((t) => t.title);
+}
+
+/** Valor del adicional: base menos el descuento (p. ej. 50 USD − 15 % = 42,50 USD). */
+function priceOf(body: Record<string, unknown>) {
+  const base = round2(Number(body.amount) || 0);
+  const discount = round2(Number(body.discountPercent) || 0);
+  if (!Number.isFinite(base) || base < 0) throw new HttpError(400, 'El valor del adicional no es válido.');
+  if (discount < 0 || discount >= 100) throw new HttpError(400, 'El descuento va entre 0 y 99 %.');
+  const currency = String(body.currency).toUpperCase() === 'USD' ? ('USD' as const) : ('COP' as const);
+  return { base, discount, total: round2(base * (1 - discount / 100)), currency };
+}
+
+const money = (n: number, currency: string) => {
+  const digits = currency === 'USD' ? 2 : 0;
+  return new Intl.NumberFormat('es-CO', { style: 'currency', currency, minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
+};
+
+/** La IA arma las tareas del adicional a partir de lo que pidió el cliente, sin tocar el resto del plan. */
+async function suggestAddition(project: db.Project, p: { name: string; request: string; allowWeekends: boolean }) {
+  const today = todayBogota();
+  const weekday = new Date().toLocaleDateString('es-CO', { weekday: 'long', timeZone: 'America/Bogota' });
+  const { data, completion } = await completeJson<Record<string, unknown>>({
+    profile: 'propuestas',
+    purpose: 'adicional al alcance',
+    system: `Eres el asistente de operaciones de DeerSystems. Conviertes una solicitud adicional de un cliente en las tareas de una fase nueva del proyecto.
+Responde SOLO con un objeto JSON válido, en español, sin comentarios ni texto adicional.`,
+    prompt: `Hoy es ${today} (${weekday}). Proyecto: "${project.name}". Entrega estimada del proyecto: ${project.end_date ?? 'sin fecha'}.
+Fases actuales (no se tocan): ${JSON.stringify(db.listPhases(project.id).map((ph) => ph.name))}
+
+ADICIONAL: "${p.name}"
+SOLICITUD (tal como se acordó con el cliente):
+"""
+${p.request}
+"""
+
+Devuelve:
+{
+  "tasks": [{ "title": "...", "description": "qué se hace y cómo se sabe que está listo", "side": "deersystems | cliente", "clientDelivery": true, "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD" }],
+  "notes": ["aviso corto si algo no cuadra (p. ej. una fecha imposible)"]
+}
+
+Reglas:
+- Solo las tareas de este adicional, entre 2 y 10, en orden. No cambies ni repitas tareas del resto del proyecto.
+- "side" es "cliente" para lo que debe entregar o hacer el cliente (enlaces, contenidos, accesos, aprobaciones, pagos); lo demás es "deersystems".
+- Respeta los plazos que diga la solicitud (p. ej. "publicar antes del lunes", "necesito hoy los enlaces"). Si dice que otra entrega no se mueve, ninguna tarea va después de esa fecha.
+- Incluye una tarea final de publicación o entrega del adicional.
+- ${DELIVERY_RULE}
+- ${weekdaysRule(p.allowWeekends)}
+- No incluyas precios ni valores en las tareas.`,
+    maxOutputTokens: 4096,
+  });
+  const tasks = normalizeTasks(data.tasks);
+  if (!tasks.length) throw new AiError(`El modelo ${completion.model} no devolvió tareas. Vuelve a intentarlo o agrégalas a mano.`);
+  const notes = (Array.isArray(data.notes) ? data.notes : [])
+    .map((n) => str(n, 300))
+    .filter(Boolean)
+    .slice(0, 5);
+  if (!p.allowWeekends && tasks.some((t) => (t.startDate && isWeekend(t.startDate)) || (t.dueDate && isWeekend(t.dueDate))))
+    notes.push('Alguna fecha cae en fin de semana: cámbiala o marca «Permitir fin de semana».');
+  return { tasks, notes, ai: { provider: completion.provider, model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs } };
 }
 
 const norm = (s: string) =>
@@ -127,6 +231,8 @@ export async function handleScope(route: string, id: number, req: IncomingMessag
         tasksRemoved: h.tasks_removed,
         payments: JSON.parse(h.payments) as string[],
         createdAt: h.created_at,
+        kind: h.kind === 'adicional' ? 'adicional' : 'retiro',
+        detail: JSON.parse(h.detail || '{}') as Record<string, unknown>,
       }));
       json(res, 200, {
         approvedOption: project.approved_option,
@@ -254,6 +360,134 @@ export async function handleScope(route: string, id: number, req: IncomingMessag
       });
 
       json(res, 200, { ok: true, approvedOption: label, ...result, payments: payments.length, amount, currency });
+      return true;
+    }
+
+    // Adicional: la IA propone las tareas de la fase nueva (no guarda nada).
+    case 'POST projects/:id/scope/add/suggest': {
+      requireOwner(v);
+      const project = visibleProject(id, v);
+      const body = await readJson(req, 64 * 1024);
+      const name = str(body.name, 160).trim();
+      const request = str(body.request, 6000).trim();
+      if (!name) throw new HttpError(400, 'Ponle un nombre al adicional.');
+      if (request.length < 10) throw new HttpError(400, 'Pega la solicitud del cliente para que la IA arme las tareas.');
+      try {
+        json(res, 200, await suggestAddition(project, { name, request, allowWeekends: body.allowWeekends === true }));
+      } catch (err) {
+        if (err instanceof AiError) throw new HttpError(502, err.message);
+        throw err;
+      }
+      return true;
+    }
+
+    // Adicional: en un paso, su fase con tareas, su pago (con descuento) y el registro en el historial de alcance.
+    case 'POST projects/:id/scope/add': {
+      requireOwner(v);
+      const project = visibleProject(id, v);
+      const body = await readJson(req, 128 * 1024);
+      const name = str(body.name, 160).trim();
+      if (!name) throw new HttpError(400, 'Ponle un nombre al adicional.');
+      const request = str(body.request, 6000).trim();
+      const tasks = normalizeTasks(body.tasks);
+      if (!tasks.length) throw new HttpError(400, 'El adicional necesita al menos una tarea.');
+      const allowWeekends = body.allowWeekends === true;
+      if (!allowWeekends) {
+        const w = tasks.find((t) => (t.startDate && isWeekend(t.startDate)) || (t.dueDate && isWeekend(t.dueDate)));
+        if (w) throw new HttpError(400, `«${w.title}» cae en fin de semana. Cambia la fecha o marca «Permitir fin de semana».`);
+      }
+      const price = priceOf(body);
+      const payWhen: PayWhen = body.payWhen === 'entregar' || body.payWhen === 'fecha' ? body.payWhen : 'aprobar';
+      const lastDue =
+        tasks
+          .map((t) => t.dueDate)
+          .filter((d): d is string => !!d)
+          .sort()
+          .pop() ?? null;
+      const payDate = payWhen === 'aprobar' ? todayBogota() : payWhen === 'entregar' ? lastDue : day(body.payDate);
+      if (price.total > 0 && payWhen === 'fecha' && !payDate) throw new HttpError(400, 'Elige la fecha del pago.');
+      const phaseName = (str(body.phaseName, 120).trim() || `Adicional: ${name}`).slice(0, 120);
+      const payLabel = `Adicional: ${name}${price.discount ? ` (−${pct(price.discount)} %)` : ''}`.slice(0, 160);
+      const reason = str(body.reason, 1000).trim();
+      const value =
+        price.total > 0
+          ? price.discount
+            ? ` por ${money(price.total, price.currency)} (${money(price.base, price.currency)} menos ${pct(price.discount)} % de descuento)`
+            : ` por ${money(price.total, price.currency)}`
+          : ' sin costo';
+      const payText = price.total > 0 ? (payWhen === 'aprobar' ? ', que se paga al aprobar' : payWhen === 'entregar' ? ', que se paga al entregar' : `, que se paga el ${payDate}`) : '';
+
+      const result = db.transaction(() => {
+        const phase = db.createPhase(project.id, phaseName, db.nextPhasePosition(project.id));
+        let position = db.nextTaskPosition(project.id);
+        for (const t of tasks) {
+          db.createTask({
+            projectId: project.id,
+            phaseId: phase.id,
+            title: t.title,
+            description: t.description,
+            side: t.side,
+            assigneeId: null,
+            startDate: t.startDate,
+            dueDate: t.dueDate,
+            position: position++,
+            source: 'manual',
+            kind: 'tarea',
+            clientDelivery: t.clientDelivery,
+          });
+        }
+        if (price.total > 0) createPayments(project.id, [{ label: payLabel, percent: null, amount: price.total, currency: price.currency, dueDate: payDate }]);
+        const when = new Date().toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Bogota' });
+        const note = `**Adicional · ${when}:** se agregó ${name}${value}${payText}.${reason ? ` ${reason}` : ''}`;
+        db.updateProject(project.id, {
+          pricing: project.pricing.trim() ? `${project.pricing.trim()}\n\n${note}` : note,
+          // La entrega estimada solo se corre si el adicional termina después.
+          ...(lastDue && (!project.end_date || lastDue > project.end_date) ? { end_date: lastDue } : {}),
+        });
+        sqlite
+          .prepare(
+            `INSERT INTO scope_changes (project_id, option_id, option_name, amount, currency, reason, label_before, label_after, phases, tasks_removed, payments, created_at, created_by, kind, detail)
+             VALUES (?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'adicional', ?)`,
+          )
+          .run(
+            project.id,
+            name,
+            price.total || null,
+            price.currency,
+            reason || request.slice(0, 1000),
+            project.approved_option,
+            project.approved_option,
+            JSON.stringify([phaseName]),
+            tasks.length,
+            JSON.stringify(price.total > 0 ? [payLabel] : []),
+            new Date().toISOString(),
+            v.email,
+            JSON.stringify({ base: price.base, discountPercent: price.discount, payWhen, payDate: price.total > 0 ? payDate : null, allowWeekends }),
+          );
+        const a = actor(v);
+        db.logActivity({
+          projectId: project.id,
+          actorKind: a.kind,
+          actorName: a.name,
+          type: 'scope_added',
+          data: { option: name, tasks: tasks.length, amount: price.total || null, currency: price.currency },
+        });
+        if (body.notify === true) {
+          db.createNote({
+            project_id: project.id,
+            task_id: null,
+            kind: 'nota',
+            visibility: 'shared',
+            author_kind: 'owner',
+            author_id: null,
+            author_name: a.name,
+            body: `Agregamos al proyecto el adicional «${name}»${value}${payText}. Sus tareas están en la fase «${phaseName}».${reason ? `\n\n${reason}` : ''}`,
+          });
+        }
+        return { phaseId: phase.id };
+      });
+
+      json(res, 200, { ok: true, ...result, tasks: tasks.length, total: price.total, currency: price.currency, payDate: price.total > 0 ? payDate : null });
       return true;
     }
   }

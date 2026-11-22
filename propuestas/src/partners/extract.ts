@@ -10,6 +10,8 @@ export interface DraftTask {
   title: string;
   description: string;
   side: Side;
+  /** Entrega al cliente: la revisa y aprueba (o pide ajustes). Solo tareas de DeerSystems. */
+  clientDelivery: boolean;
   startDate: string | null;
   dueDate: string | null;
 }
@@ -140,6 +142,7 @@ Devuelve este JSON:
           "title": "tarea accionable que empiece con verbo (máx. 120 caracteres)",
           "description": "qué incluye y criterio de terminado, 1-3 frases",
           "side": "deersystems | cliente",
+          "clientDelivery": true,
           "startDate": "YYYY-MM-DD",
           "dueDate": "YYYY-MM-DD"
         }
@@ -161,6 +164,7 @@ Reglas:
 - Usa el cronograma de la propuesta si lo tiene (semanas, fases, hitos). Si no, estima un plan realista. Fechas a partir de ${today}, solo días hábiles (lunes a viernes).
 - "side" es "cliente" cuando la tarea depende del cliente: entregar accesos, contenidos, logos, información, aprobar diseños, validar entregables, hacer pagos. Todo lo demás es "deersystems".
 - Incluye las tareas del cliente necesarias para que el proyecto avance (accesos, insumos, aprobaciones).
+- ${DELIVERY_RULE}
 - Entre 3 y 7 fases y entre 2 y 8 tareas por fase. Nada genérico: cada tarea debe salir de la propuesta.
 - Si un dato no aparece, usa "" (texto) y no lo inventes.
 - ${PAYMENTS_PROMPT}
@@ -171,6 +175,10 @@ PROPUESTA:
 ${text}
 """`;
 }
+
+/** Qué es una entrega al cliente (lleva aprobación y rondas de ajustes) y qué es operativo. */
+export const DELIVERY_RULE =
+  '"clientDelivery" es true SOLO en tareas "deersystems" cuyo resultado se le entrega al cliente para que lo revise y apruebe (un diseño, un prototipo, un módulo o funcionalidad terminada, un informe, contenido, el sitio o la app publicados). Es false en lo operativo o interno (configurar servidores o accesos, instalar, migrar datos, pruebas internas, despliegues técnicos, documentación interna) y siempre false en tareas "cliente".';
 
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const date = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) ? v : null);
@@ -185,6 +193,7 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
         title: str(t?.title, 200),
         description: str(t?.description, 2000),
         side: (t?.side === 'cliente' ? 'cliente' : 'deersystems') as Side,
+        clientDelivery: t?.side !== 'cliente' && t?.clientDelivery === true,
         startDate: date(t?.startDate),
         dueDate: date(t?.dueDate),
       }))
@@ -433,7 +442,7 @@ Devuelve el plan COMPLETO ya ajustado, con la misma forma:
 {
   "startDate": "YYYY-MM-DD",
   "endDate": "YYYY-MM-DD",
-  "phases": [{ "name": "...", "tasks": [{ "title": "...", "description": "...", "side": "deersystems | cliente", "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD" }] }],
+  "phases": [{ "name": "...", "tasks": [{ "title": "...", "description": "...", "side": "deersystems | cliente", "clientDelivery": true, "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD" }] }],
   "meetings": [{ "title": "...", "phase": "nombre exacto de una fase", "date": "YYYY-MM-DD", "time": "HH:MM", "durationMinutes": 45, "purpose": "..." }],
   "payments": [{ "label": "tipo de abono, p. ej. Anticipo, Pago contra entrega de la Fase 1", "percent": 50, "amount": 1000, "currency": "USD | COP", "dueDate": "YYYY-MM-DD" }],
   "changes": ["cambio hecho, en una frase corta", "..."]
@@ -443,6 +452,7 @@ Reglas:
 - Cambia SOLO lo que se pide y lo que sea consecuencia directa (por ejemplo, correr las fechas siguientes si se mueve una fase). Todo lo demás queda igual, con el mismo texto.
 - Fechas en días hábiles (lunes a viernes), coherentes entre sí: el inicio de una tarea no puede ser después de su entrega, y "endDate" es la entrega más tardía.
 - "side" es "cliente" cuando la tarea depende del cliente (accesos, contenidos, aprobaciones, pagos); lo demás es "deersystems".
+- ${DELIVERY_RULE} Conserva el valor actual de las tareas que no cambian.
 - No incluyas precios ni valores en tareas. Los valores van SOLO en "payments".
 - "payments" es el plan de pagos COMPLETO: devuelve los pagos actuales sin cambios si no se pide nada sobre pagos. Si se pide agregar o cambiar pagos, calcula "amount" con los valores aprobados (p. ej. 50 % de la fase) y pon "dueDate" en la fecha de la entrega o del hito que corresponda. Si no hay valores para calcular el monto, no inventes uno: deja el plan de pagos igual y explícalo en "changes".
 - "changes": entre 1 y 8 frases que expliquen qué cambiaste. Si la instrucción no se puede aplicar, deja el plan igual y explícalo en "changes".`,

@@ -74,6 +74,7 @@ function PlanAdjustDialog({ projectId, onClose, onApplied }: { projectId: number
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => ref.current?.showModal(), []);
   const [text, setText] = useState('');
+  const [weekends, setWeekends] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [s, setS] = useState<Suggestion | null>(null);
@@ -86,7 +87,7 @@ function PlanAdjustDialog({ projectId, onClose, onApplied }: { projectId: number
     setThinking(true);
     setError(null);
     setS(null);
-    api<Suggestion>('POST', `projects/${projectId}/plan/adjust`, { instruction: text.trim() })
+    api<Suggestion>('POST', `projects/${projectId}/plan/adjust`, { instruction: text.trim(), allowWeekends: weekends })
       .then(setS)
       .catch((e: Error) => setError(e.message))
       .finally(() => setThinking(false));
@@ -146,6 +147,12 @@ function PlanAdjustDialog({ projectId, onClose, onApplied }: { projectId: number
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) ask();
               }}
             />
+            <label className="scope-check" title="Para una excepción acordada: las tareas pueden caer en sábado o domingo. Las reuniones siguen de lunes a viernes.">
+              <input type="checkbox" checked={weekends} disabled={thinking || busy} onChange={(e) => setWeekends(e.target.checked)} />
+              <span>
+                Permitir fin de semana <small>· excepción: las tareas pueden caer en sábado o domingo</small>
+              </span>
+            </label>
             <div className="adjust-plan__foot">
               <span className="adjust-plan__examples">
                 {EXAMPLES.map((ex) => (

@@ -172,14 +172,19 @@ function facts(project: db.Project, kind: Kind, from: string, to: string, withPa
     .filter(Boolean);
 
   const scopeChanges = (
-    sqlite.prepare('SELECT option_name, reason, created_at FROM scope_changes WHERE project_id = ? ORDER BY id').all(project.id) as {
+    sqlite.prepare('SELECT kind, option_name, reason, created_at FROM scope_changes WHERE project_id = ? ORDER BY id').all(project.id) as {
+      kind: string;
       option_name: string;
       reason: string;
       created_at: string;
     }[]
   )
     .filter((s) => inPeriod(s.created_at))
-    .map((s) => `${dateEs(dayOf(s.created_at))}: se retiró ${s.option_name}${s.reason ? ` (${s.reason})` : ''}`);
+    .map((s) =>
+      s.kind === 'adicional'
+        ? `${dateEs(dayOf(s.created_at))}: se agregó el adicional ${s.option_name}`
+        : `${dateEs(dayOf(s.created_at))}: se retiró ${s.option_name}${s.reason ? ` (${s.reason})` : ''}`,
+    );
 
   let payments: Facts['payments'] = null;
   if (withPayments) {

@@ -20,6 +20,7 @@ import { Link, Loading, Markdown, StatusPill, useAction, useToast } from '../../
 import { ActivityFeed } from './Activity';
 import { FilesPanel } from './Files';
 import { NotesPanel } from './Notes';
+import { ReviewBlock } from './Review';
 import { EditMeeting, ScheduleFromTask } from './Schedule';
 
 export interface TaskDefaults {
@@ -38,6 +39,7 @@ interface Form {
   startDate: string;
   dueDate: string;
   isMeeting: boolean;
+  clientDelivery: boolean;
 }
 
 const toForm = (t: Partial<Task>, d: TaskDefaults = {}): Form => ({
@@ -49,6 +51,7 @@ const toForm = (t: Partial<Task>, d: TaskDefaults = {}): Form => ({
   startDate: t.startDate ?? '',
   dueDate: t.dueDate ?? d.dueDate ?? '',
   isMeeting: t.isMeeting ?? false,
+  clientDelivery: t.clientDelivery ?? false,
 });
 
 const meetingWhen = (m: Meeting) => {
@@ -202,6 +205,7 @@ export function TaskDrawer({
       startDate: form.startDate || null,
       dueDate: form.dueDate || null,
       isMeeting: form.isMeeting,
+      clientDelivery: form.side === 'deersystems' && !form.isMeeting && form.clientDelivery,
     };
     run(async () => {
       const r = isNew
@@ -334,6 +338,15 @@ export function TaskDrawer({
               <input type="checkbox" checked={form.isMeeting} onChange={(e) => set({ isMeeting: e.target.checked })} />
               Es una reunión con el cliente (franja naranja en el cronograma)
             </label>
+            {form.side === 'deersystems' && !form.isMeeting && (
+              <label className="check">
+                <input type="checkbox" checked={form.clientDelivery} onChange={(e) => set({ clientDelivery: e.target.checked })} />
+                <span>
+                  Entrega al cliente: la revisa y la aprueba o pide ajustes{' '}
+                  <small className="hint">(si no, es operativa: la cierra el equipo, sin rondas de ajustes)</small>
+                </span>
+              </label>
+            )}
             <label className="field">
               <span className="field__label">Descripción y criterio de terminado</span>
               <textarea rows={5} value={form.description} onChange={(e) => set({ description: e.target.value })} />
@@ -394,6 +407,8 @@ export function TaskDrawer({
           )
         )}
 
+        {task?.canReview && <ReviewBlock me={me} task={task} onDone={(t, progress) => onSaved(t, progress, false)} />}
+
         {task && (
           <>
             <div className="tabs tabs--sm" role="tablist">
@@ -408,7 +423,12 @@ export function TaskDrawer({
               </button>
             </div>
             {tab === 'comentarios' && (
-              <NotesPanel me={me} projectId={project.id} taskId={task.id} onPosted={() => onSaved({ ...task, comments: task.comments + 1 }, project.progress, false)} />
+              <NotesPanel
+                key={`${task.revisionRound}-${task.status}`}
+                me={me}
+                projectId={project.id}
+                taskId={task.id}
+                onPosted={() => onSaved({ ...task, comments: task.comments + 1 }, project.progress, false)} />
             )}
             {tab === 'archivos' && (
               <FilesPanel

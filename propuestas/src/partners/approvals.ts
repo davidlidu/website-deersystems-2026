@@ -70,6 +70,10 @@ sqlite.exec(`
 const hasColumn = (table: string, col: string) => (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
 if (!hasColumn('proposals', 'client_id')) sqlite.exec('ALTER TABLE proposals ADD COLUMN client_id INTEGER');
 if (!hasColumn('proposal_approvals', 'client_id')) sqlite.exec('ALTER TABLE proposal_approvals ADD COLUMN client_id INTEGER');
+// Cambios de alcance: «retiro» (scope/remove) o «adicional» (scope/add). En un adicional, tasks_removed cuenta las tareas
+// creadas y detail guarda el valor base, el descuento y cuándo se paga.
+if (!hasColumn('scope_changes', 'kind')) sqlite.exec("ALTER TABLE scope_changes ADD COLUMN kind TEXT NOT NULL DEFAULT 'retiro'");
+if (!hasColumn('scope_changes', 'detail')) sqlite.exec("ALTER TABLE scope_changes ADD COLUMN detail TEXT NOT NULL DEFAULT '{}'");
 
 /** El cliente vinculado a la propuesta: el elegido a mano o, si no, el de un proyecto que ya salió de ella. */
 export function proposalClient(proposalId: number): db.Client | null {

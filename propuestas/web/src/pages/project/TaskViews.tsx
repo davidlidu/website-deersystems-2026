@@ -19,6 +19,7 @@ import {
   type TaskStatus,
 } from '../../lib';
 import { StatusPill, useAction } from '../../ui';
+import { DeliveryTag, RoundTag } from './Review';
 import { GanttView } from './Gantt';
 import type { TaskDefaults } from './TaskDrawer';
 
@@ -78,6 +79,8 @@ function TaskChip({ task, onOpen, draggable }: { task: Task; onOpen: (t: Task) =
       <span className="chip-task__title">{task.title}</span>
       <span className="chip-task__meta">
         <Who task={task} />
+        <DeliveryTag task={task} />
+        <RoundTag task={task} />
         <span className="mono">
           {task.comments > 0 && `💬 ${task.comments}`} {task.files > 0 && `📎 ${task.files}`}
         </span>
@@ -200,6 +203,8 @@ function ListView({ me, project, tasks, onOpen, onNew, onStatus, onPhasesChange 
                     </button>
                     <div className="task__meta">
                       <Who task={t} />
+                      <DeliveryTag task={t} />
+                      <RoundTag task={t} />
                       {t.dueDate && (
                         <span className="mono">
                           {isOverdue(t) ? 'Vencida · ' : 'Entrega · '}

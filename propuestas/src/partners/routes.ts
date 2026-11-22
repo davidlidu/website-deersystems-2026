@@ -44,6 +44,7 @@ import { createPayments, handlePayments } from './payments.ts';
 import * as notifications from './notify.ts';
 import { handleWork } from './work.ts';
 import { handleReports } from './reports.ts';
+import { handleReviews } from './reviews.ts';
 import { handleScope } from './scope.ts';
 import { handleTelegram } from './telegram.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
@@ -89,6 +90,9 @@ function projectDetail(p: db.Project, v: Viewer) {
     approvalNotes: p.approval_notes,
     ...(seesMoney(v) ? { pricing: p.pricing } : {}),
     ...(isStaff(v) ? { autoUpdates: autoUpdatesOn(p.id) } : {}),
+    // Rondas de ajustes incluidas: las del proyecto (null = las de Configuración) y las que rigen.
+    revisionRounds: p.revision_rounds ?? null,
+    revisionsIncluded: db.includedRounds(p),
     phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })),
     tasks: db.listTasks(p.id).map((t) => taskView(t, v, team, comments, files)),
   };
@@ -302,6 +306,7 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
           dueDate: t.dueDate,
           position: position++,
           source: 'propuesta',
+          clientDelivery: t.clientDelivery,
         });
       });
     });
@@ -427,6 +432,7 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
           dueDate: t.dueDate,
           position: position++,
           source: 'propuesta',
+          clientDelivery: t.clientDelivery,
         });
         tasks++;
       }
@@ -1324,6 +1330,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handleUpdates(route, id, req, res, v)) return;
   if (await handleProposalMail(route, req, res, v)) return;
   if (await handleScope(route, id, req, res, v)) return;
+  if (await handleReviews(route, id, req, res, v)) return;
   if (await handleReports(route, id, req, res, v)) return;
   if (await handleTelegram(route, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;

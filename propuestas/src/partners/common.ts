@@ -71,7 +71,25 @@ export function taskView(t: db.Task, v: Viewer, team: Map<number, string>, comme
     // El cliente solo mueve las tareas de su lado, y nunca las que ya están completadas.
     canChangeStatus: isStaff(v) || (t.side === 'cliente' && t.status !== 'completada'),
     canEdit: isStaff(v),
+    // Entregas y ajustes: si es entrega al cliente, rondas usadas, incluidas (0 = sin límite) y quién aprobó.
+    clientDelivery: !!t.client_delivery,
+    revisionRound: t.revision_round ?? 0,
+    revisionsIncluded: db.includedRounds(db.getProject(t.project_id)),
+    approvedAt: t.approved_at ?? null,
+    approvedBy: t.approved_by ?? null,
+    canReview: canReview(t, v),
   };
+}
+
+/**
+ * Aprobar o pedir ajustes: solo las entregas al cliente (no las tareas operativas ni las reuniones), cuando están en
+ * revisión; el equipo además reabre las completadas.
+ */
+export const isDelivery = (t: db.Task) => !!t.client_delivery && t.side === 'deersystems' && t.kind !== 'reunion';
+
+export function canReview(t: db.Task, v: Viewer): boolean {
+  if (!isDelivery(t)) return false;
+  return t.status === 'en_revision' || (isStaff(v) && t.status === 'completada');
 }
 
 export function noteView(n: db.Note, v: Viewer) {

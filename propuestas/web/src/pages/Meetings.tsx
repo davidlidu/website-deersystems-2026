@@ -234,6 +234,7 @@ interface PreviewContent {
   summary: string;
   agreements: string[];
   tasks: { title: string; side: Side; dueDate: string | null }[];
+  changes: { taskId: number; request: string }[];
   to: string;
 }
 
@@ -320,19 +321,22 @@ export function MeetingReviewPage({ id }: { id: number }) {
   const [preview, setPreview] = useState(false);
   const [agreements, setAgreements] = useState<string[]>([]);
   const [tasks, setTasks] = useState<DraftTask[]>([]);
+  // Ajustes sobre entregas existentes: cada uno, al aprobar, es una ronda de ajustes en esa tarea.
+  const [changes, setChanges] = useState<{ taskId: number; title: string; round: number; request: string; include: boolean }[]>([]);
   const [recipients, setRecipients] = useState<Set<string>>(new Set());
   const [added, setAdded] = useState<string[]>([]);
   const [extra, setExtra] = useState('');
   const [paste, setPaste] = useState('');
   const [showTranscript, setShowTranscript] = useState(false);
   const [editingMeeting, setEditingMeeting] = useState(false);
-  const [result, setResult] = useState<{ tasks: number; mail: { sent: string[]; failed: string[]; error: string | null; scheduledAt?: string | null } } | null>(null);
+  const [result, setResult] = useState<{ tasks: number; adjusted?: { title: string; round: number; extra: boolean }[]; skippedChanges?: string[]; mail: { sent: string[]; failed: string[]; error: string | null; scheduledAt?: string | null } } | null>(null);
 
   // Al llegar (o regenerarse) el borrador, se copia al formulario editable.
   useEffect(() => {
     if (!data) return;
     setSummary(data.summary ?? '');
     setAgreements(data.agreements ?? []);
+    setChanges((data.proposedChanges ?? []).map((c) => ({ taskId: c.taskId, title: c.title, round: c.round, request: c.request, include: true })));
     setTasks(
       (data.proposedTasks ?? []).map((t) => ({ key: key(), include: true, title: t.title, description: t.description, side: t.side, assigneeId: null, dueDate: t.dueDate ?? '' })),
     );
@@ -399,13 +403,14 @@ export function MeetingReviewPage({ id }: { id: number }) {
     const to = [...recipients];
     if (sendAt && !to.length) return toast('Marca al menos un destinatario para programar el correo.', true);
     const chosen = loose ? [] : tasks.filter((t) => t.include && t.title.trim());
+    const chosenChanges = loose ? [] : changes.filter((c) => c.include && c.request.trim().length >= 5);
     const mailPart = !to.length ? '' : sendAt ? ` el resumen saldrá a ${to.join(', ')} el ${formatDateTime(sendAt)}` : ` se enviará el resumen a ${to.join(', ')}`;
     const ask = loose
       ? `La reunión no tiene proyecto: no se crean tareas${to.length ? ' y' + mailPart : ' ni se envía correo'}. ¿Continuar?`
-      : `Se crearán ${chosen.length} tareas en «${m.projectName}»${to.length ? ' y' + mailPart : ''}. ¿Continuar?`;
+      : `Se crearán ${chosen.length} tareas en «${m.projectName}»${chosenChanges.length ? `, se pedirán ajustes en ${chosenChanges.length} ${chosenChanges.length === 1 ? 'entrega' : 'entregas'}` : ''}${to.length ? ' y' + mailPart : ''}. ¿Continuar?`;
     if (!confirm(ask)) return;
     run(async () => {
-      const r = await api<{ meeting: Meeting; tasks: number; mail: { sent: string[]; failed: string[]; error: string | null; scheduledAt: string | null } }>(
+      const r = await api<{ meeting: Meeting; tasks: number; adjusted: { title: string; round: number; extra: boolean }[]; skippedChanges: string[]; mail: { sent: string[]; failed: string[]; error: string | null; scheduledAt: string | null } }>(
         'POST',
         `meetings/${m.id}/approve`,
         {
@@ -413,12 +418,13 @@ export function MeetingReviewPage({ id }: { id: number }) {
           summary,
           agreements: agreements.filter((a) => a.trim()),
           tasks: chosen.map((t) => ({ ...t, dueDate: t.dueDate || null })),
+          changes: chosenChanges.map((c) => ({ taskId: c.taskId, request: c.request.trim() })),
           recipients: to,
           sendAt,
         },
       );
       setData({ ...r.meeting, transcript: m.transcript });
-      setResult({ tasks: r.tasks, mail: r.mail });
+      setResult({ tasks: r.tasks, adjusted: r.adjusted, skippedChanges: r.skippedChanges, mail: r.mail });
       window.scrollTo(0, 0);
     });
   };
@@ -519,6 +525,17 @@ export function MeetingReviewPage({ id }: { id: number }) {
                 ? `Resumen enviado a ${result.mail.sent.join(', ')}.`
                 : 'No se envió correo.'}
           </p>
+          {!!result.adjusted?.length && (
+            <p className="callout">
+              Ajustes pedidos en: {result.adjusted.map((a) => `«${a.title}» (ronda ${a.round}${a.extra ? ', adicional' : ''})`).join(', ')}. Volvieron a «En progreso» con el pedido
+              en sus comentarios.
+            </p>
+          )}
+          {result.skippedChanges?.map((s) => (
+            <p key={s} className="alert">
+              {s}
+            </p>
+          ))}
           {result.mail.error && <p className="alert">Correo: {result.mail.error}</p>}
         </div>
       )}
@@ -755,6 +772,43 @@ export function MeetingReviewPage({ id }: { id: number }) {
             </button>
           </section>
 
+          {!loose && changes.length > 0 && (
+            <section className="card form-section">
+              <div className="form-section__head">
+                <h2>Ajustes que pidió el cliente</h2>
+                <span className="mono">
+                  {changes.filter((c) => c.include).length} de {changes.length} se pedirán
+                </span>
+              </div>
+              <p className="hint">
+                Sobre entregas que ya existen. Al aprobar, cada una vuelve a «En progreso» con el pedido escrito en sus comentarios y cuenta como una ronda de
+                ajustes.
+              </p>
+              {changes.map((c) => (
+                <div key={c.taskId} className={`draft-task side-deersystems${c.include ? '' : ' is-excluded'}`}>
+                  <div className="draft-task__row">
+                    <label className="check check--chip">
+                      <input
+                        type="checkbox"
+                        checked={c.include}
+                        onChange={(e) => setChanges(changes.map((x) => (x.taskId === c.taskId ? { ...x, include: e.target.checked } : x)))}
+                        aria-label="Pedir estos ajustes"
+                      />
+                    </label>
+                    <strong className="draft-task__title">{c.title}</strong>
+                    <span className="round-tag">↺ sería el ajuste {c.round + 1}</span>
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={c.request}
+                    onChange={(e) => setChanges(changes.map((x) => (x.taskId === c.taskId ? { ...x, request: e.target.value } : x)))}
+                    aria-label={`Ajustes en ${c.title}`}
+                  />
+                </div>
+              ))}
+            </section>
+          )}
+
           <MailPreview
             meetingId={m.id}
             content={{
@@ -762,6 +816,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
               summary,
               agreements: agreements.filter((a) => a.trim()),
               tasks: loose ? [] : tasks.filter((t) => t.include && t.title.trim()).map((t) => ({ title: t.title, side: t.side, dueDate: t.dueDate || null })),
+              changes: loose ? [] : changes.filter((c) => c.include && c.request.trim().length >= 5).map((c) => ({ taskId: c.taskId, request: c.request.trim() })),
               to: [...recipients].join(', '),
             }}
           />

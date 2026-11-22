@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, json, readJson } from '../http.ts';
 import type { Viewer } from './auth.ts';
-import { actor, isStaff, noteView, optDate, requireStaff, str, taskView, teamNames, visibleProject, visibleTask } from './common.ts';
+import { actor, isDelivery, isStaff, noteView, optDate, requireStaff, str, taskView, teamNames, visibleProject, visibleTask } from './common.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
 import { announceUpdate } from './updates.ts';
@@ -24,6 +24,7 @@ const FIELD_LABEL: Record<string, string> = {
   phase_id: 'fase',
   start_date: 'fecha de inicio',
   due_date: 'fecha de entrega',
+  client_delivery: 'entrega al cliente',
 };
 
 function log(v: Viewer, projectId: number, type: string, data: Record<string, unknown>, opts: { taskId?: number | null; internal?: boolean } = {}) {
@@ -53,8 +54,14 @@ function taskFields(body: Record<string, unknown>, projectId: number, current?: 
   if ('startDate' in body) f.start_date = optDate(body.startDate) ?? null;
   if ('dueDate' in body) f.due_date = optDate(body.dueDate) ?? null;
   if ('isMeeting' in body) f.kind = body.isMeeting === true ? 'reunion' : 'tarea';
-  // Una tarea del cliente no tiene responsable del equipo.
+  if ('clientDelivery' in body) f.client_delivery = body.clientDelivery === true ? 1 : 0;
+  // Una tarea del cliente no tiene responsable del equipo, y no es una entrega al cliente.
   if (f.side === 'cliente') f.assignee_id = null;
+  const side = f.side ?? current?.side ?? 'deersystems';
+  const kind = f.kind ?? current?.kind ?? 'tarea';
+  if (side === 'cliente' || kind === 'reunion') {
+    if (current?.client_delivery || f.client_delivery) f.client_delivery = 0;
+  }
   // Se compara con lo que ya tiene la tarea: cambiar solo una de las dos fechas también cuenta.
   const start = f.start_date !== undefined ? f.start_date : current?.start_date;
   const due = f.due_date !== undefined ? f.due_date : current?.due_date;
@@ -91,6 +98,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         position: db.nextTaskPosition(project.id),
         source: 'manual',
         kind: f.kind,
+        clientDelivery: f.client_delivery === 1,
       });
       log(v, project.id, 'task_created', { title: task.title, side: task.side }, { taskId: task.id });
       const path = taskPath(project.id, task.id);
@@ -117,6 +125,18 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         if (status !== task.status) {
           db.setTaskStatus(task.id, status);
           log(v, project.id, 'task_status', { title: task.title, from: task.status, to: status }, { taskId: task.id });
+          // El equipo deja lista una entrega suya: se le avisa al cliente para que la revise.
+          if (staff && status === 'en_revision' && isDelivery(task)) {
+            const round = task.revision_round ?? 0;
+            notify('delivery_ready', {
+              actor: v,
+              projectId: project.id,
+              taskId: task.id,
+              title: `«${task.title}» está lista para tu revisión${round ? ` (ajuste ${round})` : ''}`,
+              body: project.name,
+              path: taskPath(project.id, task.id),
+            });
+          }
           if (v.kind === 'client') {
             notify('client_status', {
               actor: v,

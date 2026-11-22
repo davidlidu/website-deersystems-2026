@@ -14,142 +14,145 @@ interface Step {
   body: string;
 }
 
-/** Recorrido dentro de un proyecto real: avance, pestañas, vistas, filtros y tareas. */
+/** Recorrido dentro de un proyecto real: avance, pestañas, tareas, entregas y (para ti) plan y alcance. */
 function projectSteps(me: Me): Step[] {
   const client = me.role === 'client';
-  return [
+  const owner = me.role === 'owner';
+  const steps: Step[] = [
     {
       page: 'project',
       target: 'project-head',
-      title: 'El avance del proyecto',
+      title: 'El avance',
       body: client
-        ? 'La barra y el porcentaje se calculan con las tareas completadas. Debajo ves cuántas van, la fecha de inicio, la entrega estimada y el estado del proyecto.'
-        : 'La barra y el porcentaje se calculan con las tareas completadas. Debajo, el inicio, la entrega estimada y el estado, que puedes cambiar desde aquí (activo, en pausa, finalizado).',
+        ? 'El porcentaje sale de las tareas completadas. Debajo: inicio, entrega estimada y estado.'
+        : 'El porcentaje sale de las tareas completadas. Debajo: inicio, entrega estimada y el estado, que cambias aquí.',
     },
-    ...(client
-      ? [
-          {
-            page: 'project',
-            target: 'project-callout',
-            optional: true,
-            title: 'Lo que depende de ti',
-            body: 'Aquí te recordamos cuántas tareas están de tu lado. Cuando termines una, márcala «En revisión»: nosotros la revisamos y la cerramos.',
-          } as Step,
-        ]
-      : []),
-    {
+  ];
+  if (client) {
+    steps.push(
+      {
+        page: 'project',
+        target: 'review-banner',
+        optional: true,
+        title: 'Entregas para revisar',
+        body: 'Cuando terminamos una entrega te avisamos aquí. Ábrela y apruébala o pide ajustes.',
+      },
+      {
+        page: 'project',
+        target: 'project-callout',
+        optional: true,
+        title: 'Lo que depende de ti',
+        body: 'Tus tareas pendientes. Al terminar una, márcala «En revisión» y nosotros la cerramos.',
+      },
+    );
+  }
+  steps.push({
+    page: 'project',
+    tab: 'avances',
+    target: 'project-tabs',
+    title: 'Todo en pestañas',
+    body: client
+      ? 'Avances del equipo · Plan de trabajo (tareas, cronograma y reuniones) · Documentación · Informes · Alcance · Pagos.'
+      : `Avances · Plan de trabajo (tareas, cronograma y reuniones) · Documentación (compartida o interna) · Informes · ${owner ? 'Alcance y propuesta · Pagos.' : 'Alcance.'}`,
+  });
+  if (!client) {
+    steps.push({
       page: 'project',
       tab: 'avances',
-      target: 'project-tabs',
-      title: 'Todo el proyecto en seis pestañas',
-      body: client
-        ? 'Avances: lo que vamos logrando, con enlaces directos a cada tarea y reunión · Plan de trabajo: tareas, calendario de reuniones y cronograma · Documentación: archivos y notas · Informes: los informes de avance y de cierre · Alcance y propuesta · Pagos.'
-        : 'Avances (la principal) · Plan de trabajo: tareas, calendario de reuniones y cronograma · Documentación: archivos y notas, compartidos o internos · Informes parciales y de cierre · ' +
-          (me.role === 'owner' ? 'Alcance y propuesta (tu equipo no ve los valores) · Pagos (al marcarlos pagados van a tu Gestor financiero).' : 'Alcance aprobado.'),
-    },
-    ...(client
-      ? []
-      : [
-          {
-            page: 'project',
-            tab: 'avances',
-            target: 'updates-ai',
-            title: 'Avances con IA',
-            body: '«Generar avance del día con IA» recopila las tareas completadas y las reuniones de hoy y redacta el avance con sus enlaces; lo revisas y lo publicas. Con «Automatizar envíos diarios» se publica solo a las 5:00 p. m. si hubo movimientos. En el editor insertas URL, variables y enlaces a tareas o reuniones.',
-          } as Step,
-        ]),
-    {
-      page: 'project',
-      tab: 'tareas',
-      target: 'project-views',
-      title: 'Cuatro formas de ver las tareas',
-      body: client
-        ? 'En Plan de trabajo → Tareas: Lista por fases, Tablero por estado y Calendario por fecha de entrega. El Cronograma, al lado, muestra las barras de cada tarea en el tiempo. La plataforma recuerda la vista que elijas.'
-        : 'En Plan de trabajo → Tareas: Lista por fases, Tablero por estado (arrastra entre columnas) y Calendario. El Cronograma tipo Gantt está al lado (arrastra o estira las barras para cambiar fechas). Se recuerda la última vista.',
-    },
+      target: 'updates-ai',
+      title: 'Avances con IA',
+      body: 'La IA redacta el avance del día con lo completado y las reuniones; lo revisas y lo publicas. También puede publicarse solo a las 5:00 p. m.',
+    });
+  }
+  steps.push(
     {
       page: 'project',
       tab: 'tareas',
       target: 'project-filters',
-      title: 'Filtra y busca',
+      title: 'Vistas y filtros',
       body: client
-        ? '«Mías» deja solo las tareas que te tocan a ti; «DeerSystems», las nuestras. También puedes ocultar las completadas o buscar por nombre.'
-        : 'Filtra por lado (DeerSystems o cliente) y por responsable, oculta las completadas o busca por nombre.',
+        ? 'Ve las tareas en lista, tablero o calendario. «Mías» deja solo las tuyas; también puedes buscar u ocultar las completadas.'
+        : 'Lista, tablero (arrastra entre columnas) o calendario. Filtra por lado, responsable o nombre.',
     },
     {
       page: 'project',
       tab: 'tareas',
       target: 'project-tasks',
-      title: client ? 'Tus tareas' : 'Las tareas',
+      title: client ? 'Tus tareas y nuestras entregas' : 'Tareas y entregas',
       body: client
-        ? 'Cada tarea dice de quién es (CLIENTE o DEERSYSTEMS) y su fecha de entrega. En las tuyas cambias el estado con el selector de la derecha. Ábrela con un clic para ver el detalle, comentar y adjuntar archivos.'
-        : 'Cambia el estado con el selector, como en ClickUp. Ábrela para editar fechas, responsable y descripción, comentar o adjuntar. ' +
-          'Con «+ Nueva tarea» agregas más.',
+        ? 'Cada tarea dice de quién es y cuándo vence; en las tuyas cambias el estado. Las marcadas «◆ Entrega» las revisas tú: apruébalas o pide ajustes desde su detalle.'
+        : 'Ábrela para editar, comentar o adjuntar. Las «◆ Entrega» las aprueba el cliente o pide ajustes; cada pedido es una ronda («↺ Ajuste N»). Las demás son operativas y las cierra el equipo.',
     },
-  ];
+  );
+  if (owner) {
+    steps.push(
+      {
+        page: 'project',
+        tab: 'tareas',
+        target: 'plan-actions',
+        title: 'Ajustar el plan',
+        body: '«Ajustar con IA» reprograma tareas y reuniones con una instrucción. «◆ Entregas al cliente» marca qué revisa el cliente (la IA lo puede proponer). Aquí también descargas el PDF y creas tareas.',
+      },
+      {
+        page: 'project',
+        tab: 'alcance',
+        target: 'scope-actions',
+        title: 'Cambios de alcance',
+        body: '«Agregar adicional» crea las tareas, el cobro con su descuento y la nota para el cliente en un paso. «Retirar del alcance» quita lo que ya no va. Aquí también defines las rondas de ajustes incluidas.',
+      },
+    );
+  }
+  return steps;
 }
 
 function stepsFor(me: Me): Step[] {
   const first = me.name.split(' ')[0];
-  const help: Step = {
-    target: 'help',
-    title: 'Vuelve cuando quieras',
-    body: 'Con este botón puedes repetir el recorrido en cualquier momento.',
+  const hello = `Hola${first ? `, ${first}` : ''} 👋`;
+  const calendar: Step = {
+    target: 'nav-/calendario',
+    title: 'Calendario',
+    body: me.role === 'client' ? 'Las fechas de entrega y las reuniones de tus proyectos en un solo lugar.' : 'Entregas y reuniones de todos los proyectos, para ver la carga de la semana.',
   };
   const bell: Step = {
     target: 'bell',
     title: 'Notificaciones',
-    body: 'Aquí llegan las novedades de tus proyectos, con un sonido corto. Al abrir una, vas directo a la tarea o la sección exacta.',
+    body: 'Las novedades de tus proyectos. Al abrir una, vas directo a donde pasó.',
+  };
+  const account: Step = {
+    target: 'account',
+    title: 'Mi cuenta',
+    body: 'Elige qué avisos recibir y cambia tu contraseña.',
+  };
+  const help: Step = {
+    target: 'help',
+    title: 'Vuelve cuando quieras',
+    body: 'Con este botón repites el recorrido.',
   };
 
   if (me.role === 'client') {
     return [
-      {
-        page: 'home',
-        title: `Hola${first ? `, ${first}` : ''} 👋`,
-        body: 'Este es tu espacio en DeerSystems Partners. Aquí sigues tu proyecto de principio a fin. Te mostramos lo principal en un minuto.',
-      },
-      {
-        page: 'home',
-        target: 'projects',
-        title: 'Tus proyectos',
-        body: 'Cada tarjeta muestra el avance real (tareas completadas). Vamos a abrir tu proyecto para mostrarte qué hay adentro.',
-      },
+      { page: 'home', title: hello, body: 'Aquí sigues tu proyecto de principio a fin. Te mostramos lo principal en un minuto.' },
+      { page: 'home', target: 'projects', title: 'Tus proyectos', body: 'Cada tarjeta muestra el avance real. Vamos a abrir uno.' },
       ...projectSteps(me),
+      calendar,
       bell,
-      {
-        target: 'account',
-        title: 'Mi cuenta',
-        body: 'Elige qué avisos quieres recibir y por dónde, y cambia tu contraseña.',
-      },
+      account,
       help,
     ];
   }
 
   if (me.role === 'team') {
     return [
-      {
-        page: 'home',
-        title: `Hola${first ? `, ${first}` : ''} 👋`,
-        body: 'Bienvenido al espacio de proyectos de DeerSystems. Te mostramos lo principal en un minuto.',
-      },
-      {
-        page: 'home',
-        target: 'nav-/',
-        title: 'Clientes y proyectos',
-        body: 'Los proyectos en marcha con su avance. Vamos a abrir uno para mostrarte cómo se trabaja.',
-      },
+      { page: 'home', title: hello, body: 'Este es el espacio de proyectos de DeerSystems. Te mostramos lo principal en un minuto.' },
+      { page: 'home', target: 'nav-/', title: 'Clientes y proyectos', body: 'Los proyectos en marcha con su avance. Vamos a abrir uno.' },
       ...projectSteps(me),
       {
         title: 'Lo que ve el cliente',
-        body: 'El cliente ve las tareas, los avances, las notas compartidas y los archivos compartidos. Nunca ve las notas ni los archivos internos.',
+        body: 'Tareas, avances y lo que marques como compartido. Las notas y los archivos internos nunca.',
       },
+      calendar,
       bell,
-      {
-        target: 'account',
-        title: 'Mi cuenta',
-        body: 'Elige qué avisos quieres recibir y cambia tu contraseña.',
-      },
+      account,
       help,
     ];
   }
@@ -158,35 +161,31 @@ function stepsFor(me: Me): Step[] {
     {
       page: 'home',
       title: 'Bienvenido a DeerSystems Partners 👋',
-      body: 'Aquí gestionas a tus clientes después de aprobar la propuesta: proyecto, cronograma, reuniones y avances. Te muestro lo principal en un minuto.',
+      body: 'De la propuesta aprobada a la entrega: proyecto, reuniones, entregas, avances y cobros. Lo principal en un minuto.',
     },
     {
       target: 'nav-/propuestas',
       title: 'Propuestas',
-      body: 'Publica las propuestas (el enlace queda en propuestas.deersystems.net) y sube versiones nuevas sin perder las anteriores. Con «Propuesta aprobada», la IA arma el proyecto: tareas, fases y reuniones de avance.',
+      body: 'Publica propuestas y sus versiones. Al aprobarse, la IA arma el proyecto: fases, tareas, entregas y reuniones.',
     },
-    {
-      page: 'home',
-      target: 'nav-/',
-      title: 'Clientes y proyectos',
-      body: 'Los proyectos en marcha y su avance. Vamos a abrir uno para mostrarte cómo se trabaja.',
-    },
+    { page: 'home', target: 'nav-/', title: 'Clientes y proyectos', body: 'Los proyectos en marcha con su avance. Vamos a abrir uno.' },
     ...projectSteps(me),
     {
       page: 'home',
       target: 'clients-tabs',
       title: 'Reuniones',
-      body: 'Dentro de Clientes. Agenda con Meet desde aquí; al terminar, la IA prepara el resumen y las tareas a partir de la transcripción, y tú lo revisas y lo envías.',
+      body: 'Agenda con Meet. Al terminar, la IA saca de la transcripción el resumen, las tareas y los ajustes que pidió el cliente; tú lo revisas y lo envías.',
     },
+    calendar,
     {
       target: 'nav-/facturacion',
       title: 'Facturación',
-      body: 'Cuentas de cobro (con PDF y envío por correo), abonos, el estado de cuenta de cada cliente y reportes. Cada abono llega como ingreso a tu Gestor financiero.',
+      body: 'Cuentas de cobro en PDF, abonos y estado de cuenta. Cada abono llega a tu Gestor financiero.',
     },
     {
       target: 'nav-/configuracion',
       title: 'Configuración',
-      body: 'Tu equipo (ven clientes y proyectos, nunca valores ni facturación), la IA, los avisos, Google y las finanzas: datos de la cuenta de cobro y conexión con el Gestor.',
+      body: 'Equipo, IA, avisos (correo y Telegram), rondas de ajustes por defecto, Google y finanzas.',
     },
     bell,
     help,

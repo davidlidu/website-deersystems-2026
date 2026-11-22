@@ -210,6 +210,15 @@ export interface Task {
   files: number;
   canChangeStatus: boolean;
   canEdit: boolean;
+  /** Entrega al cliente: la revisa y aprueba o pide ajustes. Las demás tareas del equipo son operativas. */
+  clientDelivery: boolean;
+  /** Entregas y ajustes: rondas pedidas, incluidas en el proyecto (0 = sin límite) y quién aprobó. */
+  revisionRound: number;
+  revisionsIncluded: number;
+  approvedAt: string | null;
+  approvedBy: string | null;
+  /** Puede aprobar o pedir ajustes (cliente: en revisión; equipo: también reabrir una completada). */
+  canReview: boolean;
 }
 
 export interface Note {
@@ -322,6 +331,8 @@ export interface Meeting {
   approvedAt?: string | null;
   calendarUrl?: string | null;
   proposedTasks?: { title: string; description: string; side: Side; dueDate: string | null }[];
+  /** Ajustes que el cliente pidió en la reunión sobre entregas que ya existen (detectados por la IA). */
+  proposedChanges?: { taskId: number; request: string; title: string; status: TaskStatus; round: number }[];
   hasTranscript?: boolean;
   transcriptSource?: 'meet' | 'manual' | 'drive' | null;
   transcriptUrl?: string | null;
@@ -354,6 +365,9 @@ export interface ProjectDetail extends ProjectSummary {
   pricing?: string;
   /** Solo equipo: el proyecto publica solo el avance del día a las 5:00 p. m. */
   autoUpdates?: boolean;
+  /** Rondas de ajustes del proyecto (null = las de Configuración) y las que rigen. */
+  revisionRounds: number | null;
+  revisionsIncluded: number;
   phases: { id: number; name: string }[];
   tasks: Task[];
 }

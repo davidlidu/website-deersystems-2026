@@ -135,6 +135,17 @@ export function normalizeOps(projectId: number, raw: Record<string, unknown>): {
   return { ops: { updates, creates, deletes }, skipped };
 }
 
+/**
+ * Regla de fechas para la IA. Por defecto, solo lunes a viernes; con «Permitir fin de semana» (una excepción acordada,
+ * p. ej. un adicional que se trabaja el sábado y el domingo) las tareas pueden caer en cualquier día. Las reuniones
+ * siguen en días hábiles: la agenda solo ofrece horarios de lunes a viernes.
+ */
+export function weekdaysRule(allowWeekends: boolean): string {
+  return allowWeekends
+    ? 'Fechas desde hoy en adelante, coherentes: el inicio no puede ser después de la entrega. EXCEPCIÓN ACORDADA: las tareas pueden caer en sábado o domingo si la instrucción lo pide o lo necesita para cumplir; no muevas a fin de semana lo que no se pide.'
+    : 'Fechas en días hábiles (lunes a viernes), desde hoy en adelante, coherentes: el inicio no puede ser después de la entrega. Si la instrucción exige trabajar en fin de semana, no propongas cambios y explica en "changes" que hay que marcar «Permitir fin de semana».';
+}
+
 /** Aviso de horario por tarea: se movió al siguiente libre (`clash: false`) o sigue cruzada (`clash: true`). */
 type Notes = Map<number, { text: string; clash: boolean }>;
 
@@ -214,7 +225,7 @@ export function preview(projectId: number, ops: PlanOps, notes: Notes = new Map(
   };
 }
 
-async function suggest(project: db.Project, instruction: string) {
+async function suggest(project: db.Project, instruction: string, allowWeekends = false) {
   const phases = db.listPhases(project.id);
   const phaseName = new Map(phases.map((p) => [p.id, p.name]));
   const tasks = db.listTasks(project.id).map((t) => {
@@ -261,8 +272,8 @@ Reglas:
 - En "updates" pon el "id" y SOLO los campos que cambian. No repitas tareas que quedan igual.
 - No toques tareas con status "completada".
 - Cambia SOLO lo que se pide y lo que sea consecuencia directa (p. ej. correr las fechas siguientes de esa fase si se mueve una tarea).
-- Fechas en días hábiles (lunes a viernes), desde hoy en adelante, coherentes: el inicio no puede ser después de la entrega.
-- Reuniones: ocurren en un solo día (startDate = dueDate). Si piden reprogramarlas "a partir de" una fecha, conserva el orden y el espaciado entre ellas, y la primera queda en esa fecha o el siguiente día hábil. "time" solo para las que tienen "agendadaEnCalendar"; conserva su hora salvo que pidan otra.
+- ${weekdaysRule(allowWeekends)}
+- Reuniones: ocurren en un solo día (startDate = dueDate) y siempre en días hábiles (lunes a viernes). Si piden reprogramarlas "a partir de" una fecha, conserva el orden y el espaciado entre ellas, y la primera queda en esa fecha o el siguiente día hábil. "time" solo para las que tienen "agendadaEnCalendar"; conserva su hora salvo que pidan otra.
 - "deletes" solo si lo piden de forma explícita.
 - No incluyas precios ni valores en tareas.
 - "changes": entre 1 y 8 frases que expliquen qué cambiaste. Si la instrucción no se puede aplicar, no propongas cambios y explícalo en "changes".`,
@@ -382,7 +393,7 @@ export async function handlePlanAdjust(route: string, id: number, req: IncomingM
   if (route.endsWith('/adjust')) {
     if (instruction.length < 5) throw new HttpError(400, 'Escribe qué quieres ajustar del plan.');
     try {
-      json(res, 200, await suggest(project, instruction));
+      json(res, 200, await suggest(project, instruction, body.allowWeekends === true));
     } catch (err) {
       if (err instanceof AiError) throw new HttpError(502, err.message);
       throw err;
