@@ -41,8 +41,8 @@ interface ScopeChange {
   tasksRemoved: number;
   payments: string[];
   createdAt: string;
-  kind: 'retiro' | 'adicional';
-  detail: { base?: number; discountPercent?: number; payWhen?: string; payDate?: string | null };
+  kind: 'retiro' | 'adicional' | 'ajuste';
+  detail: { base?: number; discountPercent?: number; payWhen?: string; payDate?: string | null; changes?: string[]; scopeChanged?: boolean };
 }
 
 interface ScopeData {
@@ -61,7 +61,7 @@ const toggle = <T,>(set: Set<T>, v: T, on: boolean) => {
   return next;
 };
 
-/** Historial de lo retirado, debajo del alcance aprobado (solo lo ves tú). */
+/** Historial de cambios de alcance (retiros, adicionales y ajustes), debajo del alcance aprobado (solo lo ves tú). */
 export function ScopeHistory({ projectId, version }: { projectId: number; version: number }) {
   const { data } = useApi<ScopeData>(`projects/${projectId}/scope?v=${version}`);
   if (!data?.history.length) return null;
@@ -69,7 +69,25 @@ export function ScopeHistory({ projectId, version }: { projectId: number; versio
     <div className="scope-history">
       <small>Cambios de alcance</small>
       {data.history.map((h) =>
-        h.kind === 'adicional' ? (
+        h.kind === 'ajuste' ? (
+          <div key={h.id} className="scope-history__item">
+            <strong>✦ Se ajustó el alcance</strong>
+            <span>
+              {formatDate(h.createdAt)}
+              {h.detail.scopeChanged === false ? ' · texto sin cambios' : ''}
+              {h.tasksRemoved ? ` · ${h.tasksRemoved === 1 ? '1 cambio' : `${h.tasksRemoved} cambios`} en el plan` : ''}
+            </span>
+            {h.detail.changes?.length ? (
+              <ul className="scope-history__reason md-list">
+                {h.detail.changes.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+            ) : (
+              h.reason && <span className="scope-history__reason">{h.reason}</span>
+            )}
+          </div>
+        ) : h.kind === 'adicional' ? (
           <div key={h.id} className="scope-history__item">
             <strong>
               Se agregó {h.optionName}

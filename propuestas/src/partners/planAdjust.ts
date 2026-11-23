@@ -153,7 +153,7 @@ type Notes = Map<number, { text: string; clash: boolean }>;
  * Las reuniones agendadas que el ajuste mueve no pueden cruzarse con tu agenda ni entre sí: si chocan, pasan al
  * siguiente horario libre y queda dicho; si no hay uno libre, quedan marcadas para que las resuelvas.
  */
-async function placeMoves(ops: PlanOps): Promise<Notes> {
+export async function placeMoves(ops: PlanOps): Promise<Notes> {
   const notes: Notes = new Map();
   const moves = ops.updates
     .map((u) => {
@@ -225,10 +225,10 @@ export function preview(projectId: number, ops: PlanOps, notes: Notes = new Map(
   };
 }
 
-async function suggest(project: db.Project, instruction: string, allowWeekends = false) {
-  const phases = db.listPhases(project.id);
-  const phaseName = new Map(phases.map((p) => [p.id, p.name]));
-  const tasks = db.listTasks(project.id).map((t) => {
+/** Las tareas del proyecto, compactas, para dárselas a la IA. */
+export function tasksForAi(projectId: number) {
+  const phaseName = new Map(db.listPhases(projectId).map((p) => [p.id, p.name]));
+  return db.listTasks(projectId).map((t) => {
     const m = t.kind === 'reunion' ? meetingOfTask(t.id) : null;
     return {
       id: t.id,
@@ -243,6 +243,11 @@ async function suggest(project: db.Project, instruction: string, allowWeekends =
       description: t.description.slice(0, 200),
     };
   });
+}
+
+async function suggest(project: db.Project, instruction: string, allowWeekends = false) {
+  const phases = db.listPhases(project.id);
+  const tasks = tasksForAi(project.id);
   const { data, completion } = await completeJson<Record<string, unknown>>({
     profile: 'propuestas',
     purpose: 'ajuste del plan del proyecto',
@@ -294,7 +299,8 @@ Reglas:
   };
 }
 
-async function apply(project: db.Project, raw: Record<string, unknown>, instruction: string, v: Viewer) {
+/** Aplica los cambios al plan. `log: false` cuando lo registra quien llama (p. ej. el ajuste de alcance). */
+export async function applyPlan(project: db.Project, raw: Record<string, unknown>, instruction: string, v: Viewer, log = true) {
   const { ops, skipped } = normalizeOps(project.id, raw);
   const errors = [...skipped];
   // Las reuniones agendadas se mueven con su evento de Calendar (después, fuera de la transacción).
@@ -376,7 +382,7 @@ async function apply(project: db.Project, raw: Record<string, unknown>, instruct
     .sort()
     .pop();
   if (latest && (!project.end_date || latest > project.end_date)) db.updateProject(project.id, { end_date: latest });
-  if (applied) {
+  if (applied && log) {
     const a = actor(v);
     db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'plan_adjusted', data: { instruction: instruction.slice(0, 300), changes: applied } });
   }
@@ -400,6 +406,6 @@ export async function handlePlanAdjust(route: string, id: number, req: IncomingM
     }
     return true;
   }
-  json(res, 200, await apply(project, (body.ops ?? {}) as Record<string, unknown>, instruction, v));
+  json(res, 200, await applyPlan(project, (body.ops ?? {}) as Record<string, unknown>, instruction, v));
   return true;
 }

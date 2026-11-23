@@ -98,7 +98,7 @@ function projectSteps(me: Me): Step[] {
         tab: 'alcance',
         target: 'scope-actions',
         title: 'Cambios de alcance',
-        body: '«Agregar adicional» crea las tareas, el cobro con su descuento y la nota para el cliente en un paso. «Retirar del alcance» quita lo que ya no va. Aquí también defines las rondas de ajustes incluidas.',
+        body: '«✦ Ajustar con IA» reescribe el alcance según lo acordado y propone los cambios del plan. «Agregar adicional» crea tareas y cobro en un paso; «Retirar del alcance» quita lo que ya no va. Aquí también defines las rondas de ajustes.',
       },
     );
   }

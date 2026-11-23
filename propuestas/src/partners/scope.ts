@@ -8,7 +8,7 @@ import * as billing from './billing.ts';
 import { actor, requireOwner, str, visibleProject } from './common.ts';
 import * as db from './db.ts';
 import { createPayments } from './payments.ts';
-import { weekdaysRule } from './planAdjust.ts';
+import { applyPlan, normalizeOps, placeMoves, preview, tasksForAi, weekdaysRule } from './planAdjust.ts';
 import { DELIVERY_RULE } from './extract.ts';
 
 /**
@@ -143,6 +143,99 @@ Reglas:
   return { tasks, notes, ai: { provider: completion.provider, model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs } };
 }
 
+/**
+ * Ajustar el alcance con IA: «el blog queda en 3 artículos y se quita la integración con Stripe». La IA reescribe el texto
+ * del alcance aprobado cambiando solo lo pedido y propone lo que eso implica en las tareas. No guarda nada: se revisa y
+ * se aplica aparte. Lo que tiene valor (un adicional o un retiro con su pago) sigue por «Agregar adicional» / «Retirar».
+ */
+async function suggestAdjust(project: db.Project, p: { instruction: string; allowWeekends: boolean; withPlan: boolean }) {
+  const today = todayBogota();
+  const weekday = new Date().toLocaleDateString('es-CO', { weekday: 'long', timeZone: 'America/Bogota' });
+  const { data, completion } = await completeJson<Record<string, unknown>>({
+    profile: 'propuestas',
+    purpose: 'ajuste del alcance del proyecto',
+    system: `Eres el asistente de operaciones de DeerSystems. Ajustas el alcance aprobado de un proyecto en marcha según lo acordado con el cliente${p.withPlan ? ', y el plan de tareas en consecuencia' : ''}.
+Responde SOLO con un objeto JSON válido, en español, sin comentarios ni texto adicional.`,
+    prompt: `Hoy es ${today} (${weekday}). Proyecto: "${project.name}". Entrega estimada: ${project.end_date ?? 'sin fecha'}.
+Opción aprobada: ${project.approved_option || 'sin dato'}.${project.approval_notes ? `\nAjustes acordados al aprobar: ${project.approval_notes}` : ''}
+
+ALCANCE APROBADO ACTUAL (Markdown):
+"""
+${project.scope || '(vacío)'}
+"""
+${
+  p.withPlan
+    ? `
+FASES: ${JSON.stringify(db.listPhases(project.id).map((ph) => ph.name))}
+TAREAS ACTUALES (JSON; kind "reunion" = reunión con el cliente):
+${JSON.stringify(tasksForAi(project.id))}
+`
+    : ''
+}
+LO QUE CAMBIA EN EL ALCANCE:
+"""
+${p.instruction}
+"""
+
+Devuelve:
+{
+  "scope": "el alcance completo ya ajustado, en Markdown",
+  "changes": ["cambio hecho, en una frase corta", "..."],
+  "notes": ["aviso corto, solo si hace falta"]${
+    p.withPlan
+      ? `,
+  "updates": [{ "id": 12, "title": "...", "description": "...", "side": "deersystems | cliente", "phase": "nombre exacto de una fase", "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD" }],
+  "creates": [{ "phase": "nombre de una fase (existente o nueva)", "title": "...", "description": "...", "side": "deersystems | cliente", "kind": "tarea", "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD" }],
+  "deletes": [34]`
+      : ''
+  }
+}
+
+Reglas del alcance:
+- Cambia SOLO lo que pide la instrucción. Todo lo demás queda igual, palabra por palabra, con el mismo formato Markdown (títulos, listas, negritas, orden).
+- Si se quita algo, sácalo del texto (no lo tachees ni dejes "retirado"). Si se agrega, ponlo donde encaja según la estructura.
+- Si el alcance está vacío, redacta uno corto y claro con lo que dice la instrucción.
+- No pongas precios ni valores en el alcance. Si el cambio tiene costo o descuento, dilo en "notes": eso se registra con «Agregar adicional» o «Retirar del alcance».${
+    p.withPlan
+      ? `
+
+Reglas del plan:
+- Propón solo los cambios de tareas que sean consecuencia directa del ajuste: tareas nuevas para lo que se agrega, eliminar las pendientes de lo que se quita, y cambiar título, descripción o fechas de lo que se modifica. Si el plan no cambia, deja las listas vacías.
+- En "updates" pon el "id" y SOLO los campos que cambian. No toques tareas con status "completada" ni reuniones.
+- ${weekdaysRule(p.allowWeekends)}
+- No incluyas precios ni valores en tareas.`
+      : ''
+  }
+- "changes": entre 1 y 8 frases sobre lo que cambiaste${p.withPlan ? ' (en el alcance y en el plan)' : ''}. Si la instrucción no se puede aplicar, devuelve el alcance igual y explícalo en "changes".`,
+    maxOutputTokens: 16384,
+  });
+  const scope = typeof data.scope === 'string' ? data.scope.trim().slice(0, 30_000) : '';
+  if (!scope) throw new AiError(`El modelo ${completion.model} no devolvió el alcance. Vuelve a intentarlo.`);
+  const list = (v: unknown, n: number) =>
+    (Array.isArray(v) ? v : [])
+      .map((x) => str(x, 300))
+      .filter(Boolean)
+      .slice(0, n);
+  const { ops, skipped } = p.withPlan ? normalizeOps(project.id, data) : { ops: { updates: [], creates: [], deletes: [] }, skipped: [] };
+  // Las reuniones no se tocan desde aquí (para moverlas está «Ajustar con IA» del plan).
+  const isMeeting = (id: number) => db.getTask(id)?.kind === 'reunion';
+  ops.updates = ops.updates.filter((u) => !isMeeting(u.id));
+  ops.deletes = ops.deletes.filter((id) => !isMeeting(id));
+  ops.creates = ops.creates.filter((c) => c.kind !== 'reunion');
+  const notes = await placeMoves(ops);
+  const warnings = [...skipped, ...list(data.notes, 5)];
+  if (!p.allowWeekends && [...ops.updates, ...ops.creates].some((t) => (t.startDate && isWeekend(t.startDate)) || (t.dueDate && isWeekend(t.dueDate))))
+    warnings.push('Alguna fecha del plan cae en fin de semana: marca «Permitir fin de semana» o vuelve a proponer.');
+  return {
+    scopeBefore: project.scope,
+    scope,
+    changes: list(data.changes, 8),
+    warnings,
+    plan: { ops, preview: preview(project.id, ops, notes) },
+    ai: { provider: completion.provider, model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs },
+  };
+}
+
 const norm = (s: string) =>
   s
     .toLowerCase()
@@ -231,7 +324,7 @@ export async function handleScope(route: string, id: number, req: IncomingMessag
         tasksRemoved: h.tasks_removed,
         payments: JSON.parse(h.payments) as string[],
         createdAt: h.created_at,
-        kind: h.kind === 'adicional' ? 'adicional' : 'retiro',
+        kind: h.kind === 'adicional' || h.kind === 'ajuste' ? h.kind : 'retiro',
         detail: JSON.parse(h.detail || '{}') as Record<string, unknown>,
       }));
       json(res, 200, {
@@ -360,6 +453,89 @@ export async function handleScope(route: string, id: number, req: IncomingMessag
       });
 
       json(res, 200, { ok: true, approvedOption: label, ...result, payments: payments.length, amount, currency });
+      return true;
+    }
+
+    // Ajuste del alcance con IA: propone el texto nuevo y los cambios del plan (no guarda nada).
+    case 'POST projects/:id/scope/adjust/suggest': {
+      requireOwner(v);
+      const project = visibleProject(id, v);
+      const body = await readJson(req, 64 * 1024);
+      const instruction = str(body.instruction, 4000).trim();
+      if (instruction.length < 5) throw new HttpError(400, 'Escribe qué cambia en el alcance.');
+      try {
+        json(res, 200, await suggestAdjust(project, { instruction, allowWeekends: body.allowWeekends === true, withPlan: body.withPlan !== false }));
+      } catch (err) {
+        if (err instanceof AiError) throw new HttpError(502, err.message);
+        throw err;
+      }
+      return true;
+    }
+
+    // Ajuste del alcance: guarda el texto revisado, aplica los cambios del plan que se dejaron y lo registra.
+    case 'POST projects/:id/scope/adjust': {
+      requireOwner(v);
+      const project = visibleProject(id, v);
+      const body = await readJson(req, 256 * 1024);
+      const instruction = str(body.instruction, 4000).trim();
+      const scope = typeof body.scope === 'string' ? body.scope.trim().slice(0, 30_000) : '';
+      if (!scope) throw new HttpError(400, 'El alcance no puede quedar vacío.');
+      const changes = (Array.isArray(body.changes) ? body.changes : [])
+        .map((c) => str(c, 300))
+        .filter(Boolean)
+        .slice(0, 8);
+      const scopeChanged = scope !== project.scope.trim();
+      const raw = (body.ops ?? {}) as Record<string, unknown>;
+      // Las reuniones no se tocan desde aquí, aunque lleguen en lo que se envía.
+      const isMeeting = (id: unknown) => db.getTask(Number(id))?.kind === 'reunion';
+      const ops = {
+        updates: (Array.isArray(raw.updates) ? raw.updates : []).filter((u) => !isMeeting((u as { id?: unknown })?.id)),
+        creates: (Array.isArray(raw.creates) ? raw.creates : []).filter((c) => (c as { kind?: unknown })?.kind !== 'reunion'),
+        deletes: (Array.isArray(raw.deletes) ? raw.deletes : []).filter((d) => !isMeeting(d)),
+      };
+      const hasOps = ops.updates.length + ops.creates.length + ops.deletes.length > 0;
+      if (!scopeChanged && !hasOps) throw new HttpError(400, 'No hay cambios para aplicar.');
+
+      if (scopeChanged) db.updateProject(project.id, { scope });
+      const plan = hasOps ? await applyPlan(project, ops, instruction, v, false) : { applied: 0, errors: [] as string[], calendarMoved: 0 };
+      const summary = changes.length ? changes.join(' ') : instruction;
+      sqlite
+        .prepare(
+          `INSERT INTO scope_changes (project_id, option_id, option_name, amount, currency, reason, label_before, label_after, phases, tasks_removed, payments, created_at, created_by, kind, detail)
+           VALUES (?, '', ?, NULL, '', ?, ?, ?, '[]', ?, '[]', ?, ?, 'ajuste', ?)`,
+        )
+        .run(
+          project.id,
+          (changes[0] ?? instruction).slice(0, 400),
+          instruction.slice(0, 1000),
+          project.approved_option,
+          project.approved_option,
+          plan.applied,
+          new Date().toISOString(),
+          v.email,
+          JSON.stringify({ changes, scopeChanged }),
+        );
+      const a = actor(v);
+      db.logActivity({
+        projectId: project.id,
+        actorKind: a.kind,
+        actorName: a.name,
+        type: 'scope_adjusted',
+        data: { summary: summary.slice(0, 300), tasks: plan.applied, scope: scopeChanged },
+      });
+      if (body.notify === true) {
+        db.createNote({
+          project_id: project.id,
+          task_id: null,
+          kind: 'nota',
+          visibility: 'shared',
+          author_kind: 'owner',
+          author_id: null,
+          author_name: a.name,
+          body: `Actualizamos el alcance del proyecto${changes.length ? ':\n\n' + changes.map((c) => `- ${c}`).join('\n') : '.'}${plan.applied ? `\n\nEl plan de trabajo se ajustó en consecuencia (${plan.applied} ${plan.applied === 1 ? 'cambio' : 'cambios'}).` : ''}`,
+        });
+      }
+      json(res, 200, { ok: true, scopeChanged, ...plan });
       return true;
     }
 

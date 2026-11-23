@@ -65,7 +65,7 @@ propuestas/
       approvals.ts        Aprobación pública desde /{slug}/aprobar, opciones, plan con IA en segundo plano
       extract.ts          Propuesta HTML → texto → plan con IA; ajuste del plan antes de crear el proyecto
       planAdjust.ts       Ajuste con IA del plan de un proyecto en marcha (vista previa → aplicar)
-      scope.ts            Retirar del alcance una opción o fase aprobada; agregar un adicional (tareas + cobro + nota)
+      scope.ts            Retirar del alcance una opción o fase aprobada; agregar un adicional (tareas + cobro + nota); ajustar el alcance con IA
       reviews.ts          Entregas al cliente: aprobar o pedir ajustes, rondas incluidas, detección con IA
       mcp.ts              Servidor MCP para Claude, OAuth 2.1 y tokens personales
       work.ts             Tareas, fases, notas, bitácora
@@ -293,7 +293,7 @@ Los archivos de las propuestas están en disco, en `DATA_DIR/files/{id}/v{versi�
 | `notes` | Comentarios y avances | `task_id` (null = del proyecto), `kind` (`nota`/`avance`), `visibility` (`shared`/`internal`), autor, `body` (Markdown), `ai` (lo generó la IA), `emailed_at` |
 | `activity` | Bitácora | `type`, `data` (JSON), `actor_*`, `internal` |
 | `attachments` | Archivos en Drive | `task_id`, `drive_file_id`, `drive_url`, `name`, `mime`, `size`, `visibility`, `link_shared`, `linked` (elegido del Drive propio, no subido), `page_token` (página HTML publicada en `/paginas/{token}`) |
-| `scope_changes` | Cambios del alcance: retiros y adicionales | `kind` (`retiro`/`adicional`), `detail` (JSON del adicional: tareas, valor, descuento, pago), `option_id`/`option_name`, `amount`, `currency`, `reason`, `label_before`/`label_after`, `phases` (JSON), `tasks_removed`, `payments` (JSON) |
+| `scope_changes` | Cambios del alcance: retiros, adicionales y ajustes | `kind` (`retiro`/`adicional`/`ajuste`), `detail` (JSON del adicional: tareas, valor, descuento, pago; del ajuste: `changes`, `scopeChanged`), `option_id`/`option_name`, `amount`, `currency`, `reason`, `label_before`/`label_after`, `phases` (JSON), `tasks_removed`, `payments` (JSON) |
 | `project_reports` | Informes | `kind` (`parcial`/`final`), `title`, `period_from`/`period_to`, `context`, `include_payments`, `body`, `ai`, `status` (`borrador`/`publicado`), `published_at`, `emailed_at`, `emailed_to` |
 
 ### Reuniones
@@ -394,6 +394,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 | `POST projects/:id/plan/adjust` con `allowWeekends` | Por defecto la IA no pone tareas en sábado ni domingo; con la casilla «Permitir fin de semana» sí (las reuniones siguen siendo entre semana) |
 | `GET projects/:id/scope`, `POST projects/:id/scope/remove` | Retirar una opción o fase del alcance |
 | `POST projects/:id/scope/add/suggest`, `POST projects/:id/scope/add` | Adicional: la IA arma las tareas a partir del pedido; al confirmar se crean la fase «Adicional: X», sus tareas, el pago con descuento (al aprobar, al entregar o en una fecha), la nota en `pricing`, el registro en `scope_changes` y, si se elige, una nota para el cliente. Solo mueve la entrega del proyecto si el adicional termina después |
+| `POST projects/:id/scope/adjust/suggest`, `POST projects/:id/scope/adjust` | Ajuste del alcance con IA: con una instrucción, la IA devuelve el texto del alcance reescrito (solo cambia lo pedido, sin precios) y, si se pide, los cambios del plan (crear, cambiar o eliminar tareas pendientes; nunca reuniones ni completadas). No guarda nada. Al aplicar se guarda el texto (editable), los cambios del plan que se dejaron marcados (con `applyPlan` de `planAdjust.ts`), el registro `ajuste` en `scope_changes`, la actividad `scope_adjusted` (el cliente no ve el resumen) y, si se elige, una nota para el cliente |
 | `POST tasks/:id/review` | `{decision: 'approve'\|'changes', note}`: el cliente aprueba o pide ajustes; el equipo registra lo que dijo el cliente o reabre una completada. Solo para entregas al cliente (409 en tareas operativas) |
 | `PUT projects/:id/reviews`, `GET/PUT settings/reviews` | Rondas de ajustes incluidas, por proyecto o por defecto (0–20; 0 = sin límite) |
 | `POST projects/:id/deliveries/detect`, `PUT projects/:id/deliveries` | La IA propone qué tareas del equipo son entregas al cliente; se guarda la lista confirmada |
@@ -513,6 +514,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 - **Ajuste con IA del plan:** propone operaciones sobre las tareas existentes (mover, cambiar fechas o fase, reprogramar reuniones). Se revisan antes de aplicarlas, y aplicarlas mueve también los eventos de Calendar sin cruces.
 - **Adicionales:** «Agregar adicional» (pestaña Alcance) registra en un paso un pedido extra del cliente: tareas (la IA las propone), cobro con descuento y nota. Sirve para excepciones como trabajar el fin de semana sin mover la entrega.
 - **Entregas y ajustes:** solo las tareas marcadas como entrega al cliente pasan por su revisión. Al ponerlas «En revisión» se le avisa (`delivery_ready`); el cliente aprueba o pide ajustes desde la tarea (`client_review` al equipo). Cada pedido suma una ronda, devuelve la tarea a «En progreso» y deja el pedido como comentario compartido. Las rondas que pasan de las incluidas se marcan como adicionales. Las tareas operativas las cierra el equipo sin aprobación del cliente. La marca la propone la IA al armar el plan y los adicionales, o en «◆ Entregas al cliente» para proyectos existentes.
+- **Ajustar el alcance con IA:** «✦ Ajustar con IA» (pestaña Alcance) reescribe el texto según lo acordado y propone las tareas que cambian; se ve el texto con lo agregado y lo quitado marcado, se puede editar, y cada cambio del plan se desmarca si no va. Lo que tiene valor sigue por «Agregar adicional» o «Retirar del alcance».
 - **Retirar del alcance:** se borran las tareas pendientes y los pagos sin pagar de esa opción o fase, y se recalcula la etiqueta de lo aprobado. Lo terminado se queda y el retiro queda registrado en `scope_changes`. La opción vuelve a estar disponible para aprobarse después.
 - **Avances:** se arman con los hechos del día (tareas completadas o en revisión, reuniones, archivos, próxima reunión) con enlaces internos, y la IA los redacta. Se pueden publicar a mano o automáticamente a las 17:00, y van por correo a los destinatarios elegidos.
 - **Informes:**
@@ -671,6 +673,7 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | `Reports.tsx` | Informes |
 | `PlanAdjust.tsx` | Ajuste del plan con IA |
 | `ScopeAdjust.tsx` | Retirar del alcance, agregar adicional e historial de cambios |
+| `ScopeAi.tsx` | Ajustar el alcance con IA: diferencia línea a línea del texto y selección de los cambios del plan |
 | `Review.tsx` | Aprobar o pedir ajustes, etiquetas «◆ Entrega» y «↺ Ajuste N», diálogo «Entregas al cliente» |
 | `Activity.tsx` | Bitácora |
 

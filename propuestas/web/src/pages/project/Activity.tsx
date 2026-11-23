@@ -17,6 +17,8 @@ function describe(a: ActivityItem): string {
       return `agregó el adicional ${d.option ? q(String(d.option)) : ''}: ${d.tasks === 1 ? '1 tarea' : `${d.tasks ?? 0} tareas`}`;
     case 'scope_removed':
       return `retiró del alcance ${d.option ?? 'una parte'}: ${d.tasks ?? 0} tareas${d.meetings ? `, ${d.meetings} reuniones` : ''} y ${d.payments ?? 0} pagos`;
+    case 'scope_adjusted':
+      return `ajustó el alcance${d.tasks ? ` y el plan (${d.tasks === 1 ? '1 cambio' : `${d.tasks} cambios`} en tareas)` : ''}${d.summary ? `: ${q(d.summary)}` : ''}`;
     case 'plan_adjusted':
       // Al cliente le llega sin la instrucción: ve «ajustó el plan», sin mencionar la IA.
       return `ajustó el plan${d.instruction ? ' con IA' : ''} (${d.changes ?? 0} ${d.changes === 1 ? 'cambio' : 'cambios'})${d.instruction ? `: ${q(d.instruction)}` : ''}`;
@@ -80,6 +82,7 @@ const ICON: Record<string, string> = {
   project_extended: '＋',
   scope_removed: '−',
   scope_added: '＋',
+  scope_adjusted: '✦',
   report_published: '▤',
   plan_adjusted: '✦',
   file_added: '📎',

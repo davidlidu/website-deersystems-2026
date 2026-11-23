@@ -8280,3 +8280,88 @@ button.gcal-stat:hover {
   color: var(--mute);
   vertical-align: middle;
 }
+
+/* Ajustar el alcance con IA: el texto con los cambios marcados */
+.scope-ai__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.scope-ai__edit {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.scope-ai__plan li > input {
+  margin-top: 3px;
+}
+
+.scope-diff {
+  max-height: 46vh;
+  overflow: auto;
+  padding: 8px 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.scope-diff__line {
+  display: grid;
+  grid-template-columns: 1.6em 1fr;
+  padding: 0 10px 0 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.scope-diff__line > span:first-child {
+  color: var(--mute);
+  text-align: center;
+  user-select: none;
+}
+
+.scope-diff__line--add {
+  background: rgba(126, 217, 87, 0.12);
+}
+
+.scope-diff__line--add > span:first-child {
+  color: var(--verde);
+}
+
+.scope-diff__line--del {
+  background: rgba(239, 71, 111, 0.1);
+  text-decoration: line-through;
+  text-decoration-color: rgba(239, 71, 111, 0.6);
+  color: var(--mute);
+}
+
+.scope-diff__line--del > span:first-child {
+  color: var(--coral);
+  text-decoration: none;
+}
+
+.scope-diff__gap {
+  display: block;
+  width: 100%;
+  padding: 2px 10px;
+  border: 0;
+  background: none;
+  color: var(--mute);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scope-diff__gap:hover {
+  color: var(--text, inherit);
+}
+
+ul.scope-history__reason {
+  margin: 2px 0 0;
+}

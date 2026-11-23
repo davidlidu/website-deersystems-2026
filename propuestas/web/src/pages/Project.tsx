@@ -26,6 +26,7 @@ import { PaymentsPanel } from './project/Payments';
 import { PlanAdjustButton } from './project/PlanAdjust';
 import { DeliveriesButton } from './project/Review';
 import { ReportsPanel } from './project/Reports';
+import { ScopeAiDialog } from './project/ScopeAi';
 import { ScopeAddDialog, ScopeHistory, ScopeRemoveDialog } from './project/ScopeAdjust';
 import { ProjectSummary } from './project/Summary';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
@@ -145,6 +146,7 @@ function PlanPdfButton({ project, tasks }: { project: ProjectDetail; tasks: Task
 export function ProjectPage({ me, id }: { me: Me; id: number }) {
   const { data, error, loading, reload, setData } = useApi<ProjectDetail>(`projects/${id}`);
   const [scopeOpen, setScopeOpen] = useState(false);
+  const [scopeAiOpen, setScopeAiOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [scopeVersion, setScopeVersion] = useState(0);
   const staff = me.role !== 'client';
@@ -536,6 +538,9 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
               <div className="scope-page__head">
                 <h2 className="scope-page__title">Alcance aprobado</h2>
                 <span className="actions actions--tight" data-tour="scope-actions">
+                  <button className="btn btn--outline btn--sm btn--ai" onClick={() => setScopeAiOpen(true)} title="Pídele a la IA que ajuste el texto del alcance y el plan">
+                    ✦ Ajustar con IA
+                  </button>
                   <button className="btn btn--outline btn--sm" onClick={() => setAddOpen(true)}>
                     Agregar adicional…
                   </button>
@@ -593,6 +598,17 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
         <ScopeAddDialog
           projectId={p.id}
           onClose={() => setAddOpen(false)}
+          onDone={() => {
+            setScopeVersion((n) => n + 1);
+            reload();
+          }}
+        />
+      )}
+
+      {scopeAiOpen && (
+        <ScopeAiDialog
+          projectId={p.id}
+          onClose={() => setScopeAiOpen(false)}
           onDone={() => {
             setScopeVersion((n) => n + 1);
             reload();
