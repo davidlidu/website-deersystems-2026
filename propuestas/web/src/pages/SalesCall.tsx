@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { api, formatDateTime, today, useApi, type Meeting, type TeamMember } from '../lib';
+import { api, durationLabel, durationOptions, formatDateTime, today, useApi, type Meeting, type TeamMember } from '../lib';
 import { Link, Loading, useAction, useToast } from '../ui';
 import { sendFile, type ProposalRow } from './Proposals';
 import { SlotStatus } from './project/Schedule';
@@ -194,9 +194,9 @@ export function SalesCallForm({ kind: initialKind, onDone }: { kind: Kind; onDon
             <span className="field__label">Duración</span>
             <span className="input">
               <select name="duration" value={slot.duration} onChange={(e) => setSlot({ ...slot, duration: Number(e.target.value) })}>
-                {[15, 30, 45, 60, 90].map((m) => (
+                {durationOptions(slot.duration).map((m) => (
                   <option key={m} value={m}>
-                    {m < 60 ? `${m} min` : `${m / 60} h${m % 60 ? ` ${m % 60} min` : ''}`}
+                    {durationLabel(m)}
                   </option>
                 ))}
               </select>

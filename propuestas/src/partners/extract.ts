@@ -210,7 +210,7 @@ export function normalizeDraft(raw: Record<string, unknown>): Draft {
         phaseIndex: idx >= 0 && idx < phases.length ? idx : 0,
         date: date(m?.date),
         time: typeof m?.time === 'string' && /^\d{2}:\d{2}$/.test(m.time) ? m.time : '10:00',
-        durationMinutes: Math.min(240, Math.max(15, Number(m?.durationMinutes) || 45)),
+        durationMinutes: Math.min(300, Math.max(15, Number(m?.durationMinutes) || 45)),
         purpose: str(m?.purpose, 500),
       };
     })

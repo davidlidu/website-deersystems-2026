@@ -204,6 +204,8 @@ export interface Task {
   assigneeName: string | null;
   /** Persona del cliente a cargo (proyectos compartidos), solo en tareas del cliente. */
   clientAssignee?: string | null;
+  /** De todos: tú, tu equipo, el cliente y su equipo. */
+  everyone?: boolean;
   startDate: string | null;
   dueDate: string | null;
   completedAt: string | null;
@@ -393,8 +395,8 @@ export interface ProjectPerson {
 }
 
 /** Quién hace una tarea, en corto: «Paula», «Cliente · Ana», «DeerSystems». */
-export const taskOwner = (t: Pick<Task, 'side' | 'assigneeName' | 'clientAssignee'>) =>
-  t.side === 'cliente' ? (t.clientAssignee ? `Cliente · ${t.clientAssignee}` : 'Cliente') : (t.assigneeName ?? 'DeerSystems');
+export const taskOwner = (t: Pick<Task, 'side' | 'assigneeName' | 'clientAssignee' | 'everyone'>) =>
+  t.everyone ? 'Todos' : t.side === 'cliente' ? (t.clientAssignee ? `Cliente · ${t.clientAssignee}` : 'Cliente') : (t.assigneeName ?? 'DeerSystems');
 
 export interface TeamMember {
   id: number;
@@ -691,3 +693,13 @@ export function inRange(date: string, r: DateRange): boolean {
   return true;
 }
 
+
+/** Duraciones de una reunión: de 15 minutos a 5 horas. */
+export const MEETING_DURATIONS = [15, 30, 45, 60, 90, 120, 150, 180, 210, 240, 270, 300];
+
+/** 45 → «45 min», 90 → «1 h 30 min», 300 → «5 h». */
+export const durationLabel = (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
+
+/** Las duraciones de la lista más la que ya tenga la reunión, si no está entre ellas. */
+export const durationOptions = (current?: number) =>
+  current && !MEETING_DURATIONS.includes(current) ? [...MEETING_DURATIONS, current].sort((a, b) => a - b) : MEETING_DURATIONS;

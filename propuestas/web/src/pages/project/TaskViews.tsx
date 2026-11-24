@@ -41,7 +41,11 @@ interface Props {
 // ───────── Piezas comunes ─────────
 
 function Who({ task }: { task: Task }) {
-  return <span className={`side side--${task.side}`}>{taskOwner(task)}</span>;
+  return (
+    <span className={`side side--${task.everyone ? 'todos' : task.side}`} title={task.everyone ? 'Tú, tu equipo, el cliente y su equipo' : undefined}>
+      {taskOwner(task)}
+    </span>
+  );
 }
 
 function StatusControl({ task, me, onStatus }: { task: Task; me: Me; onStatus: Props['onStatus'] }) {

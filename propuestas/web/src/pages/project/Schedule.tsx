@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, today, useApi, type Meeting, type ProjectSummary } from '../../lib';
+import { api, durationLabel, durationOptions, today, useApi, type Meeting, type ProjectSummary } from '../../lib';
 import { ErrorBox, Link, Loading, useAction, useToast } from '../../ui';
 
 interface Contacts {
@@ -187,9 +187,9 @@ function Fields({ projectId, projectName, preset, onDone }: { projectId: number;
             <span className="field__label">Duración</span>
             <span className="input">
               <select name="duration" value={slot.duration} onChange={(e) => setSlot({ ...slot, duration: Number(e.target.value) })}>
-                {[15, 30, 45, 60, 90, 120].map((m) => (
+                {durationOptions(slot.duration).map((m) => (
                   <option key={m} value={m}>
-                    {m < 60 ? `${m} min` : `${m / 60} h${m % 60 ? ` ${m % 60} min` : ''}`}
+                    {durationLabel(m)}
                   </option>
                 ))}
               </select>
@@ -328,7 +328,7 @@ export function EditMeeting({ meeting, onDone, onCancel }: { meeting: Meeting; o
   for (const m of c?.team ?? []) {
     if (!people.has(m.email.toLowerCase())) people.set(m.email.toLowerCase(), { email: m.email.toLowerCase(), label: m.name, tag: 'Equipo' });
   }
-  const options = [15, 30, 45, 60, 90, 120].includes(duration) ? [15, 30, 45, 60, 90, 120] : [15, 30, 45, 60, 90, 120, duration].sort((a, b) => a - b);
+  const options = durationOptions(duration);
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -378,7 +378,7 @@ export function EditMeeting({ meeting, onDone, onCancel }: { meeting: Meeting; o
               <select name="duration" value={slot.duration} onChange={(e) => setSlot({ ...slot, duration: Number(e.target.value) })}>
                 {options.map((m) => (
                   <option key={m} value={m}>
-                    {m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`}
+                    {durationLabel(m)}
                   </option>
                 ))}
               </select>

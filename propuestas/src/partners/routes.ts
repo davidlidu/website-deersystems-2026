@@ -250,7 +250,7 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
   if (!draft.phases.some((p) => p.tasks.length)) throw new HttpError(400, 'El proyecto necesita al menos una tarea.');
 
   const teamIds = new Set(db.listTeam().map((a) => a.id));
-  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown; clientAssignee?: unknown }[] }[]) : [];
+  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown; clientAssignee?: unknown; everyone?: unknown }[] }[]) : [];
   // TRM fija para toda la propuesta (pagos en USD) y equipo del proyecto compartido.
   const fixedTrm = Number(body.trm) >= 500 && Number(body.trm) <= 50_000 ? Math.round(Number(body.trm) * 100) / 100 : null;
   const people = normalizePeople(body.people);
@@ -328,6 +328,7 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
           source: 'propuesta',
           clientDelivery: t.clientDelivery,
           clientAssignee: str(rawPhases[i]?.tasks?.[j]?.clientAssignee, 120),
+          everyone: rawPhases[i]?.tasks?.[j]?.everyone === true,
         });
       });
     });
@@ -429,7 +430,7 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
   const rawMeetings = Array.isArray(body.meetings) ? (body.meetings as { schedule?: unknown }[]) : [];
   if (!draft.phases.some((p) => p.tasks.length)) throw new HttpError(400, 'Lo que agregas necesita al menos una tarea.');
   const teamIds = new Set(db.listTeam().map((a) => a.id));
-  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown; clientAssignee?: unknown }[] }[]) : [];
+  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown; clientAssignee?: unknown; everyone?: unknown }[] }[]) : [];
   // TRM fija para toda la propuesta (pagos en USD) y equipo del proyecto compartido.
   const fixedTrm = Number(body.trm) >= 500 && Number(body.trm) <= 50_000 ? Math.round(Number(body.trm) * 100) / 100 : null;
   const people = normalizePeople(body.people);
@@ -458,6 +459,7 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
           source: 'propuesta',
           clientDelivery: t.clientDelivery,
           clientAssignee: str(rawPhases[i]?.tasks?.[j]?.clientAssignee, 120),
+          everyone: rawPhases[i]?.tasks?.[j]?.everyone === true,
         });
         tasks++;
       }

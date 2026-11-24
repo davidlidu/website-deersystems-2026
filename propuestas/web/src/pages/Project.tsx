@@ -206,8 +206,9 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
     const q = search.trim().toLowerCase();
     return (data?.tasks ?? []).filter(
       (t) =>
-        (sideFilter === 'todas' || t.side === sideFilter) &&
-        (assignee === 'todos' || t.assigneeId === assignee) &&
+        // Una tarea de todos sale en cualquier filtro de lado o de persona.
+        (sideFilter === 'todas' || t.side === sideFilter || t.everyone) &&
+        (assignee === 'todos' || t.assigneeId === assignee || t.everyone) &&
         (!hideDone || t.status !== 'completada') &&
         (!q || `${t.title} ${t.description}`.toLowerCase().includes(q)),
     );

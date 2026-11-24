@@ -50,7 +50,7 @@ const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
  * Lo es si la tiene como persona del cliente, por su nombre o por la persona del equipo del proyecto ligada a su cuenta.
  */
 export function accountOwnsTask(a: db.Account, t: db.Task, p?: db.Project | null): boolean {
-  if (!a.own_tasks) return true;
+  if (!a.own_tasks || t.everyone) return true;
   if (!t.client_assignee) return false;
   const who = norm(t.client_assignee);
   if (a.name && norm(a.name) === who) return true;
@@ -100,6 +100,7 @@ export function taskView(t: db.Task, v: Viewer, team: Map<number, string>, comme
     assigneeId: t.assignee_id,
     assigneeName: t.assignee_id ? (team.get(t.assignee_id) ?? null) : null,
     clientAssignee: t.client_assignee || null,
+    everyone: !!t.everyone,
     startDate: t.start_date,
     dueDate: t.due_date,
     completedAt: t.completed_at,

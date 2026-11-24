@@ -23,6 +23,7 @@ const FIELD_LABEL: Record<string, string> = {
   side: 'responsable',
   assignee_id: 'responsable',
   client_assignee: 'responsable del cliente',
+  everyone: 'asignada a todos',
   phase_id: 'fase',
   start_date: 'fecha de inicio',
   due_date: 'fecha de entrega',
@@ -32,6 +33,14 @@ const FIELD_LABEL: Record<string, string> = {
 function log(v: Viewer, projectId: number, type: string, data: Record<string, unknown>, opts: { taskId?: number | null; internal?: boolean } = {}) {
   const a = actor(v);
   db.logActivity({ projectId, taskId: opts.taskId, actorKind: a.kind, actorName: a.name, type, data, internal: opts.internal });
+}
+
+/** Una tarea quedó para todos: se les avisa al cliente y su equipo, y a cada persona de tu equipo. */
+function notifyEveryone(v: Viewer, project: db.Project, taskId: number, title: string, path: string) {
+  notify('client_task', { actor: v, projectId: project.id, taskId, title: `Tarea para todos: «${title}»`, body: project.name, path });
+  for (const a of db.listTeam()) {
+    if (a.active) notify('team_assigned', { actor: v, projectId: project.id, taskId, accountId: a.id, title: `Tarea para todos: «${title}»`, body: project.name, path });
+  }
 }
 
 /** Lee y valida los campos editables de una tarea. Solo devuelve los que vienen en el cuerpo. */
@@ -59,6 +68,8 @@ function taskFields(body: Record<string, unknown>, projectId: number, current?: 
   if ('clientDelivery' in body) f.client_delivery = body.clientDelivery === true ? 1 : 0;
   // Persona del cliente a cargo (proyectos compartidos); solo en tareas del cliente.
   if ('clientAssignee' in body) f.client_assignee = str(body.clientAssignee, 120).trim();
+  // De todos: tú, tu equipo, el cliente y su equipo (p. ej. una entrega en la que todos deben estar pendientes).
+  if ('everyone' in body) f.everyone = body.everyone === true ? 1 : 0;
   // Una tarea del cliente no tiene responsable del equipo, y no es una entrega al cliente.
   if (f.side === 'cliente') f.assignee_id = null;
   if (f.side === 'deersystems' && (current?.client_assignee || f.client_assignee)) f.client_assignee = '';
@@ -67,6 +78,8 @@ function taskFields(body: Record<string, unknown>, projectId: number, current?: 
   if (side === 'cliente' || kind === 'reunion') {
     if (current?.client_delivery || f.client_delivery) f.client_delivery = 0;
   }
+  // Las reuniones ya tienen sus invitados.
+  if (kind === 'reunion' && (current?.everyone || f.everyone)) f.everyone = 0;
   // Se compara con lo que ya tiene la tarea: cambiar solo una de las dos fechas también cuenta.
   const start = f.start_date !== undefined ? f.start_date : current?.start_date;
   const due = f.due_date !== undefined ? f.due_date : current?.due_date;
@@ -105,10 +118,12 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         kind: f.kind,
         clientDelivery: f.client_delivery === 1,
         clientAssignee: f.client_assignee,
+        everyone: f.everyone === 1,
       });
       log(v, project.id, 'task_created', { title: task.title, side: task.side }, { taskId: task.id });
       const path = taskPath(project.id, task.id);
-      if (task.side === 'cliente') {
+      if (task.everyone) notifyEveryone(v, project, task.id, task.title, path);
+      else if (task.side === 'cliente') {
         notify('client_task', { actor: v, projectId: project.id, taskId: task.id, title: `Tienes una tarea nueva: «${task.title}»`, body: project.name, path });
       }
       if (task.assignee_id) {
@@ -167,7 +182,8 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           log(v, project.id, 'task_updated', { title: f.title ?? task.title, fields: labels }, { taskId: task.id });
           const title = f.title ?? task.title;
           const path = taskPath(project.id, task.id);
-          if (f.side === 'cliente' && task.side !== 'cliente') {
+          if (f.everyone === 1 && !task.everyone) notifyEveryone(v, project, task.id, title, path);
+          else if (f.side === 'cliente' && task.side !== 'cliente') {
             notify('client_task', { actor: v, projectId: project.id, taskId: task.id, title: `Tienes una tarea nueva: «${title}»`, body: project.name, path });
           }
           if (f.assignee_id && f.assignee_id !== task.assignee_id) {

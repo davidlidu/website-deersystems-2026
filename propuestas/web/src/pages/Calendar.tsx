@@ -103,7 +103,7 @@ export function CalendarPage({ me }: { me: Me }) {
 
   const overdue = tasks.filter(isOverdue).length;
   const thisWeek = tasks.filter(inWeek).length;
-  const weekClient = tasks.filter((t) => inWeek(t) && t.side === 'cliente').length;
+  const weekClient = tasks.filter((t) => inWeek(t) && (t.side === 'cliente' || t.everyone)).length;
   const dueToday = tasks.filter(isToday).length;
   const review = tasks.filter(inReview).length;
   const weekMeetings = tasks.filter((t) => t.isMeeting && inWeek(t)).length;

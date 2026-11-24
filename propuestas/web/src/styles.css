@@ -8610,3 +8610,8 @@ ul.scope-history__reason {
   text-align: right;
   max-width: 50%;
 }
+
+/* Tarea de todos: tú, tu equipo, el cliente y su equipo. */
+.side--todos {
+  color: var(--verde);
+}

@@ -111,6 +111,8 @@ export interface Task {
   approved_by: string | null;
   /** Persona del cliente a cargo (proyectos compartidos), solo en tareas del cliente. */
   client_assignee: string;
+  /** 1 = es de todos: tú, tu equipo, el cliente y su equipo (la ven todos y a todos les llegan sus avisos). */
+  everyone: number;
   created_at: string;
   updated_at: string;
 }
@@ -217,6 +219,7 @@ addColumn('tasks', 'client_delivery', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('tasks', 'approved_at', 'TEXT');
 addColumn('tasks', 'approved_by', 'TEXT');
 addColumn('tasks', 'client_assignee', "TEXT NOT NULL DEFAULT ''");
+addColumn('tasks', 'everyone', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('projects', 'trm', 'REAL');
 addColumn('projects', 'trm_date', 'TEXT');
 addColumn('projects', 'people', "TEXT NOT NULL DEFAULT '[]'");
@@ -530,13 +533,15 @@ export function createTask(t: {
   clientDelivery?: boolean;
   /** Persona del cliente a cargo (solo tareas del cliente). */
   clientAssignee?: string;
+  /** De todos: tú, tu equipo, el cliente y su equipo (no en reuniones). */
+  everyone?: boolean;
 }): Task {
   const ts = now();
   const delivery = t.clientDelivery && t.side === 'deersystems' && (t.kind ?? 'tarea') === 'tarea' ? 1 : 0;
   const { lastInsertRowid } = db
     .prepare(
-      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, kind, client_delivery, client_assignee, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, kind, client_delivery, client_assignee, everyone, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       t.projectId,
@@ -552,6 +557,7 @@ export function createTask(t: {
       t.kind ?? 'tarea',
       delivery,
       t.side === 'cliente' ? (t.clientAssignee ?? '').slice(0, 120) : '',
+      t.everyone && (t.kind ?? 'tarea') === 'tarea' ? 1 : 0,
       ts,
       ts,
     );
@@ -676,7 +682,7 @@ addColumn('notes', 'emailed_at', 'TEXT');
 addColumn('projects', 'auto_updates', 'INTEGER NOT NULL DEFAULT 0');
 
 export type TaskFields = Partial<
-  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position' | 'kind' | 'client_delivery' | 'client_assignee'>
+  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position' | 'kind' | 'client_delivery' | 'client_assignee' | 'everyone'>
 >;
 
 export function updateTask(id: number, fields: TaskFields): void {

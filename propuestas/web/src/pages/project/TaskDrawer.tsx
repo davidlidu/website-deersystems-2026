@@ -42,6 +42,7 @@ interface Form {
   dueDate: string;
   isMeeting: boolean;
   clientDelivery: boolean;
+  everyone: boolean;
 }
 
 const toForm = (t: Partial<Task>, d: TaskDefaults = {}): Form => ({
@@ -55,6 +56,7 @@ const toForm = (t: Partial<Task>, d: TaskDefaults = {}): Form => ({
   dueDate: t.dueDate ?? d.dueDate ?? '',
   isMeeting: t.isMeeting ?? false,
   clientDelivery: t.clientDelivery ?? false,
+  everyone: t.everyone ?? false,
 });
 
 const meetingWhen = (m: Meeting) => {
@@ -210,6 +212,7 @@ export function TaskDrawer({
       dueDate: form.dueDate || null,
       isMeeting: form.isMeeting,
       clientDelivery: form.side === 'deersystems' && !form.isMeeting && form.clientDelivery,
+      everyone: !form.isMeeting && form.everyone,
     };
     run(async () => {
       const r = isNew
@@ -365,6 +368,15 @@ export function TaskDrawer({
                 <span>
                   Entrega al cliente: la revisa y la aprueba o pide ajustes{' '}
                   <small className="hint">(si no, es operativa: la cierra el equipo, sin rondas de ajustes)</small>
+                </span>
+              </label>
+            )}
+            {!form.isMeeting && (
+              <label className="check">
+                <input type="checkbox" checked={form.everyone} onChange={(e) => set({ everyone: e.target.checked })} />
+                <span>
+                  Asignar a todos: tú, tu equipo, el cliente y su equipo{' '}
+                  <small className="hint">(todos la ven en sus pendientes y a todos les llegan sus avisos y comentarios)</small>
                 </span>
               </label>
             )}

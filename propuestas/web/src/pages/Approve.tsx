@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, draftBody, emptyDraft, formatDateTime, money, today, useApi, useLocation, usd, type PaymentDraft, type ProjectPerson, type Side, type TeamMember } from '../lib';
+import { api, draftBody, durationLabel, durationOptions, emptyDraft, formatDateTime, money, today, useApi, useLocation, usd, type PaymentDraft, type ProjectPerson, type Side, type TeamMember } from '../lib';
 import { ErrorBox, Link, Loading, MoneyInput, PageHead, SecretBox, useAction, useToast } from '../ui';
 import type { ClientApproval, ProposalRow } from './Proposals';
 import { DraftHead, DraftRow, patchDrafts, withPercents } from './project/Payments';
@@ -16,6 +16,8 @@ interface DraftTask {
   assigneeId: number | null;
   /** Persona del cliente a cargo (proyectos compartidos), solo en tareas del cliente. */
   clientAssignee?: string;
+  /** De todos: tú, tu equipo, el cliente y su equipo. */
+  everyone?: boolean;
   startDate: string | null;
   dueDate: string | null;
 }
@@ -624,6 +626,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     const norm = (t: string) => t.trim().toLowerCase();
     const assignees = new Map(phases.flatMap((p) => p.tasks.map((t) => [norm(t.title), t.assigneeId] as const)));
     const clientAssignees = new Map(phases.flatMap((p) => p.tasks.map((t) => [norm(t.title), t.clientAssignee ?? ''] as const)));
+    const everyone = new Set(phases.flatMap((p) => p.tasks.filter((t) => t.everyone).map((t) => norm(t.title))));
     const scheduled = new Map(meetings.map((m) => [norm(m.title), m.schedule] as const));
     const inviting = new Map(meetings.map((m) => [norm(m.title), m.inviteNow] as const));
     const newPhases = r.plan.phases.map((ph) => ({
@@ -634,6 +637,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
         key: key(),
         assigneeId: t.side === 'deersystems' ? (assignees.get(norm(t.title)) ?? null) : null,
         clientAssignee: t.side === 'cliente' ? (clientAssignees.get(norm(t.title)) ?? '') : '',
+        everyone: everyone.has(norm(t.title)),
       })),
     }));
     setPhases(newPhases);
@@ -1140,6 +1144,10 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                           Entrega
                         </label>
                       )}
+                      <label className="check check--chip" title="De todos: tú, tu equipo, el cliente y su equipo la ven y reciben sus avisos (p. ej. una entrega en la que todos deben estar pendientes).">
+                        <input type="checkbox" checked={!!t.everyone} onChange={(e) => updateTask(ph.key, t.key, { everyone: e.target.checked })} aria-label="Asignar a todos" />
+                        Todos
+                      </label>
                       {t.side === 'cliente' && clientPeople.length > 0 && (
                         <span className="input">
                           <select value={t.clientAssignee ?? ''} aria-label="Persona del cliente" onChange={(e) => updateTask(ph.key, t.key, { clientAssignee: e.target.value })}>
@@ -1282,9 +1290,9 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                     </span>
                     <span className="input">
                       <select value={m.durationMinutes} onChange={(e) => setM({ durationMinutes: Number(e.target.value) })} aria-label="Duración">
-                        {[30, 45, 60, 90].map((d) => (
+                        {durationOptions(m.durationMinutes).map((d) => (
                           <option key={d} value={d}>
-                            {d} min
+                            {durationLabel(d)}
                           </option>
                         ))}
                       </select>
