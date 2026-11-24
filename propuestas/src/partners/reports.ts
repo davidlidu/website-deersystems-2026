@@ -7,7 +7,7 @@ import * as google from '../google.ts';
 import { HttpError, json, readJson } from '../http.ts';
 import { projectReport } from '../mail.ts';
 import type { Viewer } from './auth.ts';
-import { actor, requireStaff, str, visibleProject } from './common.ts';
+import { actor, limitedToOwnTasks, requireStaff, str, visibleProject } from './common.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
 import { updateRecipients } from './updates.ts';
@@ -105,7 +105,8 @@ function visibleReport(id: number, v: Viewer): { report: Report; project: db.Pro
   const report = getReport(id);
   if (!report) throw new HttpError(404, 'El informe no existe.');
   const project = visibleProject(report.project_id, v);
-  if (report.status !== 'publicado' && !staffOnly(v)) throw new HttpError(404, 'El informe no existe.');
+  // Quien solo ve sus tareas no ve los informes (traen todas las tareas del proyecto).
+  if ((report.status !== 'publicado' && !staffOnly(v)) || limitedToOwnTasks(v)) throw new HttpError(404, 'El informe no existe.');
   return { report, project };
 }
 
@@ -495,7 +496,7 @@ export async function handleReports(route: string, id: number, req: IncomingMess
     case 'GET projects/:id/reports': {
       const project = visibleProject(id, v);
       const staff = staffOnly(v);
-      const list = listReports(project.id).filter((r) => staff || r.status === 'publicado');
+      const list = limitedToOwnTasks(v) ? [] : listReports(project.id).filter((r) => staff || r.status === 'publicado');
       json(res, 200, {
         reports: list.map(view),
         // Para el formulario: desde dónde va el siguiente parcial.

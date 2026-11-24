@@ -163,8 +163,10 @@ function PaymentRow({
   onChange,
   onRemove,
   onUngroup,
+  onRebalanced,
 }: {
   p: Payment;
+  onRebalanced: () => void;
   finance: boolean;
   onUngroup: (ref: string) => void;
   newInvoiceUrl: string;
@@ -173,7 +175,10 @@ function PaymentRow({
   onChange: (p: Payment) => void;
   onRemove: (p: Payment) => void;
 }) {
-  const [d, setD] = useState<Draft>({ label: p.label, percent: p.percent?.toString() ?? '', amount: String(p.amount), currency: p.currency, dueDate: p.dueDate ?? '' });
+  const fromP = (x: Payment): Draft => ({ label: x.label, percent: x.percent?.toString() ?? '', amount: String(x.amount), currency: x.currency, dueDate: x.dueDate ?? '' });
+  const [d, setD] = useState<Draft>(() => fromP(p));
+  // Si el servidor recalculó el porcentaje (cambió el monto de otra cuota), la fila lo muestra.
+  useEffect(() => setD(fromP(p)), [p.label, p.percent, p.amount, p.currency, p.dueDate]); // eslint-disable-line react-hooks/exhaustive-deps
   const [marking, setMarking] = useState(false);
   const { busy, run } = useAction();
   const toast = useToast();
@@ -187,9 +192,11 @@ function PaymentRow({
       try {
         const u = await api<Payment>('PATCH', `payments/${p.id}`, body);
         onChange(u);
+        // Al cambiar el monto o la moneda, el servidor recalcula el % de las cuotas de esa moneda.
+        if (body.amount !== p.amount || body.currency !== p.currency) onRebalanced();
         if (u.sync === 'error') toast(`Guardado, pero no se actualizó en el Gestor: ${u.syncError}`, true);
       } catch (err) {
-        setD({ label: p.label, percent: p.percent?.toString() ?? '', amount: String(p.amount), currency: p.currency, dueDate: p.dueDate ?? '' });
+        setD(fromP(p));
         throw err;
       }
     });
@@ -317,13 +324,14 @@ function PaymentRow({
 function Suggested({ projectId, items, onAdded, onCancel }: { projectId: number; items: Draft[]; onAdded: (list: Payment[]) => void; onCancel: () => void }) {
   const [list, setList] = useState(items);
   const { busy, run } = useAction();
-  const setAt = (i: number, patch: Partial<Draft>) => setList((l) => l.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  const setAt = (i: number, patch: Partial<Draft>) => setList((l) => patchDrafts(l, i, patch));
   return (
     <section className="card form-section">
       <h2>Pagos según la propuesta</h2>
-      <p className="hint">Revisa y ajusta antes de agregarlos.</p>
+      <p className="hint">Revisa y ajusta antes de agregarlos. Al cambiar un monto, el porcentaje se recalcula sobre el total.</p>
+      {list.length > 0 && <DraftHead />}
       {list.map((d, i) => (
-        <DraftRow key={i} d={d} onChange={(patch) => setAt(i, patch)} onRemove={() => setList((l) => l.filter((_, k) => k !== i))} />
+        <DraftRow key={i} d={d} onChange={(patch) => setAt(i, patch)} onRemove={() => setList((l) => withPercents(l.filter((_, k) => k !== i)))} />
       ))}
       <div className="actions actions--tight">
         <button
@@ -343,6 +351,41 @@ function Suggested({ projectId, items, onAdded, onCancel }: { projectId: number;
         </button>
       </div>
     </section>
+  );
+}
+
+/**
+ * Porcentaje de cada pago sobre el total de su moneda. Se recalcula cuando cambia un monto (o la moneda):
+ * así al mover el valor de una cuota se mueve su porcentaje y el de las demás.
+ */
+export function withPercents<T extends Draft>(list: T[]): T[] {
+  const totals = new Map<string, number>();
+  for (const d of list) totals.set(d.currency, (totals.get(d.currency) ?? 0) + (Number(d.amount) || 0));
+  return list.map((d) => {
+    const total = totals.get(d.currency) ?? 0;
+    const amount = Number(d.amount) || 0;
+    if (!total || !amount) return d;
+    return { ...d, percent: String(Math.round((amount / total) * 10000) / 100) };
+  });
+}
+
+/** Cambia un borrador de la lista; si cambió el monto o la moneda, recalcula los porcentajes. */
+export function patchDrafts<T extends Draft>(list: T[], i: number, patch: Partial<Draft>): T[] {
+  const next = list.map((x, k) => (k === i ? { ...x, ...patch } : x));
+  return 'amount' in patch || 'currency' in patch ? withPercents(next) : next;
+}
+
+/** Encabezado de las columnas de una lista de pagos sin guardar. */
+export function DraftHead() {
+  return (
+    <div className="pay-head pay-head--draft" aria-hidden="true">
+      <span>Tipo de abono</span>
+      <span title="Porcentaje del total en esa moneda">%</span>
+      <span>Monto</span>
+      <span>Moneda</span>
+      <span>Fecha de pago</span>
+      <span />
+    </div>
   );
 }
 
@@ -655,6 +698,7 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
       {adding && (
         <section className="card form-section">
           <h2>Nuevo pago</h2>
+          <DraftHead />
           <DraftRow d={adding} onChange={(patch) => setAdding({ ...adding, ...patch })} onRemove={() => setAdding(null)} />
           <div className="actions actions--tight">
             <button
@@ -682,7 +726,7 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
               <div className="pay-head" aria-hidden="true">
                 <span className="pay-head__check" />
                 <span className="pay-row__label">Tipo de abono</span>
-                <span className="pay-row__pct">%</span>
+                <span className="pay-row__pct" title="Porcentaje del total en esa moneda">%</span>
                 <span className="pay-row__amount">Monto</span>
                 <span className="pay-head__cur">Moneda</span>
                 <span className="pay-head__date">Fecha de pago</span>
@@ -697,6 +741,7 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
                   onChange={(u) => setPayments(payments.map((x) => (x.id === u.id ? u : x)))}
                   onRemove={remove}
                   onUngroup={ungroup}
+                  onRebalanced={reload}
                 />
               ))}
             </div>

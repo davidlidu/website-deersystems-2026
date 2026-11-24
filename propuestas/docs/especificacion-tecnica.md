@@ -59,7 +59,7 @@ propuestas/
     partners/
       routes.ts           Login, sesión, vistas por rol, proyectos, clientes, cuentas, equipo, propuestas, aprobación, ajustes, despachador
       auth.ts             scrypt, cookie firmada, límite de intentos, Viewer
-      common.ts           Permisos (requireOwner, requireStaff, visibleProject, seesMoney, clientSees, taskView)
+      common.ts           Permisos (requireOwner, requireStaff, visibleProject, visibleTask, seesTask, seesMoney, clientSees, taskView)
       db.ts               Esquema y consultas del núcleo: clientes, cuentas, proyectos, fases, tareas, notas, bitácora, avisos, ajustes
       indexes.ts          19 índices creados al arrancar + PRAGMA optimize
       approvals.ts        Aprobación pública desde /{slug}/aprobar, opciones, plan con IA en segundo plano
@@ -67,6 +67,7 @@ propuestas/
       planAdjust.ts       Ajuste con IA del plan de un proyecto en marcha (vista previa → aplicar)
       scope.ts            Retirar del alcance una opción o fase aprobada; agregar un adicional (tareas + cobro + nota); ajustar el alcance con IA
       people.ts           Proyectos compartidos: equipo con habilidades (a mano o desde una reunión grabada) y reparto del trabajo con IA
+      images.ts           Capturas e imágenes pegadas en comentarios y notas (guardadas en el servidor)
       reviews.ts          Entregas al cliente: aprobar o pedir ajustes, rondas incluidas, detección con IA
       mcp.ts              Servidor MCP para Claude, OAuth 2.1 y tokens personales
       work.ts             Tareas, fases, notas, bitácora
@@ -231,7 +232,7 @@ Todos los temporizadores usan `.unref()`.
 ```ts
 { kind: 'owner', email }
 { kind: 'team', account, name, email }
-{ kind: 'client', account, clientId, billing: boolean, projects: Set<number> | null, … }
+{ kind: 'client', account, clientId, billing: boolean, projects: Set<number> | null, … }  // account.own_tasks: solo sus tareas
 ```
 
 Varias personas del mismo cliente pueden tener cuenta (`accounts.client_id`). Cada una tiene estos permisos:
@@ -239,6 +240,7 @@ Varias personas del mismo cliente pueden tener cuenta (`accounts.client_id`). Ca
 - `all_projects`: si es 0, solo ve los proyectos que tenga en `account_projects`.
 - `billing`: ve valores, pagos y cuentas de cobro.
 - `is_primary`: es la cuenta principal (recibe los correos principales).
+- `own_tasks`: solo ve sus tareas (el equipo del cliente en un proyecto compartido). Una tarea es suya si su `client_assignee` es su nombre o el de la persona del equipo del proyecto ligada a su cuenta (`projects.people[].accountId`). Ve, comenta y sube archivos solo en esas tareas; las demás (y sus comentarios, archivos, imágenes e historial) responden 404. No ve los informes y solo le llegan los avisos de sus tareas. Sí ve las notas y archivos del proyecto (no de tareas) y los avances.
 
 ### Reglas (`partners/common.ts`)
 
@@ -247,6 +249,7 @@ Varias personas del mismo cliente pueden tener cuenta (`accounts.client_id`). Ca
 | `requireOwner` | Solo el administrador (403 si no) |
 | `requireStaff` | Administrador o equipo |
 | `visibleProject(id, v)` | Un cliente solo ve sus proyectos (`clientSees`). Si el proyecto es ajeno, recibe 404, igual que si no existiera |
+| `visibleTask(id, v)`, `seesTask`, `seesTaskId` | Además del proyecto, la persona con `own_tasks` solo ve sus tareas (`accountOwnsTask`); lo de otras tareas responde 404 o no se lista |
 | `seesMoney(v)` | Administrador, o persona del cliente con `billing` |
 | `taskView(t, v)` | Lo que cada rol ve de una tarea |
 | Estados que el cliente puede poner | `pendiente`, `en_progreso`, `en_revision`. Nunca `completada` |
@@ -259,7 +262,7 @@ Lo que nunca recibe el cliente:
 - Lo generado con IA mientras no esté aprobado o publicado.
 - La TRM y los datos del Gestor.
 
-## 7. Modelo de datos (30 tablas)
+## 7. Modelo de datos (31 tablas)
 
 Todas las fechas son texto ISO. Los JSON se guardan como `TEXT`.
 
@@ -280,7 +283,7 @@ Los archivos de las propuestas están en disco, en `DATA_DIR/files/{id}/v{versi�
 | Tabla | Para qué | Columnas clave |
 |---|---|---|
 | `clients` | Cliente (empresa o persona) | `name`, `contact_name`, `email` (único, puede faltar), `phone`, `doc_type`, `doc_number`, `city`, `address`, `extra_emails` (JSON), `drive_folder_id`, `sb_id` (SmartBilling) |
-| `accounts` | Cuentas con contraseña (equipo o cliente) | `email` (único), `name`, `role` (`team`/`client`), `client_id`, `password_hash`, `active`, `session_version`, `all_projects`, `billing`, `is_primary`, `notify_prefs` (JSON), `tour_done`, `last_login_at` |
+| `accounts` | Cuentas con contraseña (equipo o cliente) | `email` (único), `name`, `role` (`team`/`client`), `client_id`, `password_hash`, `active`, `session_version`, `all_projects`, `billing`, `is_primary`, `own_tasks` (solo sus tareas), `notify_prefs` (JSON), `tour_done`, `last_login_at` |
 | `account_projects` | Proyectos de una cuenta de cliente con `all_projects = 0` | `account_id`, `project_id` |
 | `password_resets` | Recuperación de contraseña | `token_hash`, `account_id`, `expires_at`, `used` |
 
@@ -288,12 +291,13 @@ Los archivos de las propuestas están en disco, en `DATA_DIR/files/{id}/v{versi�
 
 | Tabla | Para qué | Columnas clave |
 |---|---|---|
-| `projects` | Proyecto | `client_id`, `proposal_id`, `name`, `scope` (alcance sin valores, Markdown), `pricing` (valores; nunca al equipo), `status` (`activo`/`pausado`/`finalizado`), `start_date`, `end_date`, `approved_option`, `approval_notes`, `auto_updates`, `drive_folder_id`, `revision_rounds` (null = las de Configuración), `trm`/`trm_date` (TRM fija para los pagos en USD), `people` (JSON del equipo del proyecto compartido: `key`, `name`, `side`, `skills`, `accountId`, `lead`; `key='yo'` = DeerSystems, el orquestador) |
+| `projects` | Proyecto | `client_id`, `proposal_id`, `name`, `scope` (alcance sin valores, Markdown), `pricing` (valores; nunca al equipo), `status` (`activo`/`pausado`/`finalizado`), `start_date`, `end_date`, `approved_option`, `approval_notes`, `auto_updates`, `drive_folder_id`, `revision_rounds` (null = las de Configuración), `trm`/`trm_date` (TRM fija para los pagos en USD), `people` (JSON del equipo del proyecto compartido: `key`, `name`, `side`, `skills`, `accountId`, `lead`; `key='yo'` = DeerSystems, el orquestador; `accountId` liga a alguien del equipo o, en las personas del cliente, a su cuenta del portal) |
 | `phases` | Fases del plan | `project_id`, `name`, `position` |
 | `tasks` | Tareas y reuniones del cronograma | `phase_id`, `title`, `description`, `status` (`pendiente`/`en_progreso`/`en_revision`/`bloqueada`/`completada`), `side` (`deersystems`/`cliente`), `assignee_id`, `start_date`, `due_date`, `position`, `source` (`propuesta`/`manual`/`reunion`), `kind` (`tarea`/`reunion`: la reunión se pinta con franja naranja), `completed_at`, `client_delivery` (entrega que revisa el cliente), `revision_round` (rondas de ajustes pedidas), `approved_at`/`approved_by`, `client_assignee` (persona del cliente a cargo en proyectos compartidos; solo en tareas del cliente) |
 | `notes` | Comentarios y avances | `task_id` (null = del proyecto), `kind` (`nota`/`avance`), `visibility` (`shared`/`internal`), autor, `body` (Markdown), `ai` (lo generó la IA), `emailed_at` |
 | `activity` | Bitácora | `type`, `data` (JSON), `actor_*`, `internal` |
 | `attachments` | Archivos en Drive | `task_id`, `drive_file_id`, `drive_url`, `name`, `mime`, `size`, `visibility`, `link_shared`, `linked` (elegido del Drive propio, no subido), `page_token` (página HTML publicada en `/paginas/{token}`) |
+| `images` | Capturas pegadas en comentarios y notas | `project_id`, `task_id`, `file` (nombre aleatorio en `DATA_DIR/images/`), `mime` (leído de los primeros bytes: PNG, JPG, GIF o WebP), `size`, autor |
 | `scope_changes` | Cambios del alcance: retiros, adicionales y ajustes | `kind` (`retiro`/`adicional`/`ajuste`), `detail` (JSON del adicional: tareas, valor, descuento, pago; del ajuste: `changes`, `scopeChanged`), `option_id`/`option_name`, `amount`, `currency`, `reason`, `label_before`/`label_after`, `phases` (JSON), `tasks_removed`, `payments` (JSON) |
 | `project_reports` | Informes | `kind` (`parcial`/`final`), `title`, `period_from`/`period_to`, `context`, `include_payments`, `body`, `ai`, `status` (`borrador`/`publicado`), `published_at`, `emailed_at`, `emailed_to` |
 
@@ -389,7 +393,8 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 |---|---|
 | `POST projects/:id/tasks`, `PATCH/DELETE tasks/:id` | Tareas. El cliente solo cambia el estado de las suyas |
 | `POST projects/:id/phases`, `PATCH/DELETE phases/:id` | Fases |
-| `GET/POST projects/:id/notes`, `PATCH/DELETE notes/:id` | Comentarios y avances |
+| `GET/POST projects/:id/notes`, `PATCH/DELETE notes/:id` | Comentarios y avances. Los comentarios y notas se escriben con el editor visual y pueden llevar capturas: `![captura](/api/images/{id})`. En los avisos y la bitácora la imagen se cambia por «[imagen]» |
+| `POST projects/:id/images?taskId=`, `GET images/:id` | Subir una captura (pegada, arrastrada o elegida; máx. 10 MB) y verla. La ve quien ve el proyecto y, si es de una tarea, quien ve esa tarea |
 | `GET projects/:id/activity` | Bitácora |
 | `POST projects/:id/plan/adjust` → `POST projects/:id/plan/apply` | Ajuste con IA: vista previa y luego aplicar. Mueve también los eventos de Calendar |
 | `POST projects/:id/plan/adjust` con `allowWeekends` | Por defecto la IA no pone tareas en sábado ni domingo; con la casilla «Permitir fin de semana» sí (las reuniones siguen siendo entre semana) |
@@ -442,7 +447,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 | Ruta | Qué hace |
 |---|---|
 | `GET/POST projects/:id/payments`, `POST projects/:id/payments/suggest` | Plan de pagos (sugerido con IA) |
-| `PATCH/DELETE payments/:id`, `POST payments/:id/paid`, `POST payments/:id/sync` | Marcar pagado crea el abono y lo lleva al Gestor |
+| `PATCH/DELETE payments/:id`, `POST payments/:id/paid`, `POST payments/:id/sync` | Marcar pagado crea el abono y lo lleva al Gestor. Si cambia el monto o la moneda de una cuota, el `%` de todas las cuotas del proyecto en esa moneda se recalcula sobre su total |
 | `POST projects/:id/payments/together` | Pago conjunto: una transferencia repartida entre varias cuotas |
 | `PUT projects/:id/trm` | TRM fija del proyecto: un valor (`trm`), la oficial de hoy (`today: true`) o quitarla (`trm: null`). Queda en la bitácora interna (`trm_set`) |
 | `GET/POST invoices`, `GET invoices/search`, `GET invoices/next-number`, `GET/PUT/PATCH/DELETE invoices/:id` | Cuentas de cobro |
@@ -521,6 +526,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 - **Entregas y ajustes:** solo las tareas marcadas como entrega al cliente pasan por su revisión. Al ponerlas «En revisión» se le avisa (`delivery_ready`); el cliente aprueba o pide ajustes desde la tarea (`client_review` al equipo). Cada pedido suma una ronda, devuelve la tarea a «En progreso» y deja el pedido como comentario compartido. Las rondas que pasan de las incluidas se marcan como adicionales. Las tareas operativas las cierra el equipo sin aprobación del cliente. La marca la propone la IA al armar el plan y los adicionales, o en «◆ Entregas al cliente» para proyectos existentes.
 - **Ajustar el alcance con IA:** «✦ Ajustar con IA» (pestaña Alcance) reescribe el texto según lo acordado y propone las tareas que cambian; se ve el texto con lo agregado y lo quitado marcado, se puede editar, y cada cambio del plan se desmarca si no va. Lo que tiene valor sigue por «Agregar adicional» o «Retirar del alcance».
 - **Retirar del alcance:** se borran las tareas pendientes y los pagos sin pagar de esa opción o fase, y se recalcula la etiqueta de lo aprobado. Lo terminado se queda y el retiro queda registrado en `scope_changes`. La opción vuelve a estar disponible para aprobarse después.
+- **Equipo del cliente con acceso:** en un proyecto compartido, cada persona del cliente puede entrar con su correo («Dar acceso» en la tarjeta del equipo, o «Solo ve sus tareas» en las personas del cliente). Ve solo las tareas que tiene asignadas, las comenta (con capturas) y les sube archivos.
 - **Avances:** se arman con los hechos del día (tareas completadas o en revisión, reuniones, archivos, próxima reunión) con enlaces internos, y la IA los redacta. Se pueden publicar a mano o automáticamente a las 17:00, y van por correo a los destinatarios elegidos.
 - **Informes:**
   - Parcial: cubre un periodo, que por defecto empieza el día siguiente al último informe.
@@ -667,18 +673,18 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | Archivo | Qué es |
 |---|---|
 | `Summary.tsx` | Resumen del proyecto |
-| `Updates.tsx`, `MdEditor.tsx` | Avances, con un editor Markdown que inserta enlaces a tareas y reuniones |
+| `Updates.tsx`, `MdEditor.tsx` | Avances, con un editor Markdown que inserta enlaces a tareas y reuniones. Con `onImage`, el editor acepta capturas pegadas, arrastradas o elegidas con «Imagen» |
 | `TaskViews.tsx` | Lista, tablero y calendario |
 | `Gantt.tsx`, `Schedule.tsx`, `ganttPdf.ts` | Cronograma y su PDF |
 | `TaskDrawer.tsx` | Detalle de tarea; muestra y edita la hora de la reunión |
-| `Notes.tsx` | Comentarios |
+| `Notes.tsx` | Comentarios y notas, con el editor visual (`MdEditor`) y capturas |
 | `Files.tsx` | Archivos |
 | `Meetings.tsx` | Reuniones del proyecto |
-| `Payments.tsx` | Plan de pagos |
+| `Payments.tsx` | Plan de pagos. Encabezado de columnas también en los pagos sin guardar (`DraftHead`); al cambiar un monto, `patchDrafts`/`withPercents` recalculan el % de cada pago sobre el total de su moneda (aprobación, sugeridos y nuevo pago) |
 | `Reports.tsx` | Informes |
 | `PlanAdjust.tsx` | Ajuste del plan con IA |
 | `ScopeAdjust.tsx` | Retirar del alcance, agregar adicional e historial de cambios |
-| `People.tsx` | Equipo del proyecto compartido: editor, perfiles desde una reunión y tarjeta en Alcance |
+| `People.tsx` | Equipo del proyecto compartido: editor, perfiles desde una reunión y tarjeta en Alcance. Desde la tarjeta, «Dar acceso» crea la cuenta de una persona del cliente (solo este proyecto, sin pagos, solo sus tareas) y la liga a la persona |
 | `ScopeAi.tsx` | Ajustar el alcance con IA: diferencia línea a línea del texto y selección de los cambios del plan |
 | `Review.tsx` | Aprobar o pedir ajustes, etiquetas «◆ Entrega» y «↺ Ajuste N», diálogo «Entregas al cliente» |
 | `Activity.tsx` | Bitácora |
@@ -699,7 +705,7 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | CSRF | `Origin` obligatorio en peticiones que no son GET |
 | Fuerza bruta | 8 intentos cada 15 min |
 | Secretos guardados | AES-256-GCM; en pantalla solo se muestra un fragmento (`mask`) |
-| Archivos subidos | En línea solo imágenes y PDF; las páginas HTML, en sandbox con un token |
+| Archivos subidos | En línea solo imágenes y PDF; las páginas HTML, en sandbox con un token. Las capturas de comentarios se validan por sus primeros bytes y se sirven con `nosniff` y `sandbox` |
 | HTML de ítems de facturación | Lista blanca de etiquetas sin atributos |
 | Webhook | Firma de Wompi |
 | Conector MCP | Solo Bearer (sin cookies, así no aplica CSRF); tokens guardados como hash; OAuth con PKCE S256, códigos de un solo uso y destinos registrados; solo el administrador autoriza; las herramientas no borran ni facturan |

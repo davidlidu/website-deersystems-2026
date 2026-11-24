@@ -32,6 +32,7 @@ import {
 } from './auth.ts';
 import * as db from './db.ts';
 import { handleFiles, handlePage } from './files.ts';
+import { handleImages } from './images.ts';
 import { handleProposalMail, lastSend } from './proposalMail.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import { handleBilling } from './billing.ts';
@@ -50,7 +51,7 @@ import { handlePeople, normalizePeople, peopleOf } from './people.ts';
 import { handleTelegram } from './telegram.ts';
 import { handleMcpHttp, handleMcpSettings, takeNext } from './mcp.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
-import { actor, clientSees, EMAIL_RE, isStaff, seesMoney, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
+import { actor, clientSees, EMAIL_RE, isStaff, limitedToOwnTasks, seesMoney, seesTask, optDate, requireOwner, requireStaff, str, taskView, teamNames, visibleProject } from './common.ts';
 import { approvalDetail, closeApproval, generatePlan, getApproval, openApprovals, proposalClient, setProposalClient } from './approvals.ts';
 import { adjustPlan, detectOptions, extractDraft, normalizeDraft, type Approval } from './extract.ts';
 
@@ -99,7 +100,12 @@ function projectDetail(p: db.Project, v: Viewer) {
     ...(isStaff(v) ? { people: peopleOf(p) } : {}),
     ...(seesMoney(v) ? { trm: projectTrm(p.id) } : {}),
     phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })),
-    tasks: db.listTasks(p.id).map((t) => taskView(t, v, team, comments, files)),
+    tasks: db
+      .listTasks(p.id)
+      .filter((t) => seesTask(v, t, p))
+      .map((t) => taskView(t, v, team, comments, files)),
+    // Persona del cliente que solo ve sus tareas (equipo del cliente en un proyecto compartido).
+    ...(limitedToOwnTasks(v) ? { ownTasksOnly: true } : {}),
   };
 }
 
@@ -585,17 +591,19 @@ function clientAccountView(a: db.Account) {
     primary,
     allProjects: !!a.all_projects,
     billing: !!a.billing,
+    ownTasks: !!a.own_tasks,
     projectIds: a.all_projects ? [] : db.accountProjectIds(a.id),
   };
 }
 
 /** Qué ve una persona del cliente: todos sus proyectos o solo algunos (que sean de ese cliente), y si ve los pagos. */
-function readAccess(body: Record<string, unknown>, clientId: number): { allProjects: boolean; billing: boolean; projectIds: number[] } {
+function readAccess(body: Record<string, unknown>, clientId: number): { allProjects: boolean; billing: boolean; projectIds: number[]; ownTasks: boolean } {
   const allProjects = body.allProjects !== false;
   const own = new Set(db.listProjects(clientId).map((p) => p.id));
   const projectIds = allProjects ? [] : [...new Set((Array.isArray(body.projectIds) ? body.projectIds : []).map(Number))].filter((p) => own.has(p));
   if (!allProjects && !projectIds.length) throw new HttpError(400, 'Elige al menos un proyecto, o dale acceso a todos.');
-  return { allProjects, billing: body.billing === true, projectIds };
+  // Solo sus tareas: el equipo del cliente en un proyecto compartido (ve sus tareas, las comenta y les sube archivos).
+  return { allProjects, billing: body.billing === true, projectIds, ownTasks: body.ownTasks === true };
 }
 
 // ───────── API ─────────
@@ -683,7 +691,12 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       const team = teamNames();
       return json(res, 200, {
         projects: list.map((p) => ({ ...projectSummary(p, v), phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })) })),
-        tasks: list.flatMap((p) => db.listTasks(p.id).map((t) => ({ ...taskView(t, v, team), projectId: p.id }))),
+        tasks: list.flatMap((p) =>
+          db
+            .listTasks(p.id)
+            .filter((t) => seesTask(v, t, p))
+            .map((t) => ({ ...taskView(t, v, team), projectId: p.id })),
+        ),
       });
     }
 
@@ -877,9 +890,12 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         if (!name) throw new HttpError(400, 'Escribe el nombre de la persona.');
         db.updateAccount(id, { name });
       }
-      if ('allProjects' in body || 'billing' in body || 'projectIds' in body) {
+      if ('allProjects' in body || 'billing' in body || 'projectIds' in body || 'ownTasks' in body) {
         // Rige desde la siguiente petición: el acceso se revisa en cada una (no hace falta cerrar su sesión).
-        db.setAccountAccess(id, readAccess({ allProjects: !!a.all_projects, billing: !!a.billing, projectIds: db.accountProjectIds(id), ...body }, a.client_id));
+        db.setAccountAccess(
+          id,
+          readAccess({ allProjects: !!a.all_projects, billing: !!a.billing, ownTasks: !!a.own_tasks, projectIds: db.accountProjectIds(id), ...body }, a.client_id),
+        );
       }
       if (typeof body.active === 'boolean') {
         if (!body.active && db.getClientAccount(a.client_id)?.id === id) {
@@ -1353,6 +1369,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handleTelegram(route, req, res, v)) return;
   if (await handleMcpSettings(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
+  if (await handleImages(route, id, req, res, v, url)) return;
   if (await handlePeople(route, id, req, res, v)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
   if (await handlePayments(route, id, req, res, v)) return;

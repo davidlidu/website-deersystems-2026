@@ -232,6 +232,15 @@ Usa solo los valores de la opción aprobada.`,
 
 // ───────── Rutas ─────────
 
+/** Porcentaje de cada cuota sobre el total de las cuotas del proyecto en esa moneda. */
+function rebalancePercents(projectId: number, currency: string) {
+  const rows = sqlite.prepare('SELECT id, amount FROM payments WHERE project_id = ? AND currency = ?').all(projectId, currency) as { id: number; amount: number }[];
+  const total = rows.reduce((n, x) => n + x.amount, 0);
+  if (!total) return;
+  const set = sqlite.prepare('UPDATE payments SET percent = ? WHERE id = ?');
+  for (const x of rows) set.run(Math.round((x.amount / total) * 10000) / 100, x.id);
+}
+
 export async function handlePayments(route: string, id: number, req: IncomingMessage, res: ServerResponse, v: Viewer): Promise<boolean> {
   switch (route) {
     case 'GET projects/:id/payments': {
@@ -315,6 +324,11 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
       sqlite
         .prepare('UPDATE payments SET label = ?, percent = ?, amount = ?, currency = ?, due_date = ?, invoice_id = ?, updated_at = ? WHERE id = ?')
         .run(next.label, next.percent, next.amount, next.currency, next.dueDate, invoiceId, now(), r.id);
+      // Si cambió el monto o la moneda, el % de las cuotas de esa moneda se recalcula sobre su total.
+      if (next.amount !== r.amount || next.currency !== r.currency) {
+        rebalancePercents(r.project_id, next.currency);
+        if (next.currency !== r.currency) rebalancePercents(r.project_id, r.currency);
+      }
       let updated = get(r.id)!;
       // Si ya estaba pagado en COP, el ingreso del Gestor sigue el nuevo monto. En USD manda el valor recibido en pesos.
       if (updated.paid) {

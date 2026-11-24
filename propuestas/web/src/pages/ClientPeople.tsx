@@ -16,6 +16,8 @@ export interface ClientAccount {
   primary: boolean;
   allProjects: boolean;
   billing: boolean;
+  /** Solo ve sus tareas (el equipo del cliente en un proyecto compartido). */
+  ownTasks: boolean;
   projectIds: number[];
 }
 
@@ -112,6 +114,7 @@ export function ClientPeople({
             <div className="people__access">
               <span>{a.allProjects ? 'Todos los proyectos' : a.projectIds.map((id) => names.get(id) ?? `Proyecto ${id}`).join(' · ')}</span>
               <small>{a.billing ? 'Ve pagos y cuentas de cobro' : 'Sin pagos ni cuentas de cobro'}</small>
+              {a.ownTasks && <small>Solo ve sus tareas</small>}
             </div>
             <div className="actions actions--tight people__actions">
               {!a.primary && a.active && (
@@ -177,6 +180,7 @@ function PersonDialog({
     allProjects: account ? account.allProjects : projects.length < 2,
     projectIds: account?.projectIds ?? [],
     billing: account?.billing ?? false,
+    ownTasks: account?.ownTasks ?? false,
     notify: true,
   });
   const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }));
@@ -187,7 +191,7 @@ function PersonDialog({
   const save = () =>
     run(async () => {
       if (account) {
-        await api('PATCH', `client-accounts/${account.id}`, { name: f.name, allProjects: f.allProjects, projectIds: f.projectIds, billing: f.billing });
+        await api('PATCH', `client-accounts/${account.id}`, { name: f.name, allProjects: f.allProjects, projectIds: f.projectIds, billing: f.billing, ownTasks: f.ownTasks });
         toast('Acceso actualizado.');
         onSaved(null);
       } else {
@@ -262,6 +266,16 @@ function PersonDialog({
             <span className="switch__track" aria-hidden="true" />
           </span>
           <span>Ve pagos, precios y cuentas de cobro del cliente</span>
+        </label>
+        <label className="auto-switch auto-switch--left">
+          <span className="switch">
+            <input type="checkbox" role="switch" checked={f.ownTasks} onChange={(e) => set({ ownTasks: e.target.checked })} />
+            <span className="switch__track" aria-hidden="true" />
+          </span>
+          <span>
+            Solo ve sus tareas
+            <small className="hint"> Las que lo tienen como persona del cliente: las comenta, les sube archivos y le llegan sus avisos.</small>
+          </span>
         </label>
         {!account && (
           <label className="auto-switch auto-switch--left">

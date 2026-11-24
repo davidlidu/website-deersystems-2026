@@ -50,6 +50,8 @@ export interface Account {
   is_primary: number;
   /** Cuentas de cliente: ve pagos, cuentas de cobro y estado de cuenta. */
   billing: number;
+  /** Cuentas de cliente: 1 = solo ve sus tareas (las que lo tienen como persona del cliente), p. ej. el equipo del cliente en un proyecto compartido. */
+  own_tasks: number;
 }
 
 export interface Project {
@@ -284,9 +286,10 @@ export function setPrimaryAccount(clientId: number, accountId: number): void {
 export const accountProjectIds = (accountId: number) =>
   all<{ project_id: number }>('SELECT project_id FROM account_projects WHERE account_id = ? ORDER BY project_id', accountId).map((r) => r.project_id);
 
-export function setAccountAccess(id: number, a: { allProjects: boolean; billing: boolean; projectIds: number[] }): void {
+export function setAccountAccess(id: number, a: { allProjects: boolean; billing: boolean; projectIds: number[]; ownTasks?: boolean }): void {
   transaction(() => {
     db.prepare('UPDATE accounts SET all_projects = ?, billing = ? WHERE id = ?').run(a.allProjects ? 1 : 0, a.billing ? 1 : 0, id);
+    if (a.ownTasks !== undefined) db.prepare('UPDATE accounts SET own_tasks = ? WHERE id = ?').run(a.ownTasks ? 1 : 0, id);
     db.prepare('DELETE FROM account_projects WHERE account_id = ?').run(id);
     const add = db.prepare('INSERT OR IGNORE INTO account_projects (account_id, project_id) VALUES (?, ?)');
     for (const p of a.projectIds) add.run(id, p);
@@ -894,6 +897,7 @@ addColumn('projects', 'drive_folder_id', 'TEXT');
 addColumn('accounts', 'all_projects', 'INTEGER NOT NULL DEFAULT 1');
 addColumn('accounts', 'billing', 'INTEGER NOT NULL DEFAULT 1');
 addColumn('accounts', 'is_primary', 'INTEGER NOT NULL DEFAULT 0');
+addColumn('accounts', 'own_tasks', 'INTEGER NOT NULL DEFAULT 0');
 db.exec(`
   CREATE TABLE IF NOT EXISTS account_projects (
     account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,

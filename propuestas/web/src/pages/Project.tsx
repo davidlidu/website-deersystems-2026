@@ -286,7 +286,8 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
     ['avances', 'Avances'],
     ['plan', 'Plan de trabajo'],
     ['documentacion', 'Documentación'],
-    ['informes', 'Informes'],
+    // Quien solo ve sus tareas no ve los informes (traen todo el proyecto).
+    ...(p.ownTasksOnly ? [] : ([['informes', 'Informes']] as [Tab, string][])),
     ['alcance', hasCommercial ? 'Alcance y propuesta' : 'Alcance'],
     // Los pagos son valores: los ves tú y el cliente (si esa persona tiene permiso de pagos), nunca el equipo.
     ...(seesMoney(me) ? ([['pagos', 'Pagos']] as [Tab, string][]) : []),
@@ -356,6 +357,7 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
             ))}
           </div>
         )}
+        {p.ownTasksOnly && <p className="hint">Ves las tareas que tienes asignadas en este proyecto: coméntalas y súbeles archivos.</p>}
         {me.role === 'client' && mine > 0 && (
           <p className="callout" data-tour="project-callout">
             Tienes <strong>{mine}</strong> {mine === 1 ? 'tarea pendiente' : 'tareas pendientes'} de tu lado. Cuando la termines, márcala{' '}

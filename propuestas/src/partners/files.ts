@@ -8,7 +8,7 @@ import * as google from '../google.ts';
 import { HttpError, json, MIME, readBody, readJson as readJsonBody, sendFile } from '../http.ts';
 import { unpack } from '../storage.ts';
 import { viewer, type Viewer } from './auth.ts';
-import { actor, isStaff, visibleProject, visibleTask } from './common.ts';
+import { actor, isStaff, seesTaskId, visibleProject, visibleTask } from './common.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
 
@@ -98,8 +98,9 @@ async function projectFolder(project: db.Project): Promise<string> {
 function visibleAttachment(id: number, v: Viewer): db.Attachment {
   const a = db.getAttachment(id);
   if (!a) throw new HttpError(404, 'El archivo no existe.');
-  visibleProject(a.project_id, v);
+  const project = visibleProject(a.project_id, v);
   if (!isStaff(v) && a.visibility === 'internal') throw new HttpError(404, 'El archivo no existe.');
+  if (!seesTaskId(v, a.task_id, project)) throw new HttpError(404, 'El archivo no existe.');
   return a;
 }
 
@@ -113,7 +114,16 @@ export async function handleFiles(route: string, id: number, req: IncomingMessag
     case 'GET projects/:id/attachments': {
       const project = visibleProject(id, v);
       const taskId = Number(url.searchParams.get('taskId')) || undefined;
-      json(res, 200, db.listAttachments(project.id, { internal: staff, taskId }).map((a) => attachmentView(a, v)));
+      if (taskId) visibleTask(taskId, v);
+      const seen = new Map<number, boolean>();
+      json(
+        res,
+        200,
+        db
+          .listAttachments(project.id, { internal: staff, taskId })
+          .filter((a) => seesTaskId(v, a.task_id, project, seen))
+          .map((a) => attachmentView(a, v)),
+      );
       return true;
     }
 

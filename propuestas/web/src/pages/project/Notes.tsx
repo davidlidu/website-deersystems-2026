@@ -1,11 +1,23 @@
 import { useState, type FormEvent } from 'react';
-import { api, formatDateTime, timeAgo, useApi, type Me, type Note } from '../../lib';
+import { api, formatDateTime, timeAgo, upload, useApi, type Me, type Note } from '../../lib';
 import { Empty, ErrorBox, Loading, Markdown, useAction } from '../../ui';
 import { MdEditor } from './MdEditor';
 
 const ROLE_LABEL = { owner: 'DeerSystems', team: 'Equipo', client: 'Cliente' } as const;
 
-function NoteItem({ note, rich, onChange, onDelete }: { note: Note; rich?: boolean; onChange: (n: Note) => void; onDelete: (id: number) => void }) {
+function NoteItem({
+  note,
+  rich,
+  onImage,
+  onChange,
+  onDelete,
+}: {
+  note: Note;
+  rich?: boolean;
+  onImage?: (f: File) => Promise<string>;
+  onChange: (n: Note) => void;
+  onDelete: (id: number) => void;
+}) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(note.body);
   const { busy, run } = useAction();
@@ -36,7 +48,7 @@ function NoteItem({ note, rich, onChange, onDelete }: { note: Note; rich?: boole
       </div>
       {editing ? (
         <div className="stack">
-          {rich ? <MdEditor value={text} onChange={setText} label="Editar nota" rows={4} onSubmit={save} /> : <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />}
+          {rich ? <MdEditor value={text} onChange={setText} label="Editar nota" rows={4} onSubmit={save} onImage={onImage} /> : <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />}
           <div className="actions actions--tight">
             <button className="btn btn--primary btn--sm" disabled={busy || !text.trim()} onClick={save}>
               Guardar
@@ -94,6 +106,11 @@ export function NotesPanel({
   const shown = (data ?? []).filter((n) => filter === 'all' || n.visibility === filter);
   const staff = me.role !== 'client';
   const canPost = kind === 'nota' || staff;
+  // Capturas en comentarios y notas (no en avances, que también salen por correo).
+  const onImage =
+    kind === 'nota'
+      ? (f: File) => upload<{ url: string }>(`projects/${projectId}/images`, f, taskId ? { taskId: String(taskId) } : {}).then((r) => r.url)
+      : undefined;
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
@@ -115,7 +132,7 @@ export function NotesPanel({
     kind === 'avance'
       ? 'Cuéntale al cliente qué se avanzó, qué sigue y si necesitas algo de su parte…'
       : taskId
-        ? 'Escribe un comentario…'
+        ? 'Escribe un comentario… (puedes pegar una captura)'
         : staff
           ? 'Deja una nota sobre el proyecto…'
           : 'Escríbenos lo que necesites sobre el proyecto…';
@@ -125,7 +142,7 @@ export function NotesPanel({
       {canPost && (
         <form className="composer card" onSubmit={submit}>
           {rich ? (
-            <MdEditor value={text} onChange={setText} label="Nota" placeholder={placeholder} rows={3} onSubmit={() => submit()} />
+            <MdEditor value={text} onChange={setText} label={taskId ? 'Comentario' : 'Nota'} placeholder={placeholder} rows={3} onSubmit={() => submit()} onImage={onImage} />
           ) : (
           <textarea
             rows={kind === 'avance' ? 5 : 3}
@@ -167,6 +184,7 @@ export function NotesPanel({
               key={n.id}
               note={n}
               rich={rich}
+              onImage={onImage}
               onChange={(updated) => setData(data!.map((x) => (x.id === updated.id ? updated : x)))}
               onDelete={(id) => setData(data!.filter((x) => x.id !== id))}
             />

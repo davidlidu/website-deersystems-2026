@@ -29,14 +29,17 @@ export interface ProjectPerson {
 
 export const OWNER_KEY = 'yo';
 
-export function normalizePeople(raw: unknown): ProjectPerson[] {
+export function normalizePeople(raw: unknown, clientId?: number | null): ProjectPerson[] {
   const team = new Set(db.listTeam().map((a) => a.id));
+  // Las personas del cliente pueden quedar ligadas a su cuenta del portal (entran y ven solo sus tareas).
+  const clientAccounts = new Set(clientId ? db.listClientAccounts(clientId).map((a) => a.id) : []);
   const seen = new Set<string>();
   return ((Array.isArray(raw) ? raw : []) as Record<string, unknown>[])
     .slice(0, 30)
     .map((p, i) => {
       const side = p?.side === 'cliente' ? ('cliente' as const) : ('deersystems' as const);
-      const accountId = side === 'deersystems' && team.has(Number(p?.accountId)) ? Number(p.accountId) : null;
+      const id = Number(p?.accountId);
+      const accountId = (side === 'deersystems' ? team : clientAccounts).has(id) ? id : null;
       return {
         key: str(p?.key, 40) || `p${i}`,
         name: str(p?.name, 120).trim(),
@@ -49,9 +52,9 @@ export function normalizePeople(raw: unknown): ProjectPerson[] {
     .filter((p) => p.name && !seen.has(p.key) && seen.add(p.key));
 }
 
-export const peopleOf = (project: Pick<db.Project, 'people'>): ProjectPerson[] => {
+export const peopleOf = (project: Pick<db.Project, 'people' | 'client_id'>): ProjectPerson[] => {
   try {
-    return normalizePeople(JSON.parse(project.people || '[]'));
+    return normalizePeople(JSON.parse(project.people || '[]'), project.client_id);
   } catch {
     return [];
   }
@@ -232,7 +235,7 @@ export async function handlePeople(route: string, id: number, req: IncomingMessa
       const project = db.getProject(id);
       if (!project) throw new HttpError(404, 'El proyecto no existe.');
       const body = await readJson(req, 64 * 1024);
-      const people = normalizePeople(body.people);
+      const people = normalizePeople(body.people, project.client_id);
       db.updateProject(project.id, { people: JSON.stringify(people) });
       json(res, 200, { people });
       return true;

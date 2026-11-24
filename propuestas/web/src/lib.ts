@@ -372,6 +372,8 @@ export interface ProjectDetail extends ProjectSummary {
   revisionsIncluded: number;
   /** Solo equipo: el equipo del proyecto compartido (quién hace qué y con qué habilidades). */
   people?: ProjectPerson[];
+  /** Persona del cliente que solo ve sus tareas (equipo del cliente en un proyecto compartido). */
+  ownTasksOnly?: boolean;
   /** TRM fija del proyecto (pagos en USD), si la tiene. */
   trm?: { trm: number; date: string | null } | null;
   phases: { id: number; name: string }[];

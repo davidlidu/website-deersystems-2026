@@ -449,7 +449,9 @@ export function TaskDrawer({
                 me={me}
                 projectId={project.id}
                 taskId={task.id}
-                onPosted={() => onSaved({ ...task, comments: task.comments + 1 }, project.progress, false)} />
+                rich
+                onPosted={() => onSaved({ ...task, comments: task.comments + 1 }, project.progress, false)}
+              />
             )}
             {tab === 'archivos' && (
               <FilesPanel

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, formatDate, useApi, usd, type ProjectPerson, type TeamMember } from '../../lib';
-import { useAction, useToast } from '../../ui';
+import { SecretBox, useAction, useToast } from '../../ui';
+import type { ClientAccount } from '../ClientPeople';
 
 /**
  * Equipo de un proyecto compartido: DeerSystems (tú) orquesta y lleva la mayor carga; el cliente pone algunas personas
@@ -186,9 +187,75 @@ export function PeopleEditor({
   );
 }
 
+/**
+ * Acceso al portal de una persona del cliente: entra con su correo y solo ve sus tareas de este proyecto
+ * (las comenta, les sube archivos y le llegan sus avisos). Si el correo ya es de una persona del cliente, solo se liga.
+ */
+function GiveAccess({
+  person,
+  projectId,
+  clientId,
+  accounts,
+  onLinked,
+}: {
+  person: ProjectPerson;
+  projectId: number;
+  clientId: number;
+  accounts: ClientAccount[];
+  onLinked: (accountId: number, secret: { who: string; password: string; mailed: boolean; error?: string } | null) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState('');
+  const { busy, run } = useAction();
+  if (!open)
+    return (
+      <button className="btn btn--outline btn--xs" onClick={() => setOpen(true)}>
+        Dar acceso
+      </button>
+    );
+  const give = () =>
+    run(async () => {
+      const address = email.trim().toLowerCase();
+      const existing = accounts.find((a) => a.email.toLowerCase() === address);
+      if (existing) return onLinked(existing.id, null);
+      const r = await api<{ account: ClientAccount; password: string; mail: { sent: boolean; error?: string } }>('POST', `clients/${clientId}/accounts`, {
+        name: person.name,
+        email: address,
+        allProjects: false,
+        projectIds: [projectId],
+        billing: false,
+        ownTasks: true,
+        notify: true,
+      });
+      await onLinked(r.account.id, { who: person.name, password: r.password, mailed: r.mail.sent, error: r.mail.error });
+    });
+  return (
+    <form
+      className="people__access-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (email.trim()) give();
+      }}
+    >
+      <span className="input">
+        <input type="email" required autoFocus value={email} placeholder={`Correo de ${person.name}`} aria-label={`Correo de ${person.name}`} onChange={(e) => setEmail(e.target.value)} />
+      </span>
+      <button className="btn btn--primary btn--xs" disabled={busy || !email.trim()}>
+        {busy ? 'Creando…' : 'Crear acceso'}
+      </button>
+      <button type="button" className="btn btn--outline btn--xs" disabled={busy} onClick={() => setOpen(false)}>
+        Cancelar
+      </button>
+    </form>
+  );
+}
+
 /** Equipo del proyecto en la pestaña Alcance (solo el equipo interno lo ve; solo tú lo editas). */
 export function ProjectPeopleCard({ projectId, clientId, people, canEdit, onSaved }: { projectId: number; clientId: number; people: ProjectPerson[]; canEdit: boolean; onSaved: () => void }) {
   const team = useApi<TeamMember[]>(canEdit ? 'team' : null);
+  const client = useApi<{ accounts: ClientAccount[] }>(canEdit ? `clients/${clientId}` : null);
+  const accounts = client.data?.accounts ?? [];
+  const [secret, setSecret] = useState<{ who: string; password: string; mailed: boolean; error?: string } | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ProjectPerson[]>([]);
   const { busy, run } = useAction();
@@ -218,15 +285,50 @@ export function ProjectPeopleCard({ projectId, clientId, people, canEdit, onSave
         </>
       ) : people.length ? (
         <>
-          {people.map((p) => (
-            <div key={p.key} className="scope-history__item">
-              <strong>
-                {p.name}
-                {p.lead ? ' · orquestador' : p.side === 'cliente' ? ' · del cliente' : ''}
-              </strong>
-              {p.skills && <span>{p.skills}</span>}
-            </div>
-          ))}
+          {secret && (
+            <SecretBox
+              label={`Contraseña de ${secret.who}`}
+              value={secret.password}
+              note={secret.mailed ? 'Ya se le envió por correo. Solo se muestra esta vez.' : `No se envió: ${(secret.error ?? '').replace(/\.$/, '')}. Compártela por otro medio.`}
+            />
+          )}
+          {people.map((p) => {
+            const account = p.side === 'cliente' && p.accountId ? accounts.find((a) => a.id === p.accountId) : undefined;
+            return (
+              <div key={p.key} className="scope-history__item">
+                <strong>
+                  {p.name}
+                  {p.lead ? ' · orquestador' : p.side === 'cliente' ? ' · del cliente' : ''}
+                </strong>
+                {p.skills && <span>{p.skills}</span>}
+                {canEdit && p.side === 'cliente' && (
+                  <span className="people__portal">
+                    {account ? (
+                      <small className="hint">
+                        ✓ Entra al portal con {account.email}
+                        {account.ownTasks ? ' · solo ve sus tareas' : ''}
+                        {!account.active ? ' · acceso desactivado' : ''}
+                      </small>
+                    ) : (
+                      <GiveAccess
+                        person={p}
+                        projectId={projectId}
+                        clientId={clientId}
+                        accounts={accounts}
+                        onLinked={async (accountId, s) => {
+                          await api('PUT', `projects/${projectId}/people`, { people: withOwner(people).map((x) => (x.key === p.key ? { ...x, accountId } : x)) });
+                          setSecret(s);
+                          client.reload();
+                          onSaved();
+                          toast(s ? `${p.name} ya puede entrar: ve solo sus tareas.` : `${p.name} quedó ligada a su cuenta del portal.`);
+                        }}
+                      />
+                    )}
+                  </span>
+                )}
+              </div>
+            );
+          })}
           {canEdit && (
             <span>
               <button

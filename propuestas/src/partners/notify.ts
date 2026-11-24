@@ -2,6 +2,7 @@ import { PARTNERS_URL, SUPERADMIN_EMAIL } from '../config.ts';
 import * as google from '../google.ts';
 import { notificationDigest } from '../mail.ts';
 import type { Viewer } from './auth.ts';
+import { accountOwnsTask } from './common.ts';
 import * as db from './db.ts';
 import * as telegram from './telegram.ts';
 
@@ -167,8 +168,11 @@ export function notify(
       if (a?.active && a.role === 'team') targets.push({ recipient: { kind: 'account', id: a.id }, email: a.email, name: a.name, client: false });
     } else if (audience === 'client' && project) {
       // Todas las personas del cliente que ven el proyecto (p. ej. el ejecutivo que lo lleva), menos quien lo hizo.
+      const task = ctx.taskId ? db.getTask(ctx.taskId) : undefined;
       for (const a of db.projectClientAccounts(project.id)) {
         if (a.id === actorAccount) continue;
+        // Quien solo ve sus tareas recibe solo los avisos de sus tareas.
+        if (a.own_tasks && !(task && accountOwnsTask(a, task, project))) continue;
         targets.push({ recipient: { kind: 'account', id: a.id }, email: a.email, name: a.name, client: true });
       }
     }

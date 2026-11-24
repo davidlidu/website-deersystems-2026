@@ -202,14 +202,22 @@ export function SecretBox({ label, value, note }: { label: string; value: string
 
 function inline(text: string): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
+  const re = /(!\[[^\]]*\]\(\/api\/images\/\d+\)|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const t = m[0];
     const key = out.length;
-    if (t.startsWith('**')) out.push(<strong key={key}>{t.slice(2, -2)}</strong>);
+    if (t.startsWith('![')) {
+      // Captura pegada en un comentario o nota: se abre en grande en otra pestaña.
+      const [, alt, src] = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(t)!;
+      out.push(
+        <a key={key} className="md__img" href={src} target="_blank" rel="noopener noreferrer">
+          <img src={src} alt={alt || 'Imagen'} loading="lazy" />
+        </a>,
+      );
+    } else if (t.startsWith('**')) out.push(<strong key={key}>{t.slice(2, -2)}</strong>);
     else if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>);
     else if (t.startsWith('[')) {
       const [, label, href] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(t)!;

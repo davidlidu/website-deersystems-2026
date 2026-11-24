@@ -43,10 +43,48 @@ export function visibleProject(id: number, v: Viewer): db.Project {
   return p;
 }
 
+const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * Persona del cliente limitada a sus tareas (el equipo del cliente en un proyecto compartido): ¿esta tarea es suya?
+ * Lo es si la tiene como persona del cliente, por su nombre o por la persona del equipo del proyecto ligada a su cuenta.
+ */
+export function accountOwnsTask(a: db.Account, t: db.Task, p?: db.Project | null): boolean {
+  if (!a.own_tasks) return true;
+  if (!t.client_assignee) return false;
+  const who = norm(t.client_assignee);
+  if (a.name && norm(a.name) === who) return true;
+  const project = p ?? db.getProject(t.project_id);
+  let people: { name?: unknown; accountId?: unknown }[] = [];
+  try {
+    people = JSON.parse(project?.people || '[]');
+  } catch {
+    people = [];
+  }
+  return people.some((x) => x.accountId === a.id && typeof x.name === 'string' && norm(x.name) === who);
+}
+
+/** ¿Ve todo el proyecto, o solo sus tareas? */
+export const limitedToOwnTasks = (v: Viewer) => v.kind === 'client' && !!v.account.own_tasks;
+
+export const seesTask = (v: Viewer, t: db.Task, p?: db.Project | null) => v.kind !== 'client' || accountOwnsTask(v.account, t, p);
+
 export function visibleTask(id: number, v: Viewer): { task: db.Task; project: db.Project } {
   const task = db.getTask(id);
   if (!task) throw new HttpError(404, 'La tarea no existe.');
-  return { task, project: visibleProject(task.project_id, v) };
+  const project = visibleProject(task.project_id, v);
+  if (!seesTask(v, task, project)) throw new HttpError(404, 'La tarea no existe.');
+  return { task, project };
+}
+
+/** Lo de una tarea (comentarios, archivos, historial): solo si esta persona ve la tarea. Sin tarea, lo del proyecto. */
+export function seesTaskId(v: Viewer, taskId: number | null, project: db.Project, cache?: Map<number, boolean>): boolean {
+  if (!taskId || !limitedToOwnTasks(v)) return true;
+  if (cache?.has(taskId)) return cache.get(taskId)!;
+  const t = db.getTask(taskId);
+  const ok = !!t && t.project_id === project.id && seesTask(v, t, project);
+  cache?.set(taskId, ok);
+  return ok;
 }
 
 export const teamNames = () => new Map(db.listTeam().map((a) => [a.id, a.name || a.email]));

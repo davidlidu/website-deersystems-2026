@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { api, draftBody, emptyDraft, formatDateTime, money, today, useApi, useLocation, usd, type PaymentDraft, type ProjectPerson, type Side, type TeamMember } from '../lib';
 import { ErrorBox, Link, Loading, MoneyInput, PageHead, SecretBox, useAction, useToast } from '../ui';
 import type { ClientApproval, ProposalRow } from './Proposals';
-import { DraftRow } from './project/Payments';
+import { DraftHead, DraftRow, patchDrafts, withPercents } from './project/Payments';
 import { OWNER, PeopleEditor, withOwner } from './project/People';
 import { slotLabel, useSlotCheck } from './project/Schedule';
 
@@ -1370,7 +1370,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
             </div>
             <p className="hint">
               El plan de pagos según la propuesta. Queda en la pestaña Pagos del proyecto (lo ven tú y el cliente, nunca el equipo); al marcar uno como pagado
-              se registra en tu Gestor financiero.
+              se registra en tu Gestor financiero. Si cambias un monto, el porcentaje de cada pago se recalcula sobre el total.
             </p>
             {hasUsd && (
               <div className="trm-fixed">
@@ -1392,12 +1392,13 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                 </p>
               </div>
             )}
-            {payments.map((p) => (
+            {payments.length > 0 && <DraftHead />}
+            {payments.map((p, i) => (
               <DraftRow
                 key={p.key}
                 d={p}
-                onChange={(patch) => setPayments((ps) => ps.map((x) => (x.key === p.key ? { ...x, ...patch } : x)))}
-                onRemove={() => setPayments((ps) => ps.filter((x) => x.key !== p.key))}
+                onChange={(patch) => setPayments((ps) => patchDrafts(ps, i, patch))}
+                onRemove={() => setPayments((ps) => withPercents(ps.filter((x) => x.key !== p.key)))}
               />
             ))}
             <button className="btn btn--outline btn--sm" onClick={() => setPayments((ps) => [...ps, { ...emptyDraft(ps[0]?.currency), key: key() }])}>

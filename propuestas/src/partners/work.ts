@@ -1,10 +1,11 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { HttpError, json, readJson } from '../http.ts';
 import type { Viewer } from './auth.ts';
-import { actor, isDelivery, isStaff, noteView, optDate, requireStaff, str, taskView, teamNames, visibleProject, visibleTask } from './common.ts';
+import { actor, isDelivery, isStaff, noteView, optDate, requireStaff, seesTaskId, str, taskView, teamNames, visibleProject, visibleTask } from './common.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
 import { announceUpdate } from './updates.ts';
+import { withoutImages } from './images.ts';
 
 const STATUS_LABEL: Record<db.TaskStatus, string> = {
   pendiente: 'Pendiente',
@@ -232,6 +233,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
       const project = visibleProject(id, v);
       const url = new URL(req.url ?? '/', 'http://x');
       const taskParam = url.searchParams.get('taskId');
+      if (taskParam) visibleTask(Number(taskParam), v);
       const kind = url.searchParams.get('kind');
       const notes = db.listNotes(project.id, {
         internal: staff,
@@ -276,7 +278,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         v,
         project.id,
         kind === 'avance' ? 'update_posted' : taskId ? 'comment_added' : 'note_added',
-        { taskTitle, excerpt: text.slice(0, 140), visibility },
+        { taskTitle, excerpt: withoutImages(text).slice(0, 140), visibility },
         { taskId, internal: visibility === 'internal' },
       );
       let email: Awaited<ReturnType<typeof announceUpdate>> | null = null;
@@ -287,7 +289,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           projectId: project.id,
           taskId,
           title: taskTitle ? `${v.name} comentó en «${taskTitle}»` : `${v.name} dejó una nota en ${project.name}`,
-          body: text,
+          body: withoutImages(text),
           path,
         });
       } else if (kind === 'avance') {
@@ -298,7 +300,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
           projectId: project.id,
           taskId,
           title: taskTitle ? `DeerSystems comentó en «${taskTitle}»` : `DeerSystems dejó una nota en ${project.name}`,
-          body: text,
+          body: withoutImages(text),
           path,
         });
       }
@@ -333,7 +335,12 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
     case 'GET projects/:id/activity': {
       const project = visibleProject(id, v);
       const taskParam = new URL(req.url ?? '/', 'http://x').searchParams.get('taskId');
-      const rows = db.listActivity(project.id, { internal: staff, taskId: taskParam ? Number(taskParam) : undefined });
+      if (taskParam) visibleTask(Number(taskParam), v);
+      // Quien solo ve sus tareas no ve lo que pasa en las demás.
+      const seen = new Map<number, boolean>();
+      const rows = db
+        .listActivity(project.id, { internal: staff, taskId: taskParam ? Number(taskParam) : undefined })
+        .filter((r) => seesTaskId(v, r.task_id, project, seen));
       json(
         res,
         200,

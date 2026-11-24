@@ -24,15 +24,22 @@ export interface Variable {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/** Las imágenes del editor solo pueden ser capturas subidas al portal. */
+const IMAGE_SRC = /^\/api\/images\/\d+$/;
+const imgHtml = (src: string, alt: string) => `<img src="${esc(src)}" alt="${esc(alt || 'captura')}">`;
+
 function inlineHtml(text: string): string {
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
+  const re = /(!\[[^\]]*\]\(\/api\/images\/\d+\)|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
   let out = '';
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
     out += esc(text.slice(last, m.index));
     const t = m[0];
-    if (t.startsWith('**')) out += `<b>${esc(t.slice(2, -2))}</b>`;
+    if (t.startsWith('![')) {
+      const [, alt, src] = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(t)!;
+      out += imgHtml(src, alt);
+    } else if (t.startsWith('**')) out += `<b>${esc(t.slice(2, -2))}</b>`;
     else if (t.startsWith('`')) out += esc(t.slice(1, -1));
     else if (t.startsWith('[')) {
       const [, label, href] = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(t)!;
@@ -114,6 +121,12 @@ export function htmlToMd(root: HTMLElement): string {
       }
       case 'BR':
         return '\n';
+      case 'IMG': {
+        // Ruta relativa tal cual está en el atributo (el navegador la vuelve absoluta en .src).
+        const src = el.getAttribute('src') ?? '';
+        const alt = (el.getAttribute('alt') ?? '').replace(/[[\]]/g, '');
+        return IMAGE_SRC.test(src) ? `\n![${alt || 'captura'}](${src})\n` : '';
+      }
       default:
         return inner;
     }
@@ -192,6 +205,14 @@ const IconClip = (
   </svg>
 );
 
+const IconImage = (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <circle cx="9" cy="10" r="1.8" />
+    <path d="m21 16-5-5-9 9" />
+  </svg>
+);
+
 export function MdEditor({
   value,
   onChange,
@@ -201,6 +222,7 @@ export function MdEditor({
   links,
   rows = 5,
   onSubmit,
+  onImage,
 }: {
   value: string;
   onChange: (md: string) => void;
@@ -211,12 +233,17 @@ export function MdEditor({
   rows?: number;
   /** Cmd/Ctrl + Enter. */
   onSubmit?: () => void;
+  /** Sube una imagen (pegada, arrastrada o elegida) y devuelve su URL. Sin esto, el editor no acepta imágenes. */
+  onImage?: (file: File) => Promise<string>;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const emitted = useRef<string | null>(null);
   const range = useRef<Range | null>(null);
   const [menu, setMenu] = useState<null | 'vars' | 'links'>(null);
   const [find, setFind] = useState('');
+  const [uploading, setUploading] = useState(0);
+  const [imageError, setImageError] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
 
   // Solo se reescribe el contenido si el valor cambió desde fuera (borrador de la IA, publicar y limpiar).
   useEffect(() => {
@@ -282,7 +309,34 @@ export function MdEditor({
     const text = range.current && !range.current.collapsed ? '' : (prompt('Texto del enlace:', '') ?? '').trim();
     insertLink(text || url.trim(), url.trim());
   };
+  /** Sube las imágenes y las deja donde estaba el cursor, cada una en su línea. */
+  const addImages = (files: File[]) => {
+    if (!onImage) return;
+    const images = files.filter((f) => /^image\/(png|jpe?g|gif|webp)$/.test(f.type));
+    if (!images.length) return;
+    setImageError('');
+    for (const f of images) {
+      setUploading((n) => n + 1);
+      onImage(f)
+        .then((src) => {
+          restore();
+          document.execCommand('insertHTML', false, `<div>${imgHtml(src, f.name.replace(/\.[a-z]+$/i, '') || 'captura')}</div><div><br></div>`);
+          emit();
+          remember();
+        })
+        .catch((err: Error) => setImageError(err.message))
+        .finally(() => setUploading((n) => n - 1));
+    }
+  };
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
+    // Una captura en el portapapeles se sube y se inserta como imagen.
+    const files = [...e.clipboardData.files];
+    if (onImage && files.some((f) => f.type.startsWith('image/'))) {
+      e.preventDefault();
+      remember();
+      addImages(files);
+      return;
+    }
     // Se pega como texto: sin estilos de otra página. Una URL sola sobre texto seleccionado lo vuelve enlace.
     e.preventDefault();
     const text = e.clipboardData.getData('text/plain');
@@ -316,6 +370,35 @@ export function MdEditor({
         <button type="button" className="md-editor__btn" title="Lista numerada" aria-label="Lista numerada" onMouseDown={(e) => e.preventDefault()} onClick={() => cmd('insertOrderedList')}>
           {IconOl}
         </button>
+        {onImage && (
+          <>
+            <span className="md-editor__sep" aria-hidden="true" />
+            <button
+              type="button"
+              className="md-editor__btn md-editor__btn--text"
+              title="También puedes pegar una captura (Ctrl/Cmd + V) o arrastrar la imagen"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                remember();
+                fileInput.current?.click();
+              }}
+            >
+              {IconImage}
+              {uploading ? 'Subiendo…' : 'Imagen'}
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              hidden
+              onChange={(e) => {
+                addImages([...(e.target.files ?? [])]);
+                e.target.value = '';
+              }}
+            />
+          </>
+        )}
         {!!variables?.length && (
           <>
             <span className="md-editor__sep" aria-hidden="true" />
@@ -383,6 +466,17 @@ export function MdEditor({
           remember();
         }}
         onPaste={onPaste}
+        onDragOver={(e) => {
+          if (onImage && e.dataTransfer.types.includes('Files')) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          if (!onImage || !e.dataTransfer.files.length) return;
+          e.preventDefault();
+          // El cursor queda donde se soltó la imagen.
+          const pos = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+          if (pos && ref.current?.contains(pos.startContainer)) range.current = pos;
+          addImages([...e.dataTransfer.files]);
+        }}
         onSelect={remember}
         onKeyUp={remember}
         onMouseUp={remember}
@@ -394,6 +488,11 @@ export function MdEditor({
         }}
         suppressContentEditableWarning
       />
+      {imageError && (
+        <p className="hint hint--error" role="alert">
+          {imageError}
+        </p>
+      )}
     </div>
   );
 }

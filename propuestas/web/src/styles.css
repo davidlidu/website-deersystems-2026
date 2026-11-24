@@ -3917,12 +3917,21 @@ textarea:focus {
 }
 
 .pay-head {
-  padding: 12px 16px 0;
+  padding: 12px 16px 8px;
   font-family: var(--font-mono);
-  font-size: 0.64rem;
-  letter-spacing: 0.14em;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--mute);
+  color: var(--body);
+  border-bottom: 1px solid var(--hairline-strong);
+}
+
+/* Encabezado de los pagos sin guardar: mismas columnas que .pay-draft. */
+.pay-head.pay-head--draft {
+  grid-template-columns: minmax(0, 1fr) 70px 140px 84px 150px 32px;
+  padding: 0 0 6px;
+  margin-bottom: 8px;
 }
 
 
@@ -8468,4 +8477,41 @@ ul.scope-history__reason {
   .trm-fixed {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Imágenes en comentarios y notas */
+.md .md__img {
+  display: inline-block;
+  max-width: 100%;
+  margin: 4px 0;
+}
+
+.md .md__img img,
+.md-editor__area img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--hairline-strong);
+}
+
+.hint.hint--error {
+  color: var(--coral);
+}
+
+/* ── Acceso al portal de las personas del cliente (equipo del proyecto) */
+.people__portal {
+  display: block;
+  margin-top: 4px;
+}
+
+.people__access-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.people__access-form .input {
+  flex: 1 1 220px;
 }
