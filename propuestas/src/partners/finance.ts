@@ -86,6 +86,20 @@ export async function trmFor(date: string): Promise<number | null> {
   }
 }
 
+/**
+ * TRM fija del proyecto: en proyectos en USD se fija la del día de la aprobación para toda la propuesta, así las cuotas
+ * de distintos meses se liquidan al mismo valor. Se puede ajustar a mano en Pagos.
+ */
+export function projectTrm(projectId: number | null | undefined): { trm: number; date: string | null } | null {
+  const p = projectId ? db.getProject(projectId) : undefined;
+  return p?.trm && p.trm > 0 ? { trm: p.trm, date: p.trm_date } : null;
+}
+
+/** La TRM que se usa para un pago del proyecto: la fija del proyecto o, si no tiene, la oficial de la fecha. */
+export async function trmForProject(projectId: number | null | undefined, date: string): Promise<number | null> {
+  return projectTrm(projectId)?.trm ?? (await trmFor(date));
+}
+
 // ───────── Rutas ─────────
 
 const publicConfig = () => {
@@ -98,7 +112,9 @@ export async function handleFinance(route: string, _id: number, req: IncomingMes
     case 'GET trm': {
       requireOwner(v);
       const date = optDate(url.searchParams.get('date')) ?? todayBogota();
-      json(res, 200, { date, trm: await trmFor(date) });
+      // Con proyecto, manda su TRM fija (si la tiene).
+      const fixed = projectTrm(Number(url.searchParams.get('projectId')) || null);
+      json(res, 200, fixed ? { date, trm: fixed.trm, fixed: true, fixedDate: fixed.date } : { date, trm: await trmFor(date), fixed: false });
       return true;
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import {
   api,
   docDate,
@@ -21,10 +21,19 @@ import { Empty, ErrorBox, Link, Loading, MoneyInput, useAction, useToast } from 
 import { GroupBar, useUngroup } from '../billing/GroupBar';
 import { InvoiceStatus } from '../billing/InvoiceStatus';
 
+interface FixedTrm {
+  trm: number;
+  date: string | null;
+}
 interface PaymentsResponse {
   payments: Payment[];
+  /** TRM fija del proyecto (pagos en USD): se fijó al aprobar; null = la oficial del día de cada pago. */
+  trm?: FixedTrm | null;
   finance?: boolean;
 }
+
+/** La TRM fija del proyecto, para que marcar un pago en USD la use en vez de la del día. */
+const ProjectTrm = createContext<number | null>(null);
 
 type Draft = PaymentDraft;
 
@@ -75,17 +84,18 @@ function MarkPaid({ p, onDone, onCancel }: { p: Payment; onDone: (p: Payment) =>
   const [copTouched, setCopTouched] = useState(false);
   const { busy, run } = useAction();
   const usd = p.currency === 'USD';
+  const fixed = useContext(ProjectTrm);
 
   useEffect(() => {
     if (!usd) return;
-    api<{ trm: number | null }>('GET', `trm?date=${date}`)
+    (fixed ? Promise.resolve({ trm: fixed }) : api<{ trm: number | null }>('GET', `trm?date=${date}`))
       .then((r) => {
         if (!r.trm) return;
         setTrm(String(r.trm));
         if (!copTouched) setCop(String(Math.round(p.amount * r.trm)));
       })
       .catch(() => {});
-  }, [date, usd, p.amount, copTouched]);
+  }, [date, usd, p.amount, copTouched, fixed]);
 
   const submit = () =>
     run(async () => {
@@ -402,13 +412,14 @@ function JointPayment({
   const mixed = pending.length > 0 && paid.length > 0;
   const usd = pending.some((p) => p.currency === 'USD');
 
-  // TRM oficial del día del pago (se puede corregir).
+  // La TRM fija del proyecto o, si no tiene, la oficial del día del pago (se puede corregir).
+  const fixed = useContext(ProjectTrm);
   useEffect(() => {
     if (!usd) return;
-    api<{ trm: number | null }>('GET', `trm?date=${date}`)
+    (fixed ? Promise.resolve({ trm: fixed }) : api<{ trm: number | null }>('GET', `trm?date=${date}`))
       .then((r) => r.trm && setTrm(String(r.trm)))
       .catch(() => {});
-  }, [usd, date]);
+  }, [usd, date, fixed]);
 
   const rate = Number(trm) || 0;
   const expected = pending.reduce((n, p) => n + copValue(p, rate), 0);
@@ -558,8 +569,9 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
 
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
-  const { payments, finance = false } = data!;
+  const { payments, finance = false, trm = null } = data!;
   const setPayments = (list: Payment[]) => setData({ ...data!, payments: list });
+  const hasUsd = payments.some((p) => p.currency === 'USD');
 
   const suggest = () => {
     setSuggesting(true);
@@ -581,7 +593,9 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
   };
 
   return (
+    <ProjectTrm.Provider value={trm?.trm ?? null}>
     <div className="stack">
+      {(hasUsd || trm) && <TrmCard projectId={projectId} trm={trm} owner={owner} payments={payments} onChange={(t) => setData({ ...data!, trm: t })} />}
       {owner && (
         <div className="toolbar">
           <div className="actions actions--tight">
@@ -710,6 +724,7 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
 
       <ProjectInvoices me={me} projectId={projectId} clientId={clientId} />
     </div>
+    </ProjectTrm.Provider>
   );
 }
 
@@ -763,5 +778,82 @@ function ProjectInvoices({ me, projectId, clientId }: { me: Me; projectId: numbe
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * TRM fija del proyecto: con pagos en USD se fija la del día de la aprobación para toda la propuesta, así las cuotas
+ * de distintos meses se liquidan al mismo valor. Tú la ajustas a mano (o pones la de hoy); el cliente la ve.
+ */
+function TrmCard({ projectId, trm, owner, payments, onChange }: { projectId: number; trm: FixedTrm | null; owner: boolean; payments: Payment[]; onChange: (t: FixedTrm | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const usdTotal = payments.filter((p) => p.currency === 'USD').reduce((n, p) => n + p.amount, 0);
+  const save = (body: Record<string, unknown>, msg: string) =>
+    run(async () => {
+      const r = await api<{ trm: FixedTrm | null }>('PUT', `projects/${projectId}/trm`, body);
+      onChange(r.trm);
+      setEditing(false);
+      toast(msg);
+    });
+  return (
+    <div className="card trm-card">
+      <div>
+        <small className="field__label">TRM fija del proyecto</small>
+        {trm ? (
+          <strong className="mono">
+            {formatMoney(trm.trm)} <small>por USD{trm.date ? ` · fijada el ${formatDate(trm.date)}` : ''}</small>
+          </strong>
+        ) : (
+          <span className="hint">Sin TRM fija: cada pago en USD se liquida con la TRM oficial del día en que se paga.</span>
+        )}
+        {trm && usdTotal > 0 && (
+          <span className="hint">
+            {formatMoney(usdTotal, 'USD')} ≈ {formatMoney(Math.round(usdTotal * trm.trm))}. Todas las cuotas en USD se liquidan a este valor.
+          </span>
+        )}
+      </div>
+      {owner &&
+        (editing ? (
+          <div className="actions actions--tight">
+            <span className="input">
+              <MoneyInput value={value} onChange={setValue} aria-label="TRM" autoFocus />
+            </span>
+            <button className="btn btn--primary btn--sm" disabled={busy || !(Number(value) > 0)} onClick={() => save({ trm: Number(value) }, 'TRM del proyecto actualizada.')}>
+              Guardar
+            </button>
+            <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => setEditing(false)}>
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <div className="actions actions--tight">
+            <button
+              className="btn btn--outline btn--sm"
+              disabled={busy}
+              onClick={() => {
+                setValue(trm ? String(trm.trm) : '');
+                setEditing(true);
+              }}
+            >
+              {trm ? 'Ajustar' : 'Fijar a mano'}
+            </button>
+            <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => save({ today: true }, 'TRM fijada con la de hoy.')}>
+              Usar la de hoy
+            </button>
+            {trm && (
+              <button
+                className="btn btn--outline btn--sm"
+                disabled={busy}
+                onClick={() => confirm('¿Quitar la TRM fija? Cada pago en USD se liquidará con la TRM del día en que se pague.') && save({ trm: null }, 'TRM fija quitada.')}
+              >
+                Quitar
+              </button>
+            )}
+          </div>
+        ))}
+    </div>
   );
 }

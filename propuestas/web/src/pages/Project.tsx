@@ -27,6 +27,7 @@ import { PlanAdjustButton } from './project/PlanAdjust';
 import { DeliveriesButton } from './project/Review';
 import { ReportsPanel } from './project/Reports';
 import { ScopeAiDialog } from './project/ScopeAi';
+import { ProjectPeopleCard } from './project/People';
 import { ScopeAddDialog, ScopeHistory, ScopeRemoveDialog } from './project/ScopeAdjust';
 import { ProjectSummary } from './project/Summary';
 import { TaskViews, VIEWS, type View } from './project/TaskViews';
@@ -569,6 +570,9 @@ export function ProjectPage({ me, id }: { me: Me; id: number }) {
               </div>
             )}
             {me.role === 'owner' && <RoundsField project={p} onSaved={reload} />}
+            {me.role !== 'client' && (
+              <ProjectPeopleCard projectId={p.id} clientId={p.clientId} people={p.people ?? []} canEdit={me.role === 'owner'} onSaved={reload} />
+            )}
             {me.role === 'owner' && <ScopeHistory projectId={p.id} version={scopeVersion} />}
             {p.scope ? <Markdown text={p.scope} /> : <p>Sin alcance registrado.</p>}
           </div>

@@ -8365,3 +8365,107 @@ button.gcal-stat:hover {
 ul.scope-history__reason {
   margin: 2px 0 0;
 }
+
+/* Proyecto compartido: equipo del proyecto */
+.people {
+  display: grid;
+  gap: 8px;
+}
+
+.people__row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(150px, 0.9fr) minmax(200px, 2fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--verde);
+  border-radius: var(--r-sm);
+}
+
+.people__row.side-cliente {
+  border-left-color: var(--coral);
+}
+
+.people__row .input,
+.people__row input,
+.people__row select {
+  width: 100%;
+}
+
+.people__lead {
+  display: grid;
+  grid-column: span 2;
+  gap: 2px;
+}
+
+.people__lead small {
+  color: var(--mute);
+}
+
+.people__meeting {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.people__meeting .input {
+  flex: 1 1 280px;
+}
+
+.people__meeting select,
+.people__hint input {
+  width: 100%;
+}
+
+.people__hint {
+  flex: 1 1 260px;
+}
+
+.people-card .actions {
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  .people__row {
+    grid-template-columns: 1fr auto;
+  }
+  .people__row > .input,
+  .people__lead {
+    grid-column: 1 / -1;
+  }
+}
+
+/* TRM fija del proyecto (pagos en USD) */
+.trm-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.trm-card > div:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.trm-card strong small {
+  color: var(--mute);
+  font-weight: 400;
+}
+
+.trm-fixed {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) 1fr;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 620px) {
+  .trm-fixed {
+    grid-template-columns: 1fr;
+  }
+}

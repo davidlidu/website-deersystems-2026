@@ -186,13 +186,13 @@ export function InvoiceFormPage({ id }: { id?: number }) {
     setReady(true);
   }, [ready, id, existing.data, nextNumber.data, profile.data, paymentId, query]);
 
-  // TRM oficial de la fecha (se puede corregir).
+  // La TRM fija del proyecto o, si no tiene, la oficial de la fecha (se puede corregir).
   useEffect(() => {
     if (f.currency !== 'USD' || f.exchangeRate || !ready) return;
-    api<{ trm: number | null }>('GET', `trm?date=${f.date}`)
+    api<{ trm: number | null }>('GET', `trm?date=${f.date}${projectId ? `&projectId=${projectId}` : ''}`)
       .then((r) => r.trm && set({ exchangeRate: String(r.trm) }))
       .catch(() => {});
-  }, [f.currency, f.date, f.exchangeRate, ready]);
+  }, [f.currency, f.date, f.exchangeRate, ready, projectId]);
 
   const total = useMemo(() => items.reduce((n, it) => n + (Number(it.quantity) || 0) * (Number(it.unitPrice) || 0), 0), [items]);
   const totalCop = f.currency === 'USD' ? Math.round(total * (Number(f.exchangeRate) || 0)) : total;
@@ -266,7 +266,7 @@ export function InvoiceFormPage({ id }: { id?: number }) {
           <label className="field">
             <span className="field__label">Proyecto (opcional)</span>
             <span className="input">
-              <select value={projectId} onChange={(e) => setProjectId(Number(e.target.value))} disabled={!clientId}>
+              <select value={projectId} onChange={(e) => (setProjectId(Number(e.target.value)), !id && f.currency === 'USD' && set({ exchangeRate: '' }))} disabled={!clientId}>
                 <option value={0}>Sin proyecto</option>
                 {(projects.data?.projects ?? []).map((p) => (
                   <option key={p.id} value={p.id}>

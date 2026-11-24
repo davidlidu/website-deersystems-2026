@@ -8,7 +8,7 @@ import type { Viewer } from './auth.ts';
 import { EMAIL_RE, optDate, requireOwner, seesMoney, str } from './common.ts';
 import * as db from './db.ts';
 import { onScheduled, readSendAt, scheduleMail } from './scheduled.ts';
-import { deleteIncome, FinanceError, paymentMethodFor, todayBogota, trmFor, upsertIncome } from './finance.ts';
+import { deleteIncome, FinanceError, paymentMethodFor, todayBogota, trmForProject, upsertIncome } from './finance.ts';
 
 /**
  * Facturación (lo que antes vivía en SmartBilling):
@@ -797,12 +797,12 @@ function setSendToFinance(id: number, value: unknown): void {
   if (typeof value === 'boolean') sqlite.prepare('UPDATE receipts SET skip_finance = ? WHERE id = ?').run(value ? 0 : 1, id);
 }
 
-/** En USD sin TRM ni pesos: se usa la TRM oficial de la fecha del abono. */
+/** En USD sin TRM ni pesos: la TRM fija del proyecto o, si no tiene, la oficial de la fecha del abono. */
 async function withTrm(body: Record<string, unknown>, current?: ReceiptRow): Promise<Record<string, unknown>> {
   const usd = String(body.currency ?? current?.currency ?? 'COP').toUpperCase() === 'USD';
   if (!usd || Number(body.trm) > 0 || Number(body.amountCop) > 0 || (current?.trm && body.amount === undefined)) return body;
   const date = optDate(body.date ?? current?.date) ?? todayBogota();
-  return { ...body, trm: await trmFor(date) };
+  return { ...body, trm: await trmForProject(Number(body.projectId ?? current?.project_id) || null, date) };
 }
 
 function readReceipt(body: Record<string, unknown>, current?: ReceiptRow): ReceiptInput {

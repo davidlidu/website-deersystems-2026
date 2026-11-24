@@ -66,6 +66,7 @@ propuestas/
       extract.ts          Propuesta HTML → texto → plan con IA; ajuste del plan antes de crear el proyecto
       planAdjust.ts       Ajuste con IA del plan de un proyecto en marcha (vista previa → aplicar)
       scope.ts            Retirar del alcance una opción o fase aprobada; agregar un adicional (tareas + cobro + nota); ajustar el alcance con IA
+      people.ts           Proyectos compartidos: equipo con habilidades (a mano o desde una reunión grabada) y reparto del trabajo con IA
       reviews.ts          Entregas al cliente: aprobar o pedir ajustes, rondas incluidas, detección con IA
       mcp.ts              Servidor MCP para Claude, OAuth 2.1 y tokens personales
       work.ts             Tareas, fases, notas, bitácora
@@ -287,9 +288,9 @@ Los archivos de las propuestas están en disco, en `DATA_DIR/files/{id}/v{versi�
 
 | Tabla | Para qué | Columnas clave |
 |---|---|---|
-| `projects` | Proyecto | `client_id`, `proposal_id`, `name`, `scope` (alcance sin valores, Markdown), `pricing` (valores; nunca al equipo), `status` (`activo`/`pausado`/`finalizado`), `start_date`, `end_date`, `approved_option`, `approval_notes`, `auto_updates`, `drive_folder_id`, `revision_rounds` (null = las de Configuración) |
+| `projects` | Proyecto | `client_id`, `proposal_id`, `name`, `scope` (alcance sin valores, Markdown), `pricing` (valores; nunca al equipo), `status` (`activo`/`pausado`/`finalizado`), `start_date`, `end_date`, `approved_option`, `approval_notes`, `auto_updates`, `drive_folder_id`, `revision_rounds` (null = las de Configuración), `trm`/`trm_date` (TRM fija para los pagos en USD), `people` (JSON del equipo del proyecto compartido: `key`, `name`, `side`, `skills`, `accountId`, `lead`; `key='yo'` = DeerSystems, el orquestador) |
 | `phases` | Fases del plan | `project_id`, `name`, `position` |
-| `tasks` | Tareas y reuniones del cronograma | `phase_id`, `title`, `description`, `status` (`pendiente`/`en_progreso`/`en_revision`/`bloqueada`/`completada`), `side` (`deersystems`/`cliente`), `assignee_id`, `start_date`, `due_date`, `position`, `source` (`propuesta`/`manual`/`reunion`), `kind` (`tarea`/`reunion`: la reunión se pinta con franja naranja), `completed_at`, `client_delivery` (entrega que revisa el cliente), `revision_round` (rondas de ajustes pedidas), `approved_at`/`approved_by` |
+| `tasks` | Tareas y reuniones del cronograma | `phase_id`, `title`, `description`, `status` (`pendiente`/`en_progreso`/`en_revision`/`bloqueada`/`completada`), `side` (`deersystems`/`cliente`), `assignee_id`, `start_date`, `due_date`, `position`, `source` (`propuesta`/`manual`/`reunion`), `kind` (`tarea`/`reunion`: la reunión se pinta con franja naranja), `completed_at`, `client_delivery` (entrega que revisa el cliente), `revision_round` (rondas de ajustes pedidas), `approved_at`/`approved_by`, `client_assignee` (persona del cliente a cargo en proyectos compartidos; solo en tareas del cliente) |
 | `notes` | Comentarios y avances | `task_id` (null = del proyecto), `kind` (`nota`/`avance`), `visibility` (`shared`/`internal`), autor, `body` (Markdown), `ai` (lo generó la IA), `emailed_at` |
 | `activity` | Bitácora | `type`, `data` (JSON), `actor_*`, `internal` |
 | `attachments` | Archivos en Drive | `task_id`, `drive_file_id`, `drive_url`, `name`, `mime`, `size`, `visibility`, `link_shared`, `linked` (elegido del Drive propio, no subido), `page_token` (página HTML publicada en `/paginas/{token}`) |
@@ -395,6 +396,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 | `GET projects/:id/scope`, `POST projects/:id/scope/remove` | Retirar una opción o fase del alcance |
 | `POST projects/:id/scope/add/suggest`, `POST projects/:id/scope/add` | Adicional: la IA arma las tareas a partir del pedido; al confirmar se crean la fase «Adicional: X», sus tareas, el pago con descuento (al aprobar, al entregar o en una fecha), la nota en `pricing`, el registro en `scope_changes` y, si se elige, una nota para el cliente. Solo mueve la entrega del proyecto si el adicional termina después |
 | `POST projects/:id/scope/adjust/suggest`, `POST projects/:id/scope/adjust` | Ajuste del alcance con IA: con una instrucción, la IA devuelve el texto del alcance reescrito (solo cambia lo pedido, sin precios) y, si se pide, los cambios del plan (crear, cambiar o eliminar tareas pendientes; nunca reuniones ni completadas). No guarda nada. Al aplicar se guarda el texto (editable), los cambios del plan que se dejaron marcados (con `applyPlan` de `planAdjust.ts`), el registro `ajuste` en `scope_changes`, la actividad `scope_adjusted` (el cliente no ve el resumen) y, si se elige, una nota para el cliente |
+| `GET people/meetings`, `POST meetings/:id/people`, `POST people/distribute`, `PUT projects/:id/people` | Proyecto compartido: reuniones con transcripción (primero las del cliente o la propuesta), perfiles desde una reunión, reparto de tareas con IA y equipo del proyecto. El ajuste del plan con IA también conoce el equipo y puede reasignar (`assigneeId`, `clientAssignee`) |
 | `POST tasks/:id/review` | `{decision: 'approve'\|'changes', note}`: el cliente aprueba o pide ajustes; el equipo registra lo que dijo el cliente o reabre una completada. Solo para entregas al cliente (409 en tareas operativas) |
 | `PUT projects/:id/reviews`, `GET/PUT settings/reviews` | Rondas de ajustes incluidas, por proyecto o por defecto (0–20; 0 = sin límite) |
 | `POST projects/:id/deliveries/detect`, `PUT projects/:id/deliveries` | La IA propone qué tareas del equipo son entregas al cliente; se guarda la lista confirmada |
@@ -442,6 +444,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 | `GET/POST projects/:id/payments`, `POST projects/:id/payments/suggest` | Plan de pagos (sugerido con IA) |
 | `PATCH/DELETE payments/:id`, `POST payments/:id/paid`, `POST payments/:id/sync` | Marcar pagado crea el abono y lo lleva al Gestor |
 | `POST projects/:id/payments/together` | Pago conjunto: una transferencia repartida entre varias cuotas |
+| `PUT projects/:id/trm` | TRM fija del proyecto: un valor (`trm`), la oficial de hoy (`today: true`) o quitarla (`trm: null`). Queda en la bitácora interna (`trm_set`) |
 | `GET/POST invoices`, `GET invoices/search`, `GET invoices/next-number`, `GET/PUT/PATCH/DELETE invoices/:id` | Cuentas de cobro |
 | `POST invoices/:id/send` | Enviar por Gmail con el PDF y adjuntos (se puede programar) |
 | `POST invoices/:id/settle`, `POST invoices/settle` | Saldar una o varias |
@@ -493,6 +496,8 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
    - **Desde el enlace público** (`/{slug}/aprobar`): el cliente elige una o varias opciones y acepta. Si la propuesta está vinculada a un cliente existente, no se le piden datos y su correo se muestra enmascarado. Queda una `proposal_approval` y la IA genera el plan en segundo plano; se avisa con `proposal_approved`.
 4. La IA (perfil *propuestas*, tarea `plan`) devuelve un borrador: cliente, alcance sin valores, fases, tareas con fechas y lado, reuniones de avance y pagos. Las reuniones que chocan con la agenda se mueven al siguiente horario libre (`availability.placeMeetings`).
 5. «Ajustar con IA» modifica el borrador con una instrucción, en la vista previa.
+   - **TRM fija:** si hay pagos en USD, se propone la TRM oficial de hoy (editable) y queda en el proyecto para toda la propuesta. Si se suma a un proyecto que ya tiene TRM, se conserva la suya.
+   - **Proyecto compartido:** se define el equipo (DeerSystems orquesta y lleva la mayor carga; personas del cliente y del equipo con sus habilidades). Los perfiles se pueden sacar de una reunión con transcripción (`POST meetings/:id/people`). «Repartir el trabajo con IA» (`POST people/distribute`) asigna cada tarea: a una persona del cliente (tarea del cliente con `client_assignee`), a alguien del equipo (`assignee_id`) o al orquestador. El equipo queda en `projects.people`.
 6. Al crear el proyecto se hace todo esto:
    - Se crea o reutiliza el cliente y su cuenta (con contraseña aleatoria, enviada en el correo de bienvenida).
    - Se crean las fases, las tareas y los pagos.
@@ -538,7 +543,7 @@ La creación del proyecto a partir del plan aprobado usa `POST projects`. Puede 
 ### Dinero
 
 1. Al marcar una cuota del plan como pagada se crea su abono (`receipts.payment_id`). Ese abono hace `PUT` al Gestor con la referencia `deersystems-pago-{id}`.
-   - **Moneda:** si la cuota es en USD, el abono se registra en COP con la TRM oficial del día (o el valor recibido en pesos que indiques).
+   - **Moneda:** si la cuota es en USD, el abono se registra en COP con la TRM fija del proyecto o, si no tiene, la oficial del día (o el valor recibido en pesos que indiques). Las cuentas de cobro y los abonos de un proyecto con TRM fija también la proponen (`GET trm?projectId=`).
    - **Pago conjunto:** una transferencia se reparte entre varias cuotas.
 2. **Cuentas de cobro:**
    - La numeración continúa la de SmartBilling.
@@ -673,6 +678,7 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | `Reports.tsx` | Informes |
 | `PlanAdjust.tsx` | Ajuste del plan con IA |
 | `ScopeAdjust.tsx` | Retirar del alcance, agregar adicional e historial de cambios |
+| `People.tsx` | Equipo del proyecto compartido: editor, perfiles desde una reunión y tarjeta en Alcance |
 | `ScopeAi.tsx` | Ajustar el alcance con IA: diferencia línea a línea del texto y selección de los cambios del plan |
 | `Review.tsx` | Aprobar o pedir ajustes, etiquetas «◆ Entrega» y «↺ Ajuste N», diálogo «Entregas al cliente» |
 | `Activity.tsx` | Bitácora |

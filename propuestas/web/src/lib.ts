@@ -200,6 +200,8 @@ export interface Task {
   side: Side;
   assigneeId: number | null;
   assigneeName: string | null;
+  /** Persona del cliente a cargo (proyectos compartidos), solo en tareas del cliente. */
+  clientAssignee?: string | null;
   startDate: string | null;
   dueDate: string | null;
   completedAt: string | null;
@@ -368,9 +370,27 @@ export interface ProjectDetail extends ProjectSummary {
   /** Rondas de ajustes del proyecto (null = las de Configuración) y las que rigen. */
   revisionRounds: number | null;
   revisionsIncluded: number;
+  /** Solo equipo: el equipo del proyecto compartido (quién hace qué y con qué habilidades). */
+  people?: ProjectPerson[];
+  /** TRM fija del proyecto (pagos en USD), si la tiene. */
+  trm?: { trm: number; date: string | null } | null;
   phases: { id: number; name: string }[];
   tasks: Task[];
 }
+
+/** Persona del equipo de un proyecto compartido. 'yo' = DeerSystems (tú), el orquestador. */
+export interface ProjectPerson {
+  key: string;
+  name: string;
+  side: Side;
+  skills: string;
+  accountId: number | null;
+  lead: boolean;
+}
+
+/** Quién hace una tarea, en corto: «Paula», «Cliente · Ana», «DeerSystems». */
+export const taskOwner = (t: Pick<Task, 'side' | 'assigneeName' | 'clientAssignee'>) =>
+  t.side === 'cliente' ? (t.clientAssignee ? `Cliente · ${t.clientAssignee}` : 'Cliente') : (t.assigneeName ?? 'DeerSystems');
 
 export interface TeamMember {
   id: number;

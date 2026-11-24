@@ -22,6 +22,8 @@ function describe(a: ActivityItem): string {
     case 'plan_adjusted':
       // Al cliente le llega sin la instrucción: ve «ajustó el plan», sin mencionar la IA.
       return `ajustó el plan${d.instruction ? ' con IA' : ''} (${d.changes ?? 0} ${d.changes === 1 ? 'cambio' : 'cambios'})${d.instruction ? `: ${q(d.instruction)}` : ''}`;
+    case 'trm_set':
+      return d.to ? `fijó la TRM del proyecto en ${Number(d.to).toLocaleString('es-CO')}` : 'quitó la TRM fija del proyecto';
     case 'project_status':
       return `cambió el estado del proyecto a ${PROJECT_STATUS[d.to as ProjectStatus] ?? d.to}`;
     case 'task_created':
@@ -83,6 +85,7 @@ const ICON: Record<string, string> = {
   scope_removed: '−',
   scope_added: '＋',
   scope_adjusted: '✦',
+  trm_set: '$',
   report_published: '▤',
   plan_adjusted: '✦',
   file_added: '📎',

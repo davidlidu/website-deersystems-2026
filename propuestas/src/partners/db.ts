@@ -68,6 +68,11 @@ export interface Project {
   approved_by: string;
   /** Rondas de ajustes incluidas en este proyecto; null = las de Configuración (por defecto 2). */
   revision_rounds: number | null;
+  /** TRM fija del proyecto (pagos en USD): se fija al aprobar y se puede ajustar en Pagos. */
+  trm: number | null;
+  trm_date: string | null;
+  /** Equipo del proyecto en JSON (ProjectPerson[]): quién hace qué y con qué habilidades. */
+  people: string;
   created_at: string;
   updated_at: string;
 }
@@ -102,6 +107,8 @@ export interface Task {
   /** Cuándo y quién aprobó la entrega («Paula Méndez» o «Laura (por el cliente)»). */
   approved_at: string | null;
   approved_by: string | null;
+  /** Persona del cliente a cargo (proyectos compartidos), solo en tareas del cliente. */
+  client_assignee: string;
   created_at: string;
   updated_at: string;
 }
@@ -207,6 +214,10 @@ addColumn('tasks', 'revision_round', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('tasks', 'client_delivery', 'INTEGER NOT NULL DEFAULT 0');
 addColumn('tasks', 'approved_at', 'TEXT');
 addColumn('tasks', 'approved_by', 'TEXT');
+addColumn('tasks', 'client_assignee', "TEXT NOT NULL DEFAULT ''");
+addColumn('projects', 'trm', 'REAL');
+addColumn('projects', 'trm_date', 'TEXT');
+addColumn('projects', 'people', "TEXT NOT NULL DEFAULT '[]'");
 
 const now = () => new Date().toISOString();
 const all = <T>(sql: string, ...params: (string | number | null)[]) => db.prepare(sql).all(...params) as unknown as T[];
@@ -473,7 +484,7 @@ export function createProject(p: {
 
 export function updateProject(
   id: number,
-  fields: Partial<Pick<Project, 'name' | 'scope' | 'pricing' | 'approved_option' | 'approval_notes' | 'status' | 'start_date' | 'end_date' | 'revision_rounds'>>,
+  fields: Partial<Pick<Project, 'name' | 'scope' | 'pricing' | 'approved_option' | 'approval_notes' | 'status' | 'start_date' | 'end_date' | 'revision_rounds' | 'trm' | 'trm_date' | 'people'>>,
 ): void {
   for (const [col, value] of Object.entries(fields)) {
     if (value !== undefined) db.prepare(`UPDATE projects SET ${col} = ?, updated_at = ? WHERE id = ?`).run(value, now(), id);
@@ -512,15 +523,33 @@ export function createTask(t: {
   kind?: Task['kind'];
   /** Entrega al cliente (solo tareas del equipo que no son reuniones). */
   clientDelivery?: boolean;
+  /** Persona del cliente a cargo (solo tareas del cliente). */
+  clientAssignee?: string;
 }): Task {
   const ts = now();
   const delivery = t.clientDelivery && t.side === 'deersystems' && (t.kind ?? 'tarea') === 'tarea' ? 1 : 0;
   const { lastInsertRowid } = db
     .prepare(
-      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, kind, client_delivery, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (project_id, phase_id, title, description, side, assignee_id, start_date, due_date, position, source, kind, client_delivery, client_assignee, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(t.projectId, t.phaseId, t.title, t.description, t.side, t.assigneeId, t.startDate, t.dueDate, t.position, t.source, t.kind ?? 'tarea', delivery, ts, ts);
+    .run(
+      t.projectId,
+      t.phaseId,
+      t.title,
+      t.description,
+      t.side,
+      t.assigneeId,
+      t.startDate,
+      t.dueDate,
+      t.position,
+      t.source,
+      t.kind ?? 'tarea',
+      delivery,
+      t.side === 'cliente' ? (t.clientAssignee ?? '').slice(0, 120) : '',
+      ts,
+      ts,
+    );
   return getTask(Number(lastInsertRowid))!;
 }
 
@@ -642,7 +671,7 @@ addColumn('notes', 'emailed_at', 'TEXT');
 addColumn('projects', 'auto_updates', 'INTEGER NOT NULL DEFAULT 0');
 
 export type TaskFields = Partial<
-  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position' | 'kind' | 'client_delivery'>
+  Pick<Task, 'title' | 'description' | 'side' | 'assignee_id' | 'phase_id' | 'start_date' | 'due_date' | 'position' | 'kind' | 'client_delivery' | 'client_assignee'>
 >;
 
 export function updateTask(id: number, fields: TaskFields): void {

@@ -37,7 +37,7 @@ import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import { handleBilling } from './billing.ts';
 import { handleScheduled } from './scheduled.ts';
 import { handlePlanAdjust } from './planAdjust.ts';
-import { handleFinance } from './finance.ts';
+import { handleFinance, projectTrm, todayBogota } from './finance.ts';
 import { handleImport } from './import-smartbilling.ts';
 import { handleOnlinePayments, handleWompiWebhook } from './online-payments.ts';
 import { createPayments, handlePayments } from './payments.ts';
@@ -46,6 +46,7 @@ import { handleWork } from './work.ts';
 import { handleReports } from './reports.ts';
 import { handleReviews } from './reviews.ts';
 import { handleScope } from './scope.ts';
+import { handlePeople, normalizePeople, peopleOf } from './people.ts';
 import { handleTelegram } from './telegram.ts';
 import { handleMcpHttp, handleMcpSettings, takeNext } from './mcp.ts';
 import { autoUpdatesOn, handleUpdates } from './updates.ts';
@@ -94,6 +95,9 @@ function projectDetail(p: db.Project, v: Viewer) {
     // Rondas de ajustes incluidas: las del proyecto (null = las de Configuración) y las que rigen.
     revisionRounds: p.revision_rounds ?? null,
     revisionsIncluded: db.includedRounds(p),
+    // Equipo del proyecto compartido (quién hace qué); solo el equipo interno ve las habilidades.
+    ...(isStaff(v) ? { people: peopleOf(p) } : {}),
+    ...(seesMoney(v) ? { trm: projectTrm(p.id) } : {}),
     phases: db.listPhases(p.id).map((ph) => ({ id: ph.id, name: ph.name })),
     tasks: db.listTasks(p.id).map((t) => taskView(t, v, team, comments, files)),
   };
@@ -236,7 +240,10 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
   if (!draft.phases.some((p) => p.tasks.length)) throw new HttpError(400, 'El proyecto necesita al menos una tarea.');
 
   const teamIds = new Set(db.listTeam().map((a) => a.id));
-  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown }[] }[]) : [];
+  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown; clientAssignee?: unknown }[] }[]) : [];
+  // TRM fija para toda la propuesta (pagos en USD) y equipo del proyecto compartido.
+  const fixedTrm = Number(body.trm) >= 500 && Number(body.trm) <= 50_000 ? Math.round(Number(body.trm) * 100) / 100 : null;
+  const people = normalizePeople(body.people);
 
   // Cliente existente (por id o por correo) o uno nuevo con su cuenta.
   const c = (body.client ?? {}) as Record<string, unknown>;
@@ -289,6 +296,8 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
       endDate: optDate(project.endDate) ?? null,
       by: v.email,
     });
+    if (fixedTrm) db.updateProject(p.id, { trm: fixedTrm, trm_date: todayBogota() });
+    if (people.length) db.updateProject(p.id, { people: JSON.stringify(people) });
     let position = 0;
     const phaseIds: number[] = [];
     draft.phases.forEach((ph, i) => {
@@ -308,6 +317,7 @@ async function approve(body: Record<string, unknown>, v: Viewer) {
           position: position++,
           source: 'propuesta',
           clientDelivery: t.clientDelivery,
+          clientAssignee: str(rawPhases[i]?.tasks?.[j]?.clientAssignee, 120),
         });
       });
     });
@@ -409,7 +419,10 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
   const rawMeetings = Array.isArray(body.meetings) ? (body.meetings as { schedule?: unknown }[]) : [];
   if (!draft.phases.some((p) => p.tasks.length)) throw new HttpError(400, 'Lo que agregas necesita al menos una tarea.');
   const teamIds = new Set(db.listTeam().map((a) => a.id));
-  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown }[] }[]) : [];
+  const rawPhases = Array.isArray(body.phases) ? (body.phases as { tasks?: { assigneeId?: unknown; clientAssignee?: unknown }[] }[]) : [];
+  // TRM fija para toda la propuesta (pagos en USD) y equipo del proyecto compartido.
+  const fixedTrm = Number(body.trm) >= 500 && Number(body.trm) <= 50_000 ? Math.round(Number(body.trm) * 100) / 100 : null;
+  const people = normalizePeople(body.people);
 
   const joined = (a: string, b: string, sep: string) => (!b.trim() ? a : !a.trim() ? b : a.includes(b) ? a : `${a}${sep}${b}`);
   const added = db.transaction(() => {
@@ -434,6 +447,7 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
           position: position++,
           source: 'propuesta',
           clientDelivery: t.clientDelivery,
+          clientAssignee: str(rawPhases[i]?.tasks?.[j]?.clientAssignee, 120),
         });
         tasks++;
       }
@@ -464,6 +478,9 @@ async function addToProject(projectId: number, body: Record<string, unknown>, v:
       pricing: joined(existing.pricing, draft.pricing, '\n\n'),
       end_date: end && (!existing.end_date || end > existing.end_date) ? end : undefined,
       status: existing.status === 'finalizado' ? 'activo' : undefined,
+      // La TRM fija se pone solo si el proyecto aún no tiene (lo aprobado después se paga al mismo valor).
+      ...(fixedTrm && !existing.trm ? { trm: fixedTrm, trm_date: todayBogota() } : {}),
+      ...(people.length ? { people: JSON.stringify(people) } : {}),
     });
     const approvalId = Number(body.approvalId);
     if (approvalId && getApproval(approvalId)?.proposal_id === proposalId) closeApproval(approvalId, 'convertida', projectId);
@@ -1336,6 +1353,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handleTelegram(route, req, res, v)) return;
   if (await handleMcpSettings(route, id, req, res, v)) return;
   if (await handleFiles(route, id, req, res, v, url)) return;
+  if (await handlePeople(route, id, req, res, v)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
   if (await handlePayments(route, id, req, res, v)) return;
   if (await handleFinance(route, id, req, res, v, url)) return;

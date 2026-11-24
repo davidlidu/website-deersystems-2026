@@ -49,13 +49,15 @@ export function ReceiptForm({
   const toast = useToast();
   const usd = f.currency === 'USD';
 
-  // En USD: TRM oficial de la fecha del abono (se puede corregir) y pesos = monto × TRM.
+  // En USD: la TRM fija del proyecto de la cuenta marcada o, si no tiene, la oficial de la fecha del abono
+  // (se puede corregir), y pesos = monto × TRM.
+  const firstProject = invoices.data?.find((i) => i.id === f.invoiceIds[0])?.projectId ?? null;
   useEffect(() => {
     if (!usd || receipt) return;
-    api<{ trm: number | null }>('GET', `trm?date=${f.date}`)
+    api<{ trm: number | null }>('GET', `trm?date=${f.date}${firstProject ? `&projectId=${firstProject}` : ''}`)
       .then((r) => r.trm && setF((x) => ({ ...x, trm: String(r.trm) })))
       .catch(() => {});
-  }, [usd, f.date, receipt]);
+  }, [usd, f.date, receipt, firstProject]);
   useEffect(() => {
     if (usd && !copTouched && Number(f.trm) && Number(f.amount)) setF((x) => ({ ...x, amountCop: String(Math.round(Number(x.amount) * Number(x.trm))) }));
   }, [usd, f.trm, f.amount, copTouched]);

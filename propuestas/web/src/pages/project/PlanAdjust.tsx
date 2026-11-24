@@ -15,12 +15,13 @@ interface Snapshot {
   time: string | null;
   phase: string;
   side: Side;
+  who?: string;
 }
 interface Suggestion {
   ops: unknown;
   preview: {
     updates: { id: number; title: string; kind: 'tarea' | 'reunion'; calendar: boolean; before: Snapshot; after: Snapshot; descriptionChanged: boolean; note: string | null; clash: boolean }[];
-    creates: { title: string; phase: string; kind: 'tarea' | 'reunion'; side: Side; startDate: string | null; dueDate: string | null }[];
+    creates: { title: string; phase: string; kind: 'tarea' | 'reunion'; side: Side; who?: string; startDate: string | null; dueDate: string | null }[];
     deletes: { id: number; title: string; kind: 'tarea' | 'reunion' }[];
   };
   changes: string[];
@@ -54,7 +55,8 @@ function diff(b: Snapshot, a: Snapshot): string[] {
   if (when(b) !== when(a)) out.push(`${when(b)} → ${when(a)}`);
   if (b.title !== a.title) out.push(`nombre: «${a.title}»`);
   if (b.phase !== a.phase) out.push(`fase: ${b.phase || 'sin fase'} → ${a.phase || 'sin fase'}`);
-  if (b.side !== a.side) out.push(`a cargo de ${SIDE[a.side]}`);
+  if (b.who !== a.who) out.push(`a cargo de ${a.who ?? SIDE[a.side]}`);
+  else if (b.side !== a.side) out.push(`a cargo de ${SIDE[a.side]}`);
   return out;
 }
 
@@ -211,7 +213,7 @@ function PlanAdjustDialog({ projectId, onClose, onApplied }: { projectId: number
                         <span>
                           <strong>{c.title}</strong>
                           <small>
-                            {[c.phase || 'sin fase', when({ ...c, time: null }), SIDE[c.side], c.kind === 'reunion' ? 'reunión (solo en el cronograma)' : '']
+                            {[c.phase || 'sin fase', when({ ...c, time: null }), c.who ?? SIDE[c.side], c.kind === 'reunion' ? 'reunión (solo en el cronograma)' : '']
                               .filter(Boolean)
                               .join(' · ')}
                           </small>

@@ -15,6 +15,7 @@ import {
   type TaskStatus,
   type TeamMember,
   useApi,
+  taskOwner,
 } from '../../lib';
 import { Link, Loading, Markdown, StatusPill, useAction, useToast } from '../../ui';
 import { ActivityFeed } from './Activity';
@@ -36,6 +37,7 @@ interface Form {
   phaseId: number | null;
   side: Side;
   assigneeId: number | null;
+  clientAssignee: string;
   startDate: string;
   dueDate: string;
   isMeeting: boolean;
@@ -48,6 +50,7 @@ const toForm = (t: Partial<Task>, d: TaskDefaults = {}): Form => ({
   phaseId: t.phaseId ?? d.phaseId ?? null,
   side: t.side ?? d.side ?? 'deersystems',
   assigneeId: t.assigneeId ?? null,
+  clientAssignee: t.clientAssignee ?? '',
   startDate: t.startDate ?? '',
   dueDate: t.dueDate ?? d.dueDate ?? '',
   isMeeting: t.isMeeting ?? false,
@@ -202,6 +205,7 @@ export function TaskDrawer({
       phaseId: form.phaseId,
       side: form.side,
       assigneeId: form.side === 'deersystems' ? form.assigneeId : null,
+      clientAssignee: form.side === 'cliente' ? form.clientAssignee.trim() : '',
       startDate: form.startDate || null,
       dueDate: form.dueDate || null,
       isMeeting: form.isMeeting,
@@ -234,7 +238,9 @@ export function TaskDrawer({
 
   const options = me.role === 'client' ? CLIENT_STATUSES : STATUSES;
   const phaseName = project.phases.find((p) => p.id === task?.phaseId)?.name ?? 'Sin fase';
-  const who = task?.side === 'cliente' ? 'Cliente' : (task?.assigneeName ?? 'DeerSystems');
+  const who = task ? taskOwner(task) : 'DeerSystems';
+  // Personas del cliente del equipo del proyecto (proyectos compartidos), para elegir quién la hace.
+  const clientPeople = (project.people ?? []).filter((p) => p.side === 'cliente');
 
   return (
     <div className="drawer" role="dialog" aria-modal="true" aria-label={isNew ? 'Nueva tarea' : task!.title}>
@@ -316,6 +322,21 @@ export function TaskDrawer({
                             {m.name}
                           </option>
                         ))}
+                    </select>
+                  </span>
+                </label>
+              )}
+              {form.side === 'cliente' && (clientPeople.length > 0 || form.clientAssignee) && (
+                <label className="field">
+                  <span className="field__label">Persona del cliente</span>
+                  <span className="input">
+                    <select value={form.clientAssignee} onChange={(e) => set({ clientAssignee: e.target.value })}>
+                      <option value="">El cliente (en general)</option>
+                      {[...new Set([...clientPeople.map((p) => p.name), ...(form.clientAssignee ? [form.clientAssignee] : [])])].map((n) => (
+                        <option key={n} value={n}>
+                          {n}
+                        </option>
+                      ))}
                     </select>
                   </span>
                 </label>

@@ -21,6 +21,7 @@ const FIELD_LABEL: Record<string, string> = {
   description: 'descripción',
   side: 'responsable',
   assignee_id: 'responsable',
+  client_assignee: 'responsable del cliente',
   phase_id: 'fase',
   start_date: 'fecha de inicio',
   due_date: 'fecha de entrega',
@@ -55,8 +56,11 @@ function taskFields(body: Record<string, unknown>, projectId: number, current?: 
   if ('dueDate' in body) f.due_date = optDate(body.dueDate) ?? null;
   if ('isMeeting' in body) f.kind = body.isMeeting === true ? 'reunion' : 'tarea';
   if ('clientDelivery' in body) f.client_delivery = body.clientDelivery === true ? 1 : 0;
+  // Persona del cliente a cargo (proyectos compartidos); solo en tareas del cliente.
+  if ('clientAssignee' in body) f.client_assignee = str(body.clientAssignee, 120).trim();
   // Una tarea del cliente no tiene responsable del equipo, y no es una entrega al cliente.
   if (f.side === 'cliente') f.assignee_id = null;
+  if (f.side === 'deersystems' && (current?.client_assignee || f.client_assignee)) f.client_assignee = '';
   const side = f.side ?? current?.side ?? 'deersystems';
   const kind = f.kind ?? current?.kind ?? 'tarea';
   if (side === 'cliente' || kind === 'reunion') {
@@ -99,6 +103,7 @@ export async function handleWork(route: string, id: number, req: IncomingMessage
         source: 'manual',
         kind: f.kind,
         clientDelivery: f.client_delivery === 1,
+        clientAssignee: f.client_assignee,
       });
       log(v, project.id, 'task_created', { title: task.title, side: task.side }, { taskId: task.id });
       const path = taskPath(project.id, task.id);

@@ -4,9 +4,9 @@ import { db as sqlite } from '../db.ts';
 import { HttpError, json, readJson } from '../http.ts';
 import type { Viewer } from './auth.ts';
 import * as billing from './billing.ts';
-import { optDate, requireOwner, seesMoney, str, visibleProject } from './common.ts';
+import { actor, optDate, requireOwner, seesMoney, str, visibleProject } from './common.ts';
 import * as db from './db.ts';
-import { financeConfigured, todayBogota, trmFor } from './finance.ts';
+import { financeConfigured, projectTrm, todayBogota, trmFor, trmForProject } from './finance.ts';
 
 /**
  * Pagos del proyecto según la propuesta (anticipo, cuotas, contra entrega). Solo tú los editas;
@@ -237,7 +237,32 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
     case 'GET projects/:id/payments': {
       if (!seesMoney(v)) throw new HttpError(403, 'No tienes acceso a los pagos.');
       visibleProject(id, v);
-      json(res, 200, { payments: listFor(id).map((r) => view(r, v)), ...(v.kind === 'owner' ? { finance: financeConfigured() } : {}) });
+      json(res, 200, { payments: listFor(id).map((r) => view(r, v)), trm: projectTrm(id), ...(v.kind === 'owner' ? { finance: financeConfigured() } : {}) });
+      return true;
+    }
+
+    // TRM fija del proyecto: un valor, la oficial de hoy (`today: true`) o quitarla (null).
+    case 'PUT projects/:id/trm': {
+      requireOwner(v);
+      const project = visibleProject(id, v);
+      const body = await readJson(req);
+      let trm: number | null = null;
+      let date: string | null = null;
+      if (body.today === true) {
+        date = todayBogota();
+        trm = await trmFor(date);
+        if (!trm) throw new HttpError(502, 'No se pudo obtener la TRM de hoy. Escríbela a mano.');
+      } else if (body.trm !== null) {
+        trm = Math.round(Number(body.trm) * 100) / 100;
+        if (!(trm >= 500 && trm <= 50_000)) throw new HttpError(400, 'La TRM no parece válida (pesos por dólar, p. ej. 4.150,25).');
+        date = optDate(body.date) ?? todayBogota();
+      }
+      db.updateProject(project.id, { trm, trm_date: date });
+      if (trm !== project.trm) {
+        const a = actor(v);
+        db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'trm_set', data: { from: project.trm, to: trm }, internal: true });
+      }
+      json(res, 200, { trm: projectTrm(project.id) });
       return true;
     }
 
@@ -315,7 +340,7 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
         let amountCop = r.amount;
         let trm: number | null = null;
         if (r.currency === 'USD') {
-          trm = Number(body.trm) > 0 ? Number(body.trm) : await trmFor(paidAt);
+          trm = Number(body.trm) > 0 ? Number(body.trm) : await trmForProject(r.project_id, paidAt);
           const given = Number(body.amountCop);
           amountCop = given > 0 ? Math.round(given * 100) / 100 : trm ? Math.round(r.amount * trm) : 0;
           if (!amountCop) throw new HttpError(400, 'No se pudo obtener la TRM. Escribe cuántos pesos recibiste.');
@@ -340,7 +365,7 @@ export async function handlePayments(route: string, id: number, req: IncomingMes
       if (rows.some((r) => r.paid)) throw new HttpError(400, 'Elige solo cuotas pendientes (las pagadas se unen con «Unir en el Gestor»).');
       const paidAt = optDate(body.paidAt) ?? todayBogota();
       const usd = rows.some((r) => r.currency === 'USD');
-      const trm = usd ? (Number(body.trm) > 0 ? Number(body.trm) : await trmFor(paidAt)) : null;
+      const trm = usd ? (Number(body.trm) > 0 ? Number(body.trm) : await trmForProject(project.id, paidAt)) : null;
       if (usd && !trm) throw new HttpError(400, 'No se pudo obtener la TRM: escríbela.');
       // Lo que vale cada cuota en pesos, para repartir el total en proporción.
       const weights = rows.map((r) => (r.currency === 'USD' ? r.amount * trm! : r.amount));

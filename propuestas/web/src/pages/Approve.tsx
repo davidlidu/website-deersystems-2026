@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { api, draftBody, emptyDraft, formatDateTime, money, today, useApi, useLocation, usd, type PaymentDraft, type Side, type TeamMember } from '../lib';
-import { ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
+import { api, draftBody, emptyDraft, formatDateTime, money, today, useApi, useLocation, usd, type PaymentDraft, type ProjectPerson, type Side, type TeamMember } from '../lib';
+import { ErrorBox, Link, Loading, MoneyInput, PageHead, SecretBox, useAction, useToast } from '../ui';
 import type { ClientApproval, ProposalRow } from './Proposals';
 import { DraftRow } from './project/Payments';
+import { OWNER, PeopleEditor, withOwner } from './project/People';
 import { slotLabel, useSlotCheck } from './project/Schedule';
 
 interface DraftTask {
@@ -13,6 +14,8 @@ interface DraftTask {
   /** Entrega al cliente (la revisa y aprueba o pide ajustes); si no, es operativa del equipo. */
   clientDelivery: boolean;
   assigneeId: number | null;
+  /** Persona del cliente a cargo (proyectos compartidos), solo en tareas del cliente. */
+  clientAssignee?: string;
   startDate: string | null;
   dueDate: string | null;
 }
@@ -298,6 +301,15 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
   const [undo, setUndo] = useState<PlanSnapshot | null>(null);
   const [payments, setPayments] = useState<(PaymentDraft & { key: string })[]>([]);
   const [previewing, setPreviewing] = useState(false);
+  // TRM fija para toda la propuesta (pagos en USD): la oficial de hoy, editable.
+  const [trm, setTrm] = useState('');
+  const trmAsked = useRef(false);
+  // Proyecto compartido: el equipo (tú orquestas) y el reparto del trabajo con IA.
+  const [shared, setShared] = useState(false);
+  const [people, setPeople] = useState<ProjectPerson[]>([OWNER]);
+  const [distributing, setDistributing] = useState(false);
+  const [distribution, setDistribution] = useState<{ load: { person: string; summary: string }[]; notes: string[]; model: string } | null>(null);
+  const [distHint, setDistHint] = useState('');
   // Aprobación del cliente desde el enlace (?aprobacion=ID): el plan ya se armó en segundo plano.
   const { query } = useLocation();
   const approvalId = Number(query.get('aprobacion')) || null;
@@ -316,6 +328,14 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     if (last && approvalId) setTarget(last.id);
   }, [proposal, approvalId]);
   const targetProject = proposal?.projects.find((p) => p.id === target) ?? null;
+  const hasUsd = payments.some((p) => p.currency === 'USD');
+  useEffect(() => {
+    if (!hasUsd || trmAsked.current) return;
+    trmAsked.current = true;
+    api<{ trm: number | null }>('GET', `trm?date=${today()}`)
+      .then((r) => r.trm && setTrm((t) => t || String(r.trm)))
+      .catch(() => {});
+  }, [hasUsd]);
 
   useEffect(() => {
     if (proposal && !project.name) setProject((p) => ({ ...p, name: proposal.title || '' }));
@@ -532,6 +552,42 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
       return next;
     });
 
+  const clientPeople = shared ? people.filter((p) => p.side === 'cliente' && p.name.trim()) : [];
+  /** La IA reparte las tareas del plan entre el equipo según sus habilidades; tú quedas con la mayor carga. */
+  const distribute = () => {
+    const team = withOwner(people).filter((p) => p.lead || p.name.trim());
+    if (team.length < 2) return toast('Agrega al menos otra persona al equipo.', true);
+    setDistributing(true);
+    api<{ assignments: Record<string, string>; load: { person: string; summary: string }[]; notes: string[]; ai: { model: string } }>('POST', 'people/distribute', {
+      projectName: project.name,
+      scope: project.scope,
+      people: team,
+      instruction: distHint.trim(),
+      phases: phases.map((ph) => ({ name: ph.name, tasks: ph.tasks.map((t) => ({ title: t.title, description: t.description, side: t.side })) })),
+    })
+      .then((r) => {
+        const byKey = new Map(team.map((p) => [p.key, p]));
+        setPhases((ps) =>
+          ps.map((ph, i) => ({
+            ...ph,
+            tasks: ph.tasks.map((t, j) => {
+              const k = r.assignments[`${i}.${j}`];
+              if (k === undefined) return t;
+              if (k === '') return { ...t, side: 'cliente' as const, assigneeId: null, clientAssignee: '', clientDelivery: false };
+              const p = byKey.get(k);
+              if (!p) return t;
+              if (p.side === 'cliente') return { ...t, side: 'cliente' as const, assigneeId: null, clientAssignee: p.name, clientDelivery: false };
+              return { ...t, side: 'deersystems' as const, assigneeId: p.accountId, clientAssignee: '' };
+            }),
+          })),
+        );
+        setDistribution({ load: r.load.map((l) => ({ person: byKey.get(l.person)?.name ?? l.person, summary: l.summary })), notes: r.notes, model: r.ai.model });
+        toast('Trabajo repartido: revisa los responsables en cada tarea.');
+      })
+      .catch((e: Error) => toast(e.message, true))
+      .finally(() => setDistributing(false));
+  };
+
   const taskCount = phases.reduce((n, p) => n + p.tasks.filter((t) => t.title.trim()).length, 0);
   const clientTasks = phases.reduce((n, p) => n + p.tasks.filter((t) => t.side === 'cliente' && t.title.trim()).length, 0);
   const priceWarning =
@@ -567,12 +623,18 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
     // Lo que la IA no conoce (responsable, si se agenda) se conserva por título.
     const norm = (t: string) => t.trim().toLowerCase();
     const assignees = new Map(phases.flatMap((p) => p.tasks.map((t) => [norm(t.title), t.assigneeId] as const)));
+    const clientAssignees = new Map(phases.flatMap((p) => p.tasks.map((t) => [norm(t.title), t.clientAssignee ?? ''] as const)));
     const scheduled = new Map(meetings.map((m) => [norm(m.title), m.schedule] as const));
     const inviting = new Map(meetings.map((m) => [norm(m.title), m.inviteNow] as const));
     const newPhases = r.plan.phases.map((ph) => ({
       key: key(),
       name: ph.name,
-      tasks: ph.tasks.map((t) => ({ ...t, key: key(), assigneeId: assignees.get(norm(t.title)) ?? null })),
+      tasks: ph.tasks.map((t) => ({
+        ...t,
+        key: key(),
+        assigneeId: t.side === 'deersystems' ? (assignees.get(norm(t.title)) ?? null) : null,
+        clientAssignee: t.side === 'cliente' ? (clientAssignees.get(norm(t.title)) ?? '') : '',
+      })),
     }));
     setPhases(newPhases);
     setMeetings(
@@ -651,6 +713,8 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
           tentative: !m.inviteNow,
         })),
         payments: payments.filter((p) => p.label.trim() && Number(p.amount) > 0).map(draftBody),
+        trm: hasUsd && Number(trm) > 0 ? Number(trm) : null,
+        people: shared ? withOwner(people).filter((p) => p.lead || p.name.trim()) : [],
         notify: notify && !!google.data?.connected,
       });
       setResult(r);
@@ -966,6 +1030,63 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
 
           <section className="card form-section">
             <div className="form-section__head">
+              <h2>Equipo del proyecto</h2>
+              <label className="check check--chip">
+                <input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />
+                Proyecto compartido
+              </label>
+            </div>
+            {!shared ? (
+              <p className="hint">Márcalo si el cliente pone parte del equipo (personas que ejecutan tareas) y tú orquestas.</p>
+            ) : (
+              <>
+                <p className="hint">
+                  Tú orquestas y llevas la mayor carga. Agrega las personas del cliente (y de tu equipo) con sus habilidades, o tráelas de la reunión grabada
+                  donde se presentaron; luego la IA reparte las tareas según eso.
+                </p>
+                <PeopleEditor
+                  people={people}
+                  onChange={setPeople}
+                  team={team.data ?? []}
+                  proposalId={proposalId}
+                  clientId={clientMode === 'existing' ? existingId : null}
+                  disabled={distributing}
+                />
+                <div className="adjust-plan__foot">
+                  <span className="input people__hint">
+                    <input
+                      value={distHint}
+                      disabled={distributing}
+                      placeholder="Indicaciones opcionales (p. ej. Ana solo tiene medio tiempo)"
+                      onChange={(e) => setDistHint(e.target.value)}
+                    />
+                  </span>
+                  <button className="btn btn--primary btn--sm btn--ai" disabled={distributing || !taskCount} onClick={distribute}>
+                    {distributing ? 'Repartiendo…' : distribution ? '✦ Volver a repartir' : '✦ Repartir el trabajo con IA'}
+                  </button>
+                </div>
+                {distribution && (
+                  <div className="adjust-plan__changes">
+                    <strong>Reparto</strong>
+                    <ul className="md-list">
+                      {distribution.load.map((l) => (
+                        <li key={l.person}>
+                          <strong>{l.person}:</strong> {l.summary}
+                        </li>
+                      ))}
+                    </ul>
+                    {distribution.notes.map((n) => (
+                      <small key={n}>⚠ {n}</small>
+                    ))}
+                    <small className="mono">{distribution.model}</small>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+
+          <section className="card form-section">
+            <div className="form-section__head">
               <h2>Fases y tareas</h2>
               <span className="mono">
                 {taskCount} tareas · {clientTasks} del cliente
@@ -1002,7 +1123,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                         <select
                           value={t.side}
                           aria-label="Quién la resuelve"
-                          onChange={(e) => updateTask(ph.key, t.key, { side: e.target.value as Side, assigneeId: null, clientDelivery: false })}
+                          onChange={(e) => updateTask(ph.key, t.key, { side: e.target.value as Side, assigneeId: null, clientAssignee: '', clientDelivery: false })}
                         >
                           <option value="deersystems">DeerSystems</option>
                           <option value="cliente">Cliente</option>
@@ -1019,6 +1140,18 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                           Entrega
                         </label>
                       )}
+                      {t.side === 'cliente' && clientPeople.length > 0 && (
+                        <span className="input">
+                          <select value={t.clientAssignee ?? ''} aria-label="Persona del cliente" onChange={(e) => updateTask(ph.key, t.key, { clientAssignee: e.target.value })}>
+                            <option value="">El cliente</option>
+                            {clientPeople.map((p) => (
+                              <option key={p.key} value={p.name}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        </span>
+                      )}
                       {t.side === 'deersystems' && activeTeam.length > 0 && (
                         <span className="input">
                           <select
@@ -1026,7 +1159,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                             aria-label="Responsable"
                             onChange={(e) => updateTask(ph.key, t.key, { assigneeId: Number(e.target.value) || null })}
                           >
-                            <option value="">Sin asignar</option>
+                            <option value="">{shared ? 'Tú (orquestador)' : 'Sin asignar'}</option>
                             {activeTeam.map((m) => (
                               <option key={m.id} value={m.id}>
                                 {m.name}
@@ -1239,6 +1372,26 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
               El plan de pagos según la propuesta. Queda en la pestaña Pagos del proyecto (lo ven tú y el cliente, nunca el equipo); al marcar uno como pagado
               se registra en tu Gestor financiero.
             </p>
+            {hasUsd && (
+              <div className="trm-fixed">
+                <label className="field">
+                  <span className="field__label">TRM fija de la propuesta (COP por USD)</span>
+                  <span className="input">
+                    <MoneyInput value={trm} onChange={setTrm} />
+                  </span>
+                </label>
+                <p className="hint">
+                  {targetProject
+                    ? 'Si el proyecto aún no tiene TRM fija, queda esta. Si ya tiene, se conserva la suya.'
+                    : 'La de hoy, para toda la propuesta: todas las cuotas en USD se liquidan a este valor aunque se paguen en meses distintos. Se puede ajustar después en Pagos.'}
+                  {Number(trm) > 0 &&
+                    ` Total USD ≈ ${money(
+                      payments.filter((p) => p.currency === 'USD').reduce((n, p) => n + (Number(p.amount) || 0), 0) * Number(trm),
+                      'COP',
+                    )}.`}
+                </p>
+              </div>
+            )}
             {payments.map((p) => (
               <DraftRow
                 key={p.key}

@@ -17,6 +17,7 @@ import {
   type ProjectDetail,
   type Task,
   type TaskStatus,
+  taskOwner,
 } from '../../lib';
 import { StatusPill, useAction } from '../../ui';
 import { DeliveryTag, RoundTag } from './Review';
@@ -40,7 +41,7 @@ interface Props {
 // ───────── Piezas comunes ─────────
 
 function Who({ task }: { task: Task }) {
-  return <span className={`side side--${task.side}`}>{task.side === 'cliente' ? 'Cliente' : (task.assigneeName ?? 'DeerSystems')}</span>;
+  return <span className={`side side--${task.side}`}>{taskOwner(task)}</span>;
 }
 
 function StatusControl({ task, me, onStatus }: { task: Task; me: Me; onStatus: Props['onStatus'] }) {

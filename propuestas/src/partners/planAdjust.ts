@@ -6,6 +6,7 @@ import { actor, requireOwner, str } from './common.ts';
 import * as db from './db.ts';
 import { checkSlots } from './availability.ts';
 import { meetingOfTask, moveMeeting } from './meetings.ts';
+import { peopleOf } from './people.ts';
 
 /**
  * Ajustar con IA el plan de un proyecto que ya está en marcha: «reprograma las reuniones con el cliente a partir del
@@ -25,6 +26,10 @@ export interface TaskUpdate {
   dueDate?: string | null;
   /** Hora de la reunión agendada (HH:MM), si se mueve. */
   time?: string;
+  /** Persona del cliente a cargo (proyectos compartidos). */
+  clientAssignee?: string;
+  /** Persona del equipo de DeerSystems a cargo (null = DeerSystems/tú). */
+  assigneeId?: number | null;
 }
 export interface TaskCreate {
   /** Fase existente o el nombre de una nueva. */
@@ -36,6 +41,8 @@ export interface TaskCreate {
   startDate: string | null;
   dueDate: string | null;
   kind: 'tarea' | 'reunion';
+  clientAssignee: string;
+  assigneeId: number | null;
 }
 export interface PlanOps {
   updates: TaskUpdate[];
@@ -57,6 +64,7 @@ export function normalizeOps(projectId: number, raw: Record<string, unknown>): {
   const phaseByName = new Map(phases.map((p) => [p.name.trim().toLowerCase(), p.id]));
   const phaseIds = new Set(phases.map((p) => p.id));
   const skipped: string[] = [];
+  const team = new Set(db.listTeam().map((a) => a.id));
   const phaseOf = (o: Record<string, unknown>): number | null | undefined => {
     if (Number(o.phaseId) && phaseIds.has(Number(o.phaseId))) return Number(o.phaseId);
     const name = str(o.phase, 120).trim().toLowerCase();
@@ -79,6 +87,15 @@ export function normalizeOps(projectId: number, raw: Record<string, unknown>): {
     if (s && s !== t.side) u.side = s;
     const ph = phaseOf(o);
     if (ph !== undefined && ph !== t.phase_id) u.phaseId = ph;
+    const finalSide = u.side ?? t.side;
+    if (typeof o.clientAssignee === 'string' && finalSide === 'cliente') {
+      const ca = str(o.clientAssignee, 120).trim();
+      if (ca !== t.client_assignee) u.clientAssignee = ca;
+    }
+    if ('assigneeId' in o && finalSide === 'deersystems') {
+      const aid = team.has(Number(o.assigneeId)) ? Number(o.assigneeId) : null;
+      if (aid !== t.assignee_id) u.assigneeId = aid;
+    }
     let start = 'startDate' in o ? date(o.startDate) : t.start_date;
     let due = 'dueDate' in o ? date(o.dueDate) : t.due_date;
     if (t.kind === 'reunion') {
@@ -98,6 +115,8 @@ export function normalizeOps(projectId: number, raw: Record<string, unknown>): {
         delete u.phaseId;
         delete u.side;
         delete u.description;
+        delete u.clientAssignee;
+        delete u.assigneeId;
       }
     }
     if (Object.keys(u).length > 1) updates.push(u);
@@ -120,6 +139,8 @@ export function normalizeOps(projectId: number, raw: Record<string, unknown>): {
       startDate: o.kind === 'reunion' ? (due ?? start) : start,
       dueDate: due ?? (o.kind === 'reunion' ? start : null),
       kind: o.kind === 'reunion' ? 'reunion' : 'tarea',
+      clientAssignee: side(o.side) === 'cliente' ? str(o.clientAssignee, 120).trim() : '',
+      assigneeId: side(o.side) !== 'cliente' && team.has(Number(o.assigneeId)) ? Number(o.assigneeId) : null,
     });
   }
 
@@ -190,6 +211,10 @@ export async function placeMoves(ops: PlanOps): Promise<Notes> {
 export function preview(projectId: number, ops: PlanOps, notes: Notes = new Map()) {
   const tasks = new Map(db.listTasks(projectId).map((t) => [t.id, t]));
   const phases = new Map(db.listPhases(projectId).map((p) => [p.id, p.name]));
+  const team = new Map(db.listTeam().map((a) => [a.id, a.name || a.email]));
+  /** Quién hace la tarea, en palabras: «Ana (cliente)», «Paula», «DeerSystems». */
+  const who = (side: string, assigneeId: number | null, clientAssignee: string) =>
+    side === 'cliente' ? (clientAssignee ? `${clientAssignee} (cliente)` : 'Cliente') : assigneeId ? (team.get(assigneeId) ?? 'DeerSystems') : 'DeerSystems';
   return {
     updates: ops.updates.map((u) => {
       const t = tasks.get(u.id)!;
@@ -206,6 +231,7 @@ export function preview(projectId: number, ops: PlanOps, notes: Notes = new Map(
           time: m?.scheduled ? bogotaTime(m.startAt) : null,
           phase: t.phase_id ? (phases.get(t.phase_id) ?? '') : '',
           side: t.side,
+          who: who(t.side, t.assignee_id, t.client_assignee),
         },
         after: {
           title: u.title ?? t.title,
@@ -214,13 +240,18 @@ export function preview(projectId: number, ops: PlanOps, notes: Notes = new Map(
           time: m?.scheduled ? (u.time ?? bogotaTime(m.startAt)) : null,
           phase: u.phaseId !== undefined ? (u.phaseId ? (phases.get(u.phaseId) ?? '') : '') : t.phase_id ? (phases.get(t.phase_id) ?? '') : '',
           side: u.side ?? t.side,
+          who: who(
+            u.side ?? t.side,
+            u.assigneeId !== undefined ? u.assigneeId : t.assignee_id,
+            u.clientAssignee !== undefined ? u.clientAssignee : t.client_assignee,
+          ),
         },
         descriptionChanged: u.description !== undefined,
         note: notes.get(u.id)?.text ?? null,
         clash: notes.get(u.id)?.clash ?? false,
       };
     }),
-    creates: ops.creates.map((c) => ({ ...c, phase: c.phaseId ? (phases.get(c.phaseId) ?? '') : c.phaseName })),
+    creates: ops.creates.map((c) => ({ ...c, phase: c.phaseId ? (phases.get(c.phaseId) ?? '') : c.phaseName, who: who(c.side, c.assigneeId, c.clientAssignee) })),
     deletes: ops.deletes.map((id) => ({ id, title: tasks.get(id)!.title, kind: tasks.get(id)!.kind })),
   };
 }
@@ -240,9 +271,23 @@ export function tasksForAi(projectId: number) {
       startDate: t.start_date,
       dueDate: t.due_date,
       ...(m?.scheduled ? { time: bogotaTime(m.startAt), agendadaEnCalendar: true } : {}),
+      ...(t.assignee_id ? { assigneeId: t.assignee_id } : {}),
+      ...(t.client_assignee ? { clientAssignee: t.client_assignee } : {}),
       description: t.description.slice(0, 200),
     };
   });
+}
+
+/** El equipo del proyecto compartido, para que la IA sepa a quién puede asignar. Vacío si no hay equipo definido. */
+export function teamBlock(project: db.Project): string {
+  const people = peopleOf(project);
+  if (!people.length) return '';
+  const lines = people.map((p) =>
+    p.side === 'cliente'
+      ? `- ${p.name} (cliente; clientAssignee "${p.name}"): ${p.skills || 'sin detalle'}`
+      : `- ${p.name} (DeerSystems${p.lead ? ', orquestador' : ''}; assigneeId ${p.accountId ?? 'null'}): ${p.skills || 'sin detalle'}`,
+  );
+  return `\nEQUIPO DEL PROYECTO (compartido con el cliente; el orquestador lleva la mayor carga):\n${lines.join('\n')}\n`;
 }
 
 async function suggest(project: db.Project, instruction: string, allowWeekends = false) {
@@ -256,7 +301,7 @@ Responde SOLO con un objeto JSON válido, en español, sin comentarios ni texto 
     prompt: `Hoy es ${today()} (${new Date().toLocaleDateString('es-CO', { weekday: 'long', timeZone: 'America/Bogota' })}). Proyecto: "${project.name}". Inicio: ${project.start_date ?? 'sin fecha'}. Entrega estimada: ${project.end_date ?? 'sin fecha'}.
 
 FASES: ${JSON.stringify(phases.map((p) => p.name))}
-
+${teamBlock(project)}
 TAREAS ACTUALES (JSON; kind "reunion" = reunión con el cliente):
 ${JSON.stringify(tasks)}
 
@@ -267,8 +312,8 @@ ${instruction}
 
 Devuelve SOLO los cambios, con esta forma:
 {
-  "updates": [{ "id": 12, "title": "...", "description": "...", "side": "deersystems | cliente", "phase": "nombre exacto de una fase", "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD", "time": "HH:MM" }],
-  "creates": [{ "phase": "nombre de una fase (existente o nueva)", "title": "...", "description": "...", "side": "deersystems | cliente", "kind": "tarea | reunion", "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD" }],
+  "updates": [{ "id": 12, "title": "...", "description": "...", "side": "deersystems | cliente", "phase": "nombre exacto de una fase", "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD", "time": "HH:MM", "assigneeId": 3, "clientAssignee": "nombre" }],
+  "creates": [{ "phase": "nombre de una fase (existente o nueva)", "title": "...", "description": "...", "side": "deersystems | cliente", "kind": "tarea | reunion", "startDate": "YYYY-MM-DD", "dueDate": "YYYY-MM-DD", "assigneeId": null, "clientAssignee": "" }],
   "deletes": [34],
   "changes": ["cambio hecho, en una frase corta", "..."]
 }
@@ -280,6 +325,7 @@ Reglas:
 - ${weekdaysRule(allowWeekends)}
 - Reuniones: ocurren en un solo día (startDate = dueDate) y siempre en días hábiles (lunes a viernes). Si piden reprogramarlas "a partir de" una fecha, conserva el orden y el espaciado entre ellas, y la primera queda en esa fecha o el siguiente día hábil. "time" solo para las que tienen "agendadaEnCalendar"; conserva su hora salvo que pidan otra.
 - "deletes" solo si lo piden de forma explícita.
+- Responsables: "assigneeId" (cuenta del equipo de DeerSystems, null = DeerSystems/el orquestador) solo en tareas "deersystems"; "clientAssignee" (nombre de una persona del cliente, "" = el cliente en general) solo en tareas "cliente". Cámbialos solo si lo piden o si la instrucción reparte trabajo.
 - No incluyas precios ni valores en tareas.
 - "changes": entre 1 y 8 frases que expliquen qué cambiaste. Si la instrucción no se puede aplicar, no propongas cambios y explícalo en "changes".`,
     maxOutputTokens: 8192,
@@ -325,7 +371,10 @@ export async function applyPlan(project: db.Project, raw: Record<string, unknown
         phase_id: u.phaseId,
         start_date: u.startDate,
         due_date: u.dueDate,
+        assignee_id: u.assigneeId,
+        client_assignee: u.clientAssignee,
         ...(u.side === 'cliente' ? { assignee_id: null } : {}),
+        ...(u.side === 'deersystems' ? { client_assignee: '' } : {}),
       });
       applied++;
     }
@@ -342,12 +391,13 @@ export async function applyPlan(project: db.Project, raw: Record<string, unknown
         title: c.title,
         description: c.description,
         side: c.side,
-        assigneeId: null,
         startDate: c.startDate,
         dueDate: c.dueDate,
         position: position++,
         source: 'manual',
         kind: c.kind,
+        assigneeId: c.side === 'deersystems' ? c.assigneeId : null,
+        clientAssignee: c.clientAssignee,
       });
       applied++;
     }

@@ -15,6 +15,7 @@ interface Snapshot {
   dueDate: string | null;
   phase: string;
   side: Side;
+  who?: string;
 }
 interface Suggestion {
   scopeBefore: string;
@@ -25,7 +26,7 @@ interface Suggestion {
     ops: { updates: unknown[]; creates: unknown[]; deletes: unknown[] };
     preview: {
       updates: { id: number; title: string; before: Snapshot; after: Snapshot; descriptionChanged: boolean }[];
-      creates: { title: string; phase: string; side: Side; startDate: string | null; dueDate: string | null }[];
+      creates: { title: string; phase: string; side: Side; who?: string; startDate: string | null; dueDate: string | null }[];
       deletes: { id: number; title: string }[];
     };
   };
@@ -57,7 +58,8 @@ function planDiff(b: Snapshot, a: Snapshot, desc: boolean): string {
   if (when(b.startDate, b.dueDate) !== when(a.startDate, a.dueDate)) out.push(`${when(b.startDate, b.dueDate)} → ${when(a.startDate, a.dueDate)}`);
   if (b.title !== a.title) out.push(`nombre: «${a.title}»`);
   if (b.phase !== a.phase) out.push(`fase: ${b.phase || 'sin fase'} → ${a.phase || 'sin fase'}`);
-  if (b.side !== a.side) out.push(`a cargo de ${SIDE[a.side]}`);
+  if (b.who !== a.who) out.push(`a cargo de ${a.who ?? SIDE[a.side]}`);
+  else if (b.side !== a.side) out.push(`a cargo de ${SIDE[a.side]}`);
   if (desc) out.push('descripción actualizada');
   return out.join(' · ') || 'sin cambios visibles';
 }
@@ -319,7 +321,7 @@ export function ScopeAiDialog({ projectId, onDone, onClose }: { projectId: numbe
                           <span className="plan-adjust__tag plan-adjust__tag--new">Nueva</span>
                           <span>
                             <strong>{c.title}</strong>
-                            <small>{[c.phase || 'sin fase', when(c.startDate, c.dueDate), SIDE[c.side]].join(' · ')}</small>
+                            <small>{[c.phase || 'sin fase', when(c.startDate, c.dueDate), c.who ?? SIDE[c.side]].join(' · ')}</small>
                           </span>
                         </li>
                       ))}

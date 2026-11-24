@@ -61,6 +61,7 @@ export function taskView(t: db.Task, v: Viewer, team: Map<number, string>, comme
     side: t.side,
     assigneeId: t.assignee_id,
     assigneeName: t.assignee_id ? (team.get(t.assignee_id) ?? null) : null,
+    clientAssignee: t.client_assignee || null,
     startDate: t.start_date,
     dueDate: t.due_date,
     completedAt: t.completed_at,
