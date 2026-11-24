@@ -58,7 +58,7 @@ propuestas/
     secrets.ts            AES-256-GCM para claves y tokens guardados
     partners/
       routes.ts           Login, sesión, vistas por rol, proyectos, clientes, cuentas, equipo, propuestas, aprobación, ajustes, despachador
-      auth.ts             scrypt, cookie firmada, límite de intentos, Viewer
+      auth.ts             scrypt, cookie firmada, límite de intentos, Viewer, «Ver como»
       common.ts           Permisos (requireOwner, requireStaff, visibleProject, visibleTask, seesTask, seesMoney, clientSees, taskView)
       db.ts               Esquema y consultas del núcleo: clientes, cuentas, proyectos, fases, tareas, notas, bitácora, avisos, ajustes
       indexes.ts          19 índices creados al arrancar + PRAGMA optimize
@@ -241,6 +241,16 @@ Varias personas del mismo cliente pueden tener cuenta (`accounts.client_id`). Ca
 - `billing`: ve valores, pagos y cuentas de cobro.
 - `is_primary`: es la cuenta principal (recibe los correos principales).
 - `own_tasks`: solo ve sus tareas (el equipo del cliente en un proyecto compartido). Una tarea es suya si su `client_assignee` es su nombre o el de la persona del equipo del proyecto ligada a su cuenta (`projects.people[].accountId`). Ve, comenta y sube archivos solo en esas tareas; las demás (y sus comentarios, archivos, imágenes e historial) responden 404. No ve los informes y solo le llegan los avisos de sus tareas. Sí ve las notas y archivos del proyecto (no de tareas) y los avances.
+
+### Ver como (`partners/auth.ts`)
+
+El administrador puede mirar el portal con los permisos de una persona del equipo o del cliente, sin su contraseña:
+
+- Va en una cookie firmada aparte (`dp_viewas`, 8 horas); la sesión del administrador no cambia. Solo vale si la sesión es la del administrador: con cualquier otra sesión, o sin sesión, se ignora.
+- `viewer(req)` devuelve el `Viewer` de esa persona con `preview: true`; `sessionViewer(req)` es siempre quien inició sesión (lo usan la conexión con Google, el historial de propuestas y la autorización del conector MCP).
+- Es de solo lectura: con `preview`, el despachador rechaza con 403 todo lo que no sea `GET` (salvo `POST vitals`). No se guarda nada ni se avisa a nadie. `GET me` devuelve `preview: true` y no muestra el tour.
+- Rutas (solo el administrador real, aunque esté viendo como otra persona): `GET view-as/options` (equipo activo y personas activas de cada cliente, con lo que ven), `POST view-as` `{accountId}` para entrar o cambiar de persona, `DELETE view-as` para salir. Cerrar sesión también sale de la vista.
+- En la interfaz: el botón del ojo en la barra (y «Ver como» en las personas de cada cliente) abre el selector; mientras dura, una franja fija dice a quién estás viendo, con «Cambiar persona» y «Salir de la vista».
 
 ### Reglas (`partners/common.ts`)
 
@@ -695,6 +705,9 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 
 ### Otros componentes
 
+`ViewAs.tsx`: botón y selector de «Ver como» y la franja mientras se ve como otra persona.
+
+
 `Tour.tsx` es el recorrido guiado por rol dentro de un proyecto real. `Schedule.tsx` (en la raíz) es el selector de horario con disponibilidad.
 
 ## 12. Seguridad (resumen)
@@ -710,6 +723,7 @@ Por Telegram solo llegan los avisos de audiencia `owner` o `staff`.
 | Webhook | Firma de Wompi |
 | Conector MCP | Solo Bearer (sin cookies, así no aplica CSRF); tokens guardados como hash; OAuth con PKCE S256, códigos de un solo uso y destinos registrados; solo el administrador autoriza; las herramientas no borran ni facturan |
 | Registros | Rutas sin ids; ni tokens ni datos personales |
+| Ver como | Cookie firmada aparte que solo vale con la sesión del administrador; solo lectura (403 a todo lo que no sea GET); lo sensible del administrador usa `sessionViewer` |
 | Clickjacking e indexación | `X-Frame-Options: DENY`, `noindex` |
 
 ## 13. Despliegue

@@ -149,6 +149,8 @@ export interface Me {
   client?: { id: number; name: string };
   /** Cliente: si ve pagos, precios y cuentas de cobro (una persona adicional, p. ej. un ejecutivo, puede no verlos). */
   billing?: boolean;
+  /** «Ver como»: eres tú mirando con los permisos de esta persona (solo lectura). */
+  preview?: boolean;
 }
 
 /** Tú y las personas del cliente con permiso de pagos ven valores; el equipo, nunca. */

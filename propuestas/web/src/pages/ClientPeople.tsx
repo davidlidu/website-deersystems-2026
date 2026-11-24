@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, formatDateTime, type ProjectSummary } from '../lib';
 import { SecretBox, useAction, useToast } from '../ui';
+import { viewAs } from '../ViewAs';
 
 /**
  * Personas del cliente que entran al portal: la cuenta principal (ve todo) y las demás, p. ej. los ejecutivos de una
@@ -125,6 +126,11 @@ export function ClientPeople({
               <button className="btn btn--outline btn--xs" disabled={busy} onClick={() => setEditing(a)}>
                 Editar acceso
               </button>
+              {a.active && (
+                <button className="btn btn--outline btn--xs" disabled={busy} title="Ver el portal como esta persona (solo lectura)" onClick={() => run(() => viewAs(a.id))}>
+                  Ver como
+                </button>
+              )}
               <button className="btn btn--outline btn--xs" disabled={busy} onClick={() => password(a)}>
                 Contraseña nueva
               </button>

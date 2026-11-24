@@ -52,7 +52,7 @@ type Payload = { k: 'owner'; email: string; exp: number } | { k: 'acct'; id: num
 /** Quién está mirando. El dueño entra con Google; equipo y clientes, con contraseña. */
 export type Viewer =
   | { kind: 'owner'; email: string; name: string }
-  | { kind: 'team'; email: string; name: string; account: Account }
+  | { kind: 'team'; email: string; name: string; account: Account; preview?: boolean }
   | {
       kind: 'client';
       email: string;
@@ -63,6 +63,8 @@ export type Viewer =
       projects: Set<number> | null;
       /** Ve pagos, cuentas de cobro y estado de cuenta. */
       billing: boolean;
+      /** «Ver como»: eres tú mirando con los permisos de esta persona (solo lectura). */
+      preview?: boolean;
     };
 
 const hmac = (value: string) => createHmac('sha256', `partners:${SESSION_SECRET}`).update(value).digest('base64url');
@@ -110,8 +112,9 @@ export function endSession(res: ServerResponse): void {
 /**
  * Se revalida en cada petición: una cuenta desactivada o con contraseña cambiada
  * (session_version distinto) pierde la sesión de inmediato.
+ * Es quien inició sesión de verdad, sin «Ver como»: para lo que solo puede hacer el administrador real.
  */
-export function viewer(req: IncomingMessage): Viewer | null {
+export function sessionViewer(req: IncomingMessage): Viewer | null {
   const [body, sig] = (readCookies(req)[SESSION_COOKIE] ?? '').split('.');
   if (!body || !sig) return null;
   const expected = Buffer.from(hmac(body));
@@ -129,6 +132,10 @@ export function viewer(req: IncomingMessage): Viewer | null {
   }
   const a = getAccount(p.id);
   if (!a || !a.active || a.session_version !== p.v) return null;
+  return accountViewer(a);
+}
+
+function accountViewer(a: Account): Viewer | null {
   if (a.role === 'team') return { kind: 'team', email: a.email, name: a.name, account: a };
   if (a.client_id === null) return null;
   return {
@@ -140,6 +147,51 @@ export function viewer(req: IncomingMessage): Viewer | null {
     projects: a.all_projects ? null : new Set(accountProjectIds(a.id)),
     billing: !!a.billing,
   };
+}
+
+// ───────── Ver como ─────────
+
+/**
+ * «Ver como»: el administrador mira el portal con los permisos de una persona del equipo o del cliente, sin su
+ * contraseña. Va en una cookie firmada aparte (la sesión no cambia), dura 8 horas y solo vale si quien la trae
+ * es el administrador. Todo es de solo lectura: el despachador rechaza lo que no sea GET.
+ */
+const VIEW_AS_COOKIE = 'dp_viewas';
+const VIEW_AS_SECONDS = 8 * 60 * 60;
+
+export function startViewAs(res: ServerResponse, accountId: number): void {
+  const exp = Math.floor(Date.now() / 1000) + VIEW_AS_SECONDS;
+  const body = Buffer.from(JSON.stringify({ id: accountId, exp })).toString('base64url');
+  setCookie(res, VIEW_AS_COOKIE, `${body}.${hmac(`viewas:${body}`)}`, VIEW_AS_SECONDS);
+}
+
+export function endViewAs(res: ServerResponse): void {
+  setCookie(res, VIEW_AS_COOKIE, '', 0);
+}
+
+function viewAsAccount(req: IncomingMessage): Account | null {
+  const [body, sig] = (readCookies(req)[VIEW_AS_COOKIE] ?? '').split('.');
+  if (!body || !sig) return null;
+  const expected = Buffer.from(hmac(`viewas:${body}`));
+  const given = Buffer.from(sig);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  try {
+    const p = JSON.parse(Buffer.from(body, 'base64url').toString()) as { id: number; exp: number };
+    if (!(p.exp > Date.now() / 1000)) return null;
+    const a = getAccount(p.id);
+    return a && a.active ? a : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Quién mira: la sesión o, si el administrador activó «Ver como», esa persona (marcada como vista previa). */
+export function viewer(req: IncomingMessage): Viewer | null {
+  const v = sessionViewer(req);
+  if (v?.kind !== 'owner') return v;
+  const a = viewAsAccount(req);
+  const as = a ? accountViewer(a) : null;
+  return as && as.kind !== 'owner' ? { ...as, preview: true } : v;
 }
 
 // ───────── Límite de intentos ─────────

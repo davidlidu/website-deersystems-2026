@@ -2,6 +2,7 @@ import { Component, lazy, StrictMode, Suspense, useEffect, useState, type ReactN
 import { createRoot } from 'react-dom/client';
 import { Bell } from './Bell';
 import { Tour, tourPostponed } from './Tour';
+import { PreviewBanner, ViewAsButton } from './ViewAs';
 import { api, loadChunk, match, navigate, useLocation, type Me } from './lib';
 import { HomePage } from './pages/Home';
 import { ForgotPage, LoginPage, ResetPage } from './pages/Login';
@@ -114,6 +115,7 @@ function Shell({ me, children, path, onTour }: { me: Me; children: React.ReactNo
               ?
             </button>
             <Bell />
+            {me.role === 'owner' && <ViewAsButton />}
             {me.role === 'owner' && (
               <Link
                 to="/configuracion"
@@ -138,12 +140,15 @@ function Shell({ me, children, path, onTour }: { me: Me; children: React.ReactNo
                 Mi cuenta
               </Link>
             )}
-            <button className="btn btn--outline btn--sm" onClick={logout}>
-              Salir
-            </button>
+            {!me.preview && (
+              <button className="btn btn--outline btn--sm" onClick={logout}>
+                Salir
+              </button>
+            )}
           </div>
         </div>
       </header>
+      {me.preview && <PreviewBanner me={me} />}
       <main className="page">{children}</main>
     </>
   );

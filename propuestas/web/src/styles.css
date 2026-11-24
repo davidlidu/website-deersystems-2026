@@ -8515,3 +8515,98 @@ ul.scope-history__reason {
 .people__access-form .input {
   flex: 1 1 220px;
 }
+
+/* ── Ver como */
+.preview-banner {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--oro) 16%, var(--surface-strong));
+  border-bottom: 1px solid color-mix(in srgb, var(--oro) 45%, transparent);
+  color: var(--ink);
+  font-size: 0.86rem;
+}
+
+.preview-banner small {
+  color: var(--body);
+}
+
+.viewas__find {
+  display: flex;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.viewas__find input {
+  flex: 1;
+}
+
+.viewas__list {
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.viewas__list ul {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+.viewas__group {
+  display: block;
+  margin: 10px 0 4px;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.viewas__item {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.viewas__item:hover:not(:disabled),
+.viewas__item:focus-visible {
+  border-color: var(--hairline-strong);
+  background: var(--surface);
+}
+
+.viewas__item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.viewas__item > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.viewas__item small {
+  color: var(--mute);
+  font-size: 0.76rem;
+}
+
+.viewas__item > small {
+  text-align: right;
+  max-width: 50%;
+}

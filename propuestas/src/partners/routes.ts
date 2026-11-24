@@ -15,6 +15,7 @@ import {
   clearFailures,
   clientIp,
   endSession,
+  endViewAs,
   generatePassword,
   hashPassword,
   hashToken,
@@ -22,9 +23,11 @@ import {
   rateLimited,
   readCookies,
   recordFailure,
+  sessionViewer,
   setCookie,
   startAccountSession,
   startOwnerSession,
+  startViewAs,
   STATE_COOKIE,
   verifyPassword,
   viewer,
@@ -150,6 +153,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, url: URL): 
 
     case 'POST /auth/logout':
       endSession(res);
+      endViewAs(res);
       return json(res, 200, { ok: true });
 
     case 'POST /auth/forgot': {
@@ -188,7 +192,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, url: URL): 
     case 'GET /auth/google/connect': {
       if (!GOOGLE_CLIENT_ID) return redirect(res, '/login?error=config');
       const mode = route.endsWith('connect') ? 'connect' : 'login';
-      if (mode === 'connect' && viewer(req)?.kind !== 'owner') return redirect(res, '/login');
+      if (mode === 'connect' && sessionViewer(req)?.kind !== 'owner') return redirect(res, '/login');
       const state = randomBytes(24).toString('base64url');
       setCookie(res, STATE_COOKIE, `${mode}.${state}`, 600);
       return redirect(res, google.authUrl(state, mode));
@@ -204,7 +208,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, url: URL): 
       if (!result) return redirect(res, `${back}google`);
       if (result.email !== SUPERADMIN_EMAIL) return redirect(res, `${back}unauthorized`);
       if (mode === 'connect') {
-        if (viewer(req)?.kind !== 'owner') return redirect(res, '/login');
+        if (sessionViewer(req)?.kind !== 'owner') return redirect(res, '/login');
         if (!result.refreshToken) return redirect(res, `${back}norefresh`);
         google.saveConnection(result.email, result.refreshToken, result.scopes);
         return redirect(res, `${back}ok`);
@@ -564,7 +568,7 @@ function proposalView(p: Proposal) {
 
 /** /historial/{id}/{versión}/… — una versión anterior tal como se publicó. Solo el administrador. */
 async function handleHistory(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
-  if (viewer(req)?.kind !== 'owner') return redirect(res, '/login');
+  if (sessionViewer(req)?.kind !== 'owner') return redirect(res, '/login');
   const [, , rawId, rawVersion, ...rest] = url.pathname.split('/');
   const p = getProposal(Number(rawId));
   const version = Number(rawVersion);
@@ -606,6 +610,39 @@ function readAccess(body: Record<string, unknown>, clientId: number): { allProje
   return { allProjects, billing: body.billing === true, projectIds, ownTasks: body.ownTasks === true };
 }
 
+// ───────── Ver como ─────────
+
+/** Personas para «Ver como»: tu equipo y las personas de cada cliente, con lo que ven. */
+async function handleViewAs(route: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (route === 'DELETE view-as') {
+    endViewAs(res);
+    return json(res, 200, { ok: true });
+  }
+  if (route === 'POST view-as') {
+    const body = await readJson(req);
+    const a = db.getAccount(Number(body.accountId));
+    if (!a || (a.role !== 'team' && !a.client_id)) throw new HttpError(404, 'Esa persona no existe.');
+    if (!a.active) throw new HttpError(400, 'Esa persona tiene el acceso desactivado.');
+    startViewAs(res, a.id);
+    return json(res, 200, { ok: true });
+  }
+  const clients = new Map(db.listClients().map((c) => [c.id, c.name]));
+  const projects = new Map(db.listProjects().map((p) => [p.id, p.name]));
+  const team = db
+    .listTeam()
+    .filter((a) => a.active)
+    .map((a) => ({ id: a.id, name: a.name || a.email, email: a.email, role: 'team' as const, group: 'Tu equipo', access: 'Equipo: proyectos sin valores ni pagos' }));
+  const people = db
+    .listAllClientAccounts()
+    .filter((a) => a.active && a.client_id)
+    .map((a) => {
+      const scope = a.all_projects ? 'Todos sus proyectos' : db.accountProjectIds(a.id).map((id) => projects.get(id) ?? `Proyecto ${id}`).join(' · ') || 'Sin proyectos';
+      const extras = [a.billing ? 've pagos' : 'sin pagos', ...(a.own_tasks ? ['solo sus tareas'] : [])].join(', ');
+      return { id: a.id, name: a.name || a.email, email: a.email, role: 'client' as const, group: clients.get(a.client_id!) ?? 'Cliente', access: `${scope} · ${extras}` };
+    });
+  return json(res, 200, [...team, ...people]);
+}
+
 // ───────── API ─────────
 
 async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -618,6 +655,16 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
   const isId = (s: string | undefined) => !!s && /^\d+$/.test(s);
   const route = `${req.method} ${parts.map((p) => (isId(p) ? ':id' : p)).join('/')}`;
   const id = Number(parts.find(isId));
+
+  // ── Ver como: solo el administrador real (aunque esté viendo como otra persona) entra, cambia o sale.
+  if (route === 'GET view-as/options' || route === 'POST view-as' || route === 'DELETE view-as') {
+    if (sessionViewer(req)?.kind !== 'owner') throw new HttpError(403, 'Solo el administrador puede ver como otra persona.');
+    return handleViewAs(route, req, res);
+  }
+  // Viendo como otra persona todo es de solo lectura: nada se guarda ni se manda a su nombre.
+  if (v.kind !== 'owner' && v.preview && req.method !== 'GET' && route !== 'POST vitals') {
+    throw new HttpError(403, `Estás viendo el portal como ${v.name || v.email}: es solo lectura. Sal de «Ver como» para hacer cambios.`);
+  }
 
   switch (route) {
     // ── Velocidad real (solo llegan las mediciones malas): se registra sin ids ni datos personales.
@@ -640,7 +687,9 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
         email: v.email,
         name: v.name,
         role: v.kind,
-        tourDone: db.tourDone(v.kind === 'owner' ? null : v.account.id),
+        // Viendo como otra persona no sale el tour (sería el de esa persona).
+        tourDone: v.kind !== 'owner' && v.preview ? true : db.tourDone(v.kind === 'owner' ? null : v.account.id),
+        ...(v.kind !== 'owner' && v.preview ? { preview: true } : {}),
         ...(v.kind === 'owner' ? { proposalsUrl: `${PUBLIC_URL}/admin` } : {}),
         ...(v.kind === 'client' ? { client: db.getClient(v.clientId), billing: v.billing } : {}),
       });

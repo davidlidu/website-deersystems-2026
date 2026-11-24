@@ -267,6 +267,8 @@ export const getAccountByEmail = (email: string) => one<Account>('SELECT * FROM 
  */
 export const getClientAccount = (clientId: number) =>
   one<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client' ORDER BY is_primary DESC, id LIMIT 1", clientId);
+/** Todas las personas de todos los clientes (para «Ver como»). */
+export const listAllClientAccounts = () => all<Account>("SELECT * FROM accounts WHERE role = 'client' AND client_id IS NOT NULL ORDER BY client_id, is_primary DESC, name");
 /** Todas las personas del cliente que entran al portal, la principal primero. */
 export const listClientAccounts = (clientId: number) =>
   all<Account>("SELECT * FROM accounts WHERE client_id = ? AND role = 'client' ORDER BY is_primary DESC, id", clientId);

@@ -3,7 +3,7 @@ import { request, type IncomingMessage, type ServerResponse } from 'node:http';
 import { PARTNERS_HOST, PARTNERS_URL, PORT } from '../config.ts';
 import { db as sqlite } from '../db.ts';
 import { HttpError, json, readBody, readJson, redirect } from '../http.ts';
-import { clearFailures, clientIp, internalOwnerCookie, rateLimited, readCookies, recordFailure, setCookie, viewer, type Viewer } from './auth.ts';
+import { clearFailures, clientIp, internalOwnerCookie, rateLimited, readCookies, recordFailure, sessionViewer as viewer, setCookie, type Viewer } from './auth.ts';
 import { requireOwner, str } from './common.ts';
 import * as db from './db.ts';
 
