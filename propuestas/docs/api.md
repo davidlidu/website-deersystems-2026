@@ -99,6 +99,10 @@ Todas las rutas del portal viven en `partners.deersystems.net`:
 | `GET /api/projects/:id/contacts` | A | Cliente, equipo e invitados sugeridos |
 | `POST /api/projects/:id/meetings/schedule` | A | Agenda en Calendar con Meet |
 | `POST /api/meetings/:id/cancel` | A | Cancela (Google avisa) |
+| `POST /api/meetings/:id/confirm` | A | Confirma una reserva: invita al cliente |
+| `GET /api/meetings/pending` | A, C | Cliente: reservas que debe confirmar. Tú: reservas en las que el cliente propuso otro horario |
+| `POST /api/meetings/:id/respond` | C | `{action: 'confirm'}` o `{action: 'propose', date, time, note}` (revisa que el horario esté libre) |
+| `POST /api/meetings/:id/accept-proposal` | A | Mueve la reserva al horario propuesto por el cliente y lo invita |
 | `GET /api/projects/:id/meetings` | todos | Próximas y resúmenes (el cliente solo ve los aprobados) |
 | `POST /api/projects/:id/meetings` | A | Reunión sin Meet, con transcripción |
 | `GET /api/meetings/:id` · `PATCH` | A | Detalle (`?transcript=1`) y edición del borrador |

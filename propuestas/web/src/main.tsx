@@ -1,6 +1,7 @@
 import { Component, lazy, StrictMode, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Bell } from './Bell';
+import { PendingMeetingsBar } from './PendingMeetings';
 import { Tour, tourPostponed } from './Tour';
 import { PreviewBanner, ViewAsButton } from './ViewAs';
 import { api, loadChunk, match, navigate, useLocation, type Me } from './lib';
@@ -19,6 +20,7 @@ const MeetingsPage = lazy(() => loadChunk(() => import('./pages/Meetings')).then
 const MeetingReviewPage = lazy(() => loadChunk(() => import('./pages/Meetings')).then((m) => ({ default: m.MeetingReviewPage })));
 const ProposalsPage = lazy(() => loadChunk(() => import('./pages/Proposals')).then((m) => ({ default: m.ProposalsPage })));
 const CalendarPage = lazy(() => loadChunk(() => import('./pages/Calendar')).then((m) => ({ default: m.CalendarPage })));
+const PendingMeetingsPage = lazy(() => loadChunk(() => import('./pages/PendingMeetings')).then((m) => ({ default: m.PendingMeetingsPage })));
 const SettingsPage = lazy(() => loadChunk(() => import('./pages/Settings')).then((m) => ({ default: m.SettingsPage })));
 
 /**
@@ -147,6 +149,7 @@ function Shell({ me, children, path, onTour }: { me: Me; children: React.ReactNo
             )}
           </div>
         </div>
+        <PendingMeetingsBar me={me} path={path} />
       </header>
       {me.preview && <PreviewBanner me={me} />}
       <main className="page">{children}</main>
@@ -162,6 +165,7 @@ function Routes({ me, path }: { me: Me; path: string }) {
   if (path === '/cuenta' && me.role !== 'owner') return <AccountPage me={me} />;
   // La cuenta de cobro la ven tú y el cliente (las suyas); el servidor no se la entrega al equipo.
   if (me.role !== 'team' && (m = match('/cuentas-de-cobro/:id', path))) return <InvoiceViewPage me={me} id={Number(m.id)} />;
+  if (path === '/reuniones-por-confirmar') return me.role === 'client' ? <PendingMeetingsPage me={me} /> : <GoTo to="/reuniones" />;
   if (me.role !== 'client') {
     if ((m = match('/clientes/:id', path))) return <ClientPage me={me} id={Number(m.id)} />;
   }

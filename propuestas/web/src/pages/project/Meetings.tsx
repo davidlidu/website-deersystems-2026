@@ -2,8 +2,10 @@ import { useState, type FormEvent } from "react";
 import {
   api,
   formatDate,
+  formatMeetingLong,
   formatMeetingTime,
   navigate,
+  PENDING_MEETINGS_EVENT,
   STATUS,
   useApi,
   type Me,
@@ -225,7 +227,13 @@ export function ProjectMeetings({
                     <span className="mono">{formatMeetingTime(m.startAt)}</span>
                     {m.tentative && (
                       <span className="tag tag--warn" title={m.pendingAttendees?.length ? `Al confirmar se invita a ${m.pendingAttendees.join(', ')}` : undefined}>
-                        Por confirmar con el cliente
+                        {owner ? 'Por confirmar con el cliente' : m.clientProposal ? 'Propusiste otro horario' : 'Por confirmar'}
+                      </span>
+                    )}
+                    {m.tentative && m.clientProposal && (
+                      <span className="meeting__proposal">
+                        {owner ? `${m.clientProposal.by} propone` : 'Propusiste'}: {formatMeetingLong(m.clientProposal.startAt)}
+                        {m.clientProposal.note ? ` · «${m.clientProposal.note}»` : ''}
                       </span>
                     )}
                     {!owner && phaseName(m) && <span className="tag">{phaseName(m)}</span>}
@@ -241,6 +249,29 @@ export function ProjectMeetings({
                         Unirse a Meet
                       </a>
                     )}
+                    {m.canRespond && (
+                      <Link className="btn btn--primary btn--sm" to={`/reuniones-por-confirmar?reunion=${m.id}`}>
+                        {m.clientProposal ? 'Ver mi propuesta' : 'Confirmar o proponer horario'}
+                      </Link>
+                    )}
+                    {owner && m.tentative && m.clientProposal && (
+                      <button
+                        className="btn btn--primary btn--sm"
+                        disabled={busy}
+                        title="Mueve la reunión al horario que propuso el cliente y le envía la invitación"
+                        onClick={() => {
+                          if (!confirm(`¿Aceptar el horario que propuso el cliente (${formatMeetingLong(m.clientProposal!.startAt)})?\n\nLa reunión se mueve a ese horario y se envía la invitación de Google Calendar.`)) return;
+                          run(async () => {
+                            replace(await api<Meeting>("POST", `meetings/${m.id}/accept-proposal`));
+                            window.dispatchEvent(new Event(PENDING_MEETINGS_EVENT));
+                            toast("Horario aceptado: el cliente recibió la invitación.");
+                            onTasksChange();
+                          });
+                        }}
+                      >
+                        Aceptar horario propuesto
+                      </button>
+                    )}
                     {owner && m.tentative && (
                       <button
                         className="btn btn--primary btn--sm"
@@ -250,6 +281,7 @@ export function ProjectMeetings({
                           if (!confirm(`¿El cliente confirmó «${m.title}» (${formatMeetingTime(m.startAt)})?\n\nSe le envía la invitación de Google Calendar${m.pendingAttendees?.length ? ` a ${m.pendingAttendees.join(', ')}` : ''}.`)) return;
                           run(async () => {
                             replace(await api<Meeting>("POST", `meetings/${m.id}/confirm`));
+                            window.dispatchEvent(new Event(PENDING_MEETINGS_EVENT));
                             toast("Reunión confirmada: el cliente recibió la invitación.");
                           });
                         }}

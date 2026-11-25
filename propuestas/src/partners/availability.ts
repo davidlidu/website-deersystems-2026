@@ -162,3 +162,15 @@ export async function placeMeetings(meetings: DraftMeeting[]): Promise<string[]>
   });
   return changes;
 }
+
+/**
+ * Para el cliente que propone otro horario: si está libre o no, y el siguiente libre. No dice con qué se cruza
+ * (los títulos de tu calendario no se muestran fuera del equipo).
+ */
+export async function freeForClient(start: Date, end: Date, excludeMeetingId: number): Promise<{ free: boolean; next: string | null }> {
+  const minutes = Math.round((end.getTime() - start.getTime()) / 60_000);
+  const busy = await busyBetween(start.getTime() - DAY, start.getTime() + 31 * DAY, excludeMeetingId);
+  if (!clash(busy, start.getTime(), end.getTime())) return { free: true, next: null };
+  const next = nextFree(busy, start.getTime(), minutes);
+  return { free: false, next: next !== null ? label(next) : null };
+}

@@ -8,8 +8,8 @@ import { getProposal } from '../db.ts';
 import { meetingSummary, proposalAfterCall } from '../mail.ts';
 import { publicUrl } from '../proposals.ts';
 import type { Viewer } from './auth.ts';
-import { actor, isDelivery, optDate, requireOwner, str, visibleProject } from './common.ts';
-import { assertFree, checkSlots } from './availability.ts';
+import { actor, clientSees, isDelivery, limitedToOwnTasks, optDate, requireOwner, str, visibleProject } from './common.ts';
+import { assertFree, bogota, checkSlots, freeForClient } from './availability.ts';
 import * as db from './db.ts';
 import { notify } from './notify.ts';
 import { requestChanges } from './reviews.ts';
@@ -91,6 +91,8 @@ interface Row {
   tentative: number;
   /** Correos del cliente que se invitarán al confirmarla (JSON). */
   pending_attendees: string | null;
+  /** Otro horario que propuso el cliente para la reserva (JSON: ClientProposal). Se borra al confirmar o al moverla. */
+  client_proposal: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +144,16 @@ if (!(sqlite.prepare('PRAGMA table_info(meetings)').all() as { name: string }[])
   add('tentative', 'INTEGER NOT NULL DEFAULT 0');
   add('pending_attendees', 'TEXT');
   add('proposed_changes', "TEXT NOT NULL DEFAULT '[]'");
+  add('client_proposal', 'TEXT');
+}
+
+/** El cliente no puede ir a la hora reservada y propone otra (misma duración). */
+export interface ClientProposal {
+  startAt: string;
+  endAt: string;
+  note: string;
+  by: string;
+  at: string;
 }
 
 /** En Calendar, la reserva se distingue por el título hasta que el cliente confirma. */
@@ -279,7 +291,7 @@ export function meetingOfTask(taskId: number): { id: number; title: string; star
  * Mueve una reunión agendada a otra fecha y hora (misma duración e invitados): actualiza el evento de Calendar,
  * avisa a los invitados y la tarea del cronograma la sigue. Lo usa el ajuste del plan con IA.
  */
-export async function moveMeeting(meetingId: number, date: string, time: string, title: string | null, v: Viewer): Promise<void> {
+export async function moveMeeting(meetingId: number, date: string, time: string, title: string | null, v: Viewer, quiet = false): Promise<void> {
   const m = get(meetingId);
   if (!m) throw new HttpError(404, 'La reunión no existe.');
   if (m.status !== 'programada') throw new HttpError(409, 'Solo se pueden mover reuniones que aún no ocurren.');
@@ -302,7 +314,14 @@ export async function moveMeeting(meetingId: number, date: string, time: string,
       throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
     }
   }
-  update(m.id, { title: newTitle, start_at: start.toISOString(), end_at: end.toISOString(), ...(event?.htmlLink ? { calendar_url: event.htmlLink } : {}) });
+  update(m.id, {
+    title: newTitle,
+    start_at: start.toISOString(),
+    end_at: end.toISOString(),
+    ...(event?.htmlLink ? { calendar_url: event.htmlLink } : {}),
+    ...(m.tentative ? { client_proposal: null } : {}),
+  });
+  if (m.tentative && !quiet) askClientToConfirm(get(m.id)!, v, true);
   if (m.project_id) {
     const a = actor(v);
     const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
@@ -365,6 +384,8 @@ function view(m: Row, v: Viewer) {
     meetUrl: m.meet_url,
     status: m.status,
     tentative: !!m.tentative,
+    // La reserva la ven tú y el cliente que la debe confirmar (con el horario que haya propuesto).
+    ...(m.tentative && (owner || clientResponds(m, v)) ? { clientProposal: parse<ClientProposal | null>(m.client_proposal, null), canRespond: !owner } : {}),
     attendees: parse<Attendee[]>(m.attendees, []),
     // Lo aprobado lo ven todos; el borrador y la transcripción, solo tú.
     ...(approved || owner
@@ -432,6 +453,82 @@ function visible(id: number, v: Viewer): Row {
   visibleProject(m.project_id, v);
   if (!['programada', 'aprobada'].includes(m.status)) throw new HttpError(404, 'La reunión no existe.');
   return m;
+}
+
+/**
+ * ¿Esta persona del cliente confirma la reserva (o propone otro horario)? Las que ven todo el proyecto, y las que
+ * solo ven sus tareas si están entre los invitados de la reunión.
+ */
+function clientResponds(m: Row, v: Viewer): boolean {
+  if (v.kind !== 'client' || !m.tentative || m.status !== 'programada' || !m.project_id || (m.kind ?? 'proyecto') !== 'proyecto') return false;
+  const p = db.getProject(m.project_id);
+  if (!p || !clientSees(v, p)) return false;
+  return !limitedToOwnTasks(v) || parse<string[]>(m.pending_attendees, []).includes(v.email.toLowerCase());
+}
+
+/** Lo que ve cada uno de una reunión en las listas: tú todo; los demás lo programado y lo enviado, y el cliente sus reservas por confirmar. */
+const shownTo = (m: Row, v: Viewer) =>
+  v.kind === 'owner' || (['programada', 'aprobada'].includes(m.status) && (!m.tentative || clientResponds(m, v)));
+
+const whenLabel = (iso: string) =>
+  new Date(iso).toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+
+/** Al cliente: hay una reserva que debe confirmar (al reservarla o cuando le cambias la hora). */
+function askClientToConfirm(m: Row, v: Viewer, moved = false): void {
+  if (!m.project_id || !m.tentative) return;
+  notify('meeting_to_confirm', {
+    actor: v,
+    projectId: m.project_id,
+    title: moved ? `Nuevo horario por confirmar: «${m.title}»` : `Confirma la reunión «${m.title}»`,
+    body: `${whenLabel(m.start_at)}. Confírmala o propón otro día y hora.`,
+    path: `/reuniones-por-confirmar?reunion=${m.id}`,
+  });
+}
+
+/**
+ * La reserva pasa a reunión: se invita al cliente (Google le envía la invitación) con la fecha y hora que tenga.
+ * La confirmas tú o el propio cliente desde el portal.
+ */
+async function confirmTentative(m: Row, v: Viewer): Promise<Row> {
+  if (m.status !== 'programada') throw new HttpError(409, 'Solo se pueden confirmar reuniones que aún no ocurren.');
+  if (!m.tentative) throw new HttpError(409, 'Esta reunión ya está confirmada.');
+  if (new Date(m.start_at).getTime() < Date.now()) throw new HttpError(409, 'La hora de esta reunión ya pasó: propón otro horario.');
+  const current = parse<Attendee[]>(m.attendees, []);
+  const extra = parse<string[]>(m.pending_attendees, []).filter((e) => !current.some((a) => a.email === e));
+  const emails = [...current.map((a) => a.email), ...extra];
+  let event: google.CalendarEvent | null = null;
+  if (m.event_id) {
+    if (!google.connectionStatus().connected) {
+      throw new HttpError(503, v.kind === 'owner' ? 'Conecta Google en Configuración para confirmar reuniones.' : 'No pudimos confirmar la reunión en este momento. Inténtalo más tarde.');
+    }
+    try {
+      event = await google.updateCalendarEvent(m.event_id, { summary: m.title, startIso: m.start_at, endIso: m.end_at, attendees: emails }, true);
+    } catch (err) {
+      throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
+    }
+  }
+  const staff = staffEmails();
+  const clients = clientByEmail();
+  update(m.id, {
+    tentative: 0,
+    pending_attendees: null,
+    client_proposal: null,
+    ...(event?.htmlLink ? { calendar_url: event.htmlLink } : {}),
+    attendees: JSON.stringify([
+      ...current,
+      ...extra.map((email) => ({ email, name: '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' })),
+    ]),
+  });
+  if (m.project_id) {
+    const a = actor(v);
+    const when = whenLabel(m.start_at);
+    db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: v.kind === 'client' ? 'meeting_confirmed' : 'meeting_scheduled', data: { title: m.title, when } });
+    notify('meeting_scheduled', { actor: v, projectId: m.project_id, title: `Reunión agendada: «${m.title}»`, body: when, path: `/proyectos/${m.project_id}?tab=reuniones` });
+    if (v.kind === 'client') {
+      notify('meeting_reply', { actor: v, projectId: m.project_id, title: `${v.name || v.email} confirmó «${m.title}»`, body: when, path: `/reuniones/${m.id}` });
+    }
+  }
+  return get(m.id)!;
 }
 
 // ───────── Quién es quién ─────────
@@ -1018,6 +1115,7 @@ export async function scheduleMeeting(project: db.Project, input: ScheduleInput,
   const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
   if (input.tentative) {
     db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'meeting_reserved', data: { title, when } });
+    askClientToConfirm(get(m.id)!, v);
     return get(m.id)!;
   }
   db.logActivity({ projectId: project.id, actorKind: a.kind, actorName: a.name, type: 'meeting_scheduled', data: { title, when } });
@@ -1227,7 +1325,7 @@ ${context}
       visibleProject(task.project_id, v);
       linkOrphanMeetings(task.project_id);
       const m = sqlite.prepare('SELECT * FROM meetings WHERE plan_task_id = ?').get(task.id) as unknown as Row | undefined;
-      const shown = m && (v.kind === 'owner' || (['programada', 'aprobada'].includes(m.status) && !m.tentative));
+      const shown = m && shownTo(m, v);
       json(res, 200, { meeting: shown ? view(m, v) : null, canSchedule: v.kind === 'owner' && google.connectionStatus().connected && google.hasAnyScope('calendar.events') });
       return true;
     }
@@ -1273,7 +1371,9 @@ ${context}
       const staff = staffEmails();
       const clients = clientByEmail();
       const before = new Map(parse<Attendee[]>(m.attendees, []).map((a) => [a.email, a]));
+      const moved = start.toISOString() !== m.start_at || end.toISOString() !== m.end_at;
       update(m.id, {
+        ...(m.tentative && moved ? { client_proposal: null } : {}),
         title,
         start_at: start.toISOString(),
         end_at: end.toISOString(),
@@ -1291,6 +1391,8 @@ ${context}
         const when = start.toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
         db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: 'meeting_updated', data: { title, when } });
       }
+      // Reserva con otra hora: el cliente la vuelve a ver por confirmar, con el horario nuevo.
+      if (m.tentative && moved) askClientToConfirm(get(m.id)!, v, true);
       json(res, 200, view(get(m.id)!, v));
       return true;
     }
@@ -1298,39 +1400,74 @@ ${context}
     // La reserva pasa a reunión: se invita al cliente (Google le envía la invitación) con la fecha y hora de ese momento.
     case 'POST meetings/:id/confirm': {
       requireOwner(v);
+      json(res, 200, view(await confirmTentative(visible(id, v), v), v));
+      return true;
+    }
+
+    // Reuniones por confirmar: al cliente, las reservas que le tocan; a ti, las que el cliente respondió con otro horario.
+    case 'GET meetings/pending': {
+      if (v.kind === 'team') {
+        json(res, 200, { items: [] });
+        return true;
+      }
+      const rows = sqlite
+        .prepare(`SELECT ${LIST()} FROM meetings WHERE tentative = 1 AND status = 'programada' AND project_id IS NOT NULL ORDER BY start_at`)
+        .all() as unknown as Row[];
+      const items = v.kind === 'owner' ? rows.filter((m) => !!m.client_proposal) : rows.filter((m) => clientResponds(m, v));
+      json(res, 200, { items: items.map((m) => view(m, v)) });
+      return true;
+    }
+
+    // El cliente responde la reserva: confirma el día y la hora, o propone otros (con una nota).
+    case 'POST meetings/:id/respond': {
       const m = visible(id, v);
-      if (m.status !== 'programada') throw new HttpError(409, 'Solo se pueden confirmar reuniones que aún no ocurren.');
-      if (!m.tentative) throw new HttpError(409, 'Esta reunión ya está confirmada.');
-      const current = parse<Attendee[]>(m.attendees, []);
-      const extra = parse<string[]>(m.pending_attendees, []).filter((e) => !current.some((a) => a.email === e));
-      const emails = [...current.map((a) => a.email), ...extra];
-      let event: google.CalendarEvent | null = null;
-      if (m.event_id) {
-        if (!google.connectionStatus().connected) throw new HttpError(503, 'Conecta Google en Configuración para confirmar reuniones.');
-        try {
-          event = await google.updateCalendarEvent(m.event_id, { summary: m.title, startIso: m.start_at, endIso: m.end_at, attendees: emails }, true);
-        } catch (err) {
-          throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
-        }
+      if (!clientResponds(m, v)) throw new HttpError(403, 'Esta reunión no está pendiente de tu confirmación.');
+      const body = await readJson(req);
+      if (body.action === 'confirm') {
+        json(res, 200, view(await confirmTentative(m, v), v));
+        return true;
       }
-      const staff = staffEmails();
-      const clients = clientByEmail();
-      update(m.id, {
-        tentative: 0,
-        pending_attendees: null,
-        ...(event?.htmlLink ? { calendar_url: event.htmlLink } : {}),
-        attendees: JSON.stringify([
-          ...current,
-          ...extra.map((email) => ({ email, name: '', side: staff.has(email) ? 'deersystems' : clients.has(email) ? 'cliente' : 'otro' })),
-        ]),
+      if (body.action !== 'propose') throw new HttpError(400, 'Acción no válida.');
+      const date = optDate(body.date) ?? null;
+      const time = typeof body.time === 'string' && /^\d{2}:\d{2}$/.test(body.time) ? body.time : null;
+      if (!date || !time) throw new HttpError(400, 'Elige la fecha y la hora que te sirven.');
+      // Colombia no cambia de horario: -05:00 todo el año.
+      const start = new Date(`${date}T${time}:00-05:00`);
+      if (Number.isNaN(start.getTime())) throw new HttpError(400, 'Fecha u hora no válida.');
+      if (start.getTime() < Date.now() + 30 * 60_000) throw new HttpError(400, 'Elige un horario con al menos 30 minutos de anticipación.');
+      if (start.getTime() > Date.now() + 120 * 86_400_000) throw new HttpError(400, 'Elige una fecha dentro de los próximos cuatro meses.');
+      const end = new Date(start.getTime() + (new Date(m.end_at).getTime() - new Date(m.start_at).getTime()));
+      if (start.toISOString() === m.start_at) throw new HttpError(400, 'Ese es el mismo horario reservado: usa «Confirmar».');
+      const check = await freeForClient(start, end, m.id);
+      if (!check.free) {
+        // "a. m." ya termina en punto.
+        throw new HttpError(409, `Ese horario ya está ocupado en la agenda de DeerSystems.${check.next ? ` El siguiente horario libre es el ${check.next}.` : ' Elige otro.'}`.replace(/\.\.$/, '.'));
+      }
+      const proposal: ClientProposal = { startAt: start.toISOString(), endAt: end.toISOString(), note: str(body.note, 1000), by: v.name || v.email, at: now() };
+      update(m.id, { client_proposal: JSON.stringify(proposal) });
+      const when = whenLabel(proposal.startAt);
+      const a = actor(v);
+      db.logActivity({ projectId: m.project_id!, actorKind: a.kind, actorName: a.name, type: 'meeting_proposed', data: { title: m.title, when } });
+      notify('meeting_reply', {
+        actor: v,
+        projectId: m.project_id,
+        title: `${proposal.by} propone otro horario para «${m.title}»`,
+        body: `${when}${proposal.note ? ` · ${proposal.note}` : ''}`,
+        path: `/reuniones/${m.id}`,
       });
-      if (m.project_id) {
-        const a = actor(v);
-        const when = new Date(m.start_at).toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
-        db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: 'meeting_scheduled', data: { title: m.title, when } });
-        notify('meeting_scheduled', { actor: v, projectId: m.project_id, title: `Reunión agendada: «${m.title}»`, body: when, path: `/proyectos/${m.project_id}?tab=reuniones` });
-      }
       json(res, 200, view(get(m.id)!, v));
+      return true;
+    }
+
+    // Aceptas el horario que propuso el cliente: la reunión se mueve ahí y se le envía la invitación.
+    case 'POST meetings/:id/accept-proposal': {
+      requireOwner(v);
+      const m = visible(id, v);
+      const p = parse<ClientProposal | null>(m.client_proposal, null);
+      if (!m.tentative || !p) throw new HttpError(409, 'Esta reunión no tiene un horario propuesto por el cliente.');
+      const { date, time } = bogota(Date.parse(p.startAt));
+      await moveMeeting(m.id, date, time, null, v, true);
+      json(res, 200, view(await confirmTentative(get(m.id)!, v), v));
       return true;
     }
 
@@ -1358,7 +1495,7 @@ ${context}
       const project = visibleProject(id, v);
       linkOrphanMeetings(project.id);
       const rows = sqlite.prepare(`SELECT ${LIST()} FROM meetings WHERE project_id = ? ORDER BY start_at DESC`).all(project.id) as unknown as Row[];
-      json(res, 200, rows.filter((m) => v.kind === 'owner' || (['programada', 'aprobada'].includes(m.status) && !m.tentative)).map((m) => view(m, v)));
+      json(res, 200, rows.filter((m) => shownTo(m, v)).map((m) => view(m, v)));
       return true;
     }
 

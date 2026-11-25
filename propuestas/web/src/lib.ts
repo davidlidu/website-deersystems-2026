@@ -330,6 +330,10 @@ export interface Meeting {
   tentative?: boolean;
   /** Solo tú: a quién se invitará al confirmarla. */
   pendingAttendees?: string[];
+  /** Reserva: otro día y hora que propuso el cliente (tú y el cliente lo ven). */
+  clientProposal?: { startAt: string; endAt: string; note: string; by: string; at: string } | null;
+  /** El cliente puede confirmar esta reserva o proponer otro horario. */
+  canRespond?: boolean;
   attendees: { email: string; name: string; side: 'deersystems' | 'cliente' | 'otro' }[];
   summary?: string;
   agreements?: string[];
@@ -349,6 +353,13 @@ export interface Meeting {
   /** Solo tú: la cuenta principal del cliente y su correo de contacto. */
   clientContacts?: { email: string; name: string; label: string }[];
 }
+
+/** «jueves, 26 de noviembre, 10:00 a. m.» en hora de Colombia. */
+export const formatMeetingLong = (iso: string) =>
+  new Date(iso).toLocaleString('es-CO', { weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit', timeZone: 'America/Bogota' });
+
+/** Avisa a la cabecera que cambiaron las reuniones por confirmar (para recargar el aviso). */
+export const PENDING_MEETINGS_EVENT = 'ds:pending-meetings';
 
 export function formatMeetingTime(iso: string): string {
   return new Date(iso).toLocaleString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });

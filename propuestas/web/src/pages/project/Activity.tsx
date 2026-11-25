@@ -58,6 +58,10 @@ function describe(a: ActivityItem): string {
       return `agendó la reunión ${q(d.title)} para el ${d.when}`;
     case 'meeting_reserved':
       return `reservó la reunión ${q(d.title)} para el ${d.when} (por confirmar con el cliente)`;
+    case 'meeting_confirmed':
+      return `confirmó la reunión ${q(d.title)} para el ${d.when}`;
+    case 'meeting_proposed':
+      return `propuso otro horario para la reunión ${q(d.title)}: ${d.when}`;
     case 'meeting_updated':
       return `actualizó la reunión ${q(d.title)} (${d.when})`;
     case 'meeting_cancelled':
@@ -94,6 +98,8 @@ const ICON: Record<string, string> = {
   task_changes: '↺',
   meeting_scheduled: '📅',
   meeting_updated: '📅',
+  meeting_confirmed: '✅',
+  meeting_proposed: '🗓',
 };
 
 export function ActivityFeed({ projectId, taskId, compact }: { projectId: number; taskId?: number; compact?: boolean }) {
