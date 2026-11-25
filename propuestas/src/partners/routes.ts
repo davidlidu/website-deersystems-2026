@@ -23,6 +23,7 @@ import {
   rateLimited,
   readCookies,
   recordFailure,
+  renewSession,
   sessionViewer,
   setCookie,
   startAccountSession,
@@ -684,8 +685,9 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, url: URL): P
       return;
     }
 
-    // ── Sesión
+    // ── Sesión (al abrir la app se renueva: quien la usa seguido no vuelve a iniciar sesión)
     case 'GET me':
+      renewSession(req, res);
       return json(res, 200, {
         email: v.email,
         name: v.name,
@@ -1462,6 +1464,12 @@ export async function handlePartners(req: IncomingMessage, res: ServerResponse, 
     const ok = await sendFile(req, res, join(APP_DIR, path), { 'Cache-Control': 'public, max-age=31536000, immutable' });
     if (ok) return;
     throw new HttpError(404, 'No encontrado.');
+  }
+  // Manifiesto e iconos de la app instalable (están en la raíz del build).
+  if (/^\/(manifest\.webmanifest|apple-touch-icon\.png|icon-(192|512|maskable-512)\.png)$/.test(path)) {
+    const type: Record<string, string> = path.endsWith('.webmanifest') ? { 'Content-Type': 'application/manifest+json; charset=utf-8' } : {};
+    const ok = await sendFile(req, res, join(APP_DIR, path), { 'Cache-Control': 'public, max-age=86400', ...type });
+    if (ok) return;
   }
   // Cualquier otra ruta la resuelve la app (React) en el navegador.
   const ok = await sendFile(req, res, join(APP_DIR, 'index.html'), APP_HEADERS);

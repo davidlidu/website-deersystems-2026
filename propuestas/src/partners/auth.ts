@@ -45,7 +45,10 @@ export const newToken = () => randomBytes(32).toString('base64url');
 
 const SESSION_COOKIE = 'dp_session';
 export const STATE_COOKIE = 'dp_oauth';
-const SESSION_SECONDS = 14 * 24 * 60 * 60;
+/** La sesión dura 60 días desde el último uso: se renueva sola al abrir la app (ver renewSession). */
+const SESSION_SECONDS = 60 * 24 * 60 * 60;
+/** Se renueva cuando ya pasó al menos esto desde que se emitió (para no reenviar la cookie en cada petición). */
+const RENEW_AFTER_SECONDS = 12 * 60 * 60;
 
 type Payload = { k: 'owner'; email: string; exp: number } | { k: 'acct'; id: number; v: number; exp: number };
 
@@ -78,10 +81,15 @@ export function readCookies(req: IncomingMessage): Record<string, string> {
   return out;
 }
 
+/**
+ * Max-Age y también Expires: la app instalada en la pantalla de inicio de iPhone o iPad (modo standalone) puede tratar
+ * como cookie de sesión la que solo trae Max-Age y borrarla al cerrar la app, lo que obligaba a entrar cada día.
+ */
 export function setCookie(res: ServerResponse, name: string, value: string, maxAge: number): void {
+  const expires = new Date(maxAge > 0 ? Date.now() + maxAge * 1000 : 0).toUTCString();
   res.appendHeader(
     'Set-Cookie',
-    `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${PARTNERS_SECURE ? '; Secure' : ''}`,
+    `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Expires=${expires}${PARTNERS_SECURE ? '; Secure' : ''}`,
   );
 }
 
@@ -103,6 +111,26 @@ export function internalOwnerCookie(): string {
 export function startAccountSession(res: ServerResponse, account: Account): void {
   const exp = Math.floor(Date.now() / 1000) + SESSION_SECONDS;
   setCookie(res, SESSION_COOKIE, sign({ k: 'acct', id: account.id, v: account.session_version, exp }), SESSION_SECONDS);
+}
+
+/**
+ * Sesión deslizante: si la sesión es válida y se emitió hace más de 12 horas, se vuelve a emitir con 60 días más.
+ * Así, quien usa la app con frecuencia no vuelve a iniciar sesión; solo vence tras 60 días sin abrirla, al cerrar
+ * sesión, al cambiar la contraseña o si la cuenta se desactiva.
+ */
+export function renewSession(req: IncomingMessage, res: ServerResponse): void {
+  const v = sessionViewer(req);
+  if (!v) return;
+  const [body] = (readCookies(req)[SESSION_COOKIE] ?? '').split('.');
+  let exp = 0;
+  try {
+    exp = Number(JSON.parse(Buffer.from(body, 'base64url').toString()).exp) || 0;
+  } catch {
+    return;
+  }
+  if (exp - Date.now() / 1000 > SESSION_SECONDS - RENEW_AFTER_SECONDS) return;
+  if (v.kind === 'owner') startOwnerSession(res, v.email);
+  else startAccountSession(res, v.account);
 }
 
 export function endSession(res: ServerResponse): void {
