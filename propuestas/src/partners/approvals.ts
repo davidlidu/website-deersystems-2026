@@ -182,6 +182,10 @@ interface GeneratedData {
         porcentaje: number;
         valores: Record<string, number>;
       }[];
+      /** Cobros recurrentes (propuestas de plantillas); con `anual`, el cliente elige pagar mes a mes o por año. */
+      recurrentes?: { concepto: string; valor: number; periodo: string; anual?: number | null }[];
+      /** Plazo de implementación (propuestas de plantillas). */
+      plazo?: string | null;
     };
   };
   slides?: {
@@ -226,6 +230,9 @@ export function optionsOf(data: GeneratedData | null): PublicOption[] {
       amount: typeof o.precio === 'number' ? o.precio : null,
     }));
   }
+  // Con meta.aprobacion y una sola opción (o ninguna), es una sola oferta: los planes de la inversión son conceptos
+  // de la misma propuesta (p. ej. setup, mensualidad y servidor), no alternativas para elegir.
+  if (ap && Array.isArray(ap.opciones)) return [];
   // Propuestas generadas antes de incluir meta.aprobacion: los planes de la diapositiva de inversión.
   const plans = data?.slides?.find((s) => s.role === 'inversion' || s.type === 'pricing')?.plans ?? [];
   if (plans.length > 1) {
@@ -313,6 +320,12 @@ function alreadyApproved(proposalId: number): Map<string, string> {
   return out;
 }
 
+/** Cobros mensuales que el cliente puede pagar por año: los elige al aprobar. */
+function annualChoices(data: GeneratedData | null) {
+  return (data?.meta?.aprobacion?.recurrentes ?? []).filter((x) => x.periodo === 'mensual' && typeof x.anual === 'number' && x.anual > 0);
+}
+const moneyText = (n: number, c: string) => `$${n.toLocaleString('es-CO')} ${c}`;
+
 const dateEs = (iso: string) =>
   new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Bogota' });
 
@@ -362,6 +375,17 @@ function page(p: Proposal, data: GeneratedData | null, options: PublicOption[], 
         )
         .join('')}</fieldset>`
     : '';
+  const plazo = data?.meta?.aprobacion?.plazo;
+  const billing = annualChoices(data)
+    .map(
+      (x, i) => `<fieldset class="opts"><legend>¿Cómo quieres pagar «${esc(x.concepto)}»?</legend>
+        <label class="opt"><input type="radio" name="billing_${i}" value="mensual" checked data-concepto="${esc(x.concepto)}">
+          <span><strong>Mes a mes</strong><em>${esc(moneyText(x.valor, currency))} / mes</em></span></label>
+        <label class="opt"><input type="radio" name="billing_${i}" value="anual" data-concepto="${esc(x.concepto)}">
+          <span><strong>Pago anual</strong><small>Los 12 meses en un solo pago.</small><em>${esc(moneyText(x.anual!, currency))} / año</em></span></label>
+      </fieldset>`,
+    )
+    .join('');
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex, nofollow"><title>Aprobar · ${esc(title)}</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -413,8 +437,10 @@ ${
   <p class="eyebrow">${esc(nro)}</p>
   <h1>Aprobar la propuesta</h1>
   <p>${esc(title)}. Al aprobarla confirmas el alcance, la inversión y la forma de pago tal como aparecen en <a href="./">la propuesta</a>. Con eso preparamos el plan de trabajo y te contactamos para agendar el arranque.</p>
+  ${plazo ? `<p class="muted">Implementación: ${esc(plazo)}.</p>` : ''}
   <form id="f" novalidate>
     ${opts}
+    ${billing}
 ${
   known
     ? `<div class="known" id="known">
@@ -478,7 +504,8 @@ ${
   });
   f.addEventListener('submit',function(e){
     e.preventDefault();err.hidden=true;
-    var d=new FormData(f),o={};d.forEach(function(v,k){if(k!=='options')o[k]=v;});o.accept=!!f.accept.checked;
+    var d=new FormData(f),o={};d.forEach(function(v,k){if(k!=='options'&&k.indexOf('billing_')!==0)o[k]=v;});o.accept=!!f.accept.checked;
+    o.billing={};[].slice.call(f.querySelectorAll('input[name^=billing_]:checked')).forEach(function(b){o.billing[b.getAttribute('data-concepto')]=b.value;});
     if(boxes.length){o.options=boxes.filter(function(b){return b.checked;}).map(function(b){return b.value;});if(!o.options.length)return fail('Elige al menos una opción, o la propuesta completa.');}
     if(f.querySelector('input[name=option]')&&!o.option)return fail('Elige la opción que apruebas.');
     var asKnown=!!f.querySelector('input[name=known]');
@@ -557,6 +584,16 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
       );
   }
   const option = chosen.length ? combined(chosen, options) : undefined;
+  // Pago mensual o anual de los cobros que lo permiten: queda en la aprobación (lo ves tú y lo lee la IA del plan).
+  const currency = data?.meta?.aprobacion?.moneda === 'USD' ? 'USD' : 'COP';
+  const picked = (body.billing && typeof body.billing === 'object' ? body.billing : {}) as Record<string, unknown>;
+  const billingText = annualChoices(data)
+    .map((x) =>
+      picked[x.concepto] === 'anual'
+        ? `${x.concepto}: pago anual (${moneyText(x.anual!, currency)} / año)`
+        : `${x.concepto}: mes a mes (${moneyText(x.valor, currency)} / mes)`,
+    )
+    .join(' · ');
   // Solo cuentan los envíos válidos: un error al llenar el formulario no bloquea al cliente.
   rateLimit(ip);
 
@@ -585,7 +622,7 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
       email,
       client ? client.name : str(body.company, 160),
       str(body.phone, 60) || (useKnown ? known.phone : ''),
-      str(body.notes, 2000),
+      [billingText ? `Forma de pago elegida: ${billingText}.` : '', str(body.notes, 2000)].filter(Boolean).join('\n'),
       ip.slice(0, 64),
       String(req.headers['user-agent'] ?? '').slice(0, 300),
       client?.id ?? null,
@@ -603,7 +640,7 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
     body: `${option ? `${option.name}. ` : ''}Estamos armando el plan de trabajo con IA para que lo revises.`,
     path: `/propuestas/${proposal.id}/aprobar?aprobacion=${id}`,
   });
-  void confirmToClient(email, name, title, option?.name ?? '');
+  void confirmToClient(email, name, title, [option?.name, billingText].filter(Boolean).join(' · '));
   void generatePlan(id);
 }
 

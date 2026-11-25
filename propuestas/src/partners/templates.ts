@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AiError, completeJson } from '../ai.ts';
-import { db as sqlite, getProposal, type Proposal } from '../db.ts';
+import { db as sqlite, getProposal, getProposalBySlug, type Proposal } from '../db.ts';
 import { HttpError, json, readJson } from '../http.ts';
 import * as proposals from '../proposals.ts';
 import { slugify } from '../storage.ts';
@@ -28,6 +28,8 @@ export interface TemplateItem {
   /** Adicional que el cliente puede sumar (no entra en los totales). */
   optional: boolean;
   details: string[];
+  /** Cobro mensual que el cliente puede pagar por año (12 meses) al aprobar. */
+  annual: boolean;
 }
 
 export interface TemplateData {
@@ -43,6 +45,8 @@ export interface TemplateData {
   includes: string[];
   terms: string[];
   validityDays: number;
+  /** Plazo de implementación (p. ej. «Máximo 1 mes desde la aprobación»); vacío = no se muestra. */
+  timeline: string;
 }
 
 interface Row {
@@ -95,6 +99,7 @@ export function cleanData(raw: unknown): TemplateData {
         billing: BILLINGS.includes(i.billing as Billing) ? (i.billing as Billing) : 'unico',
         optional: i.optional === true,
         details: lines(i.details, 20),
+        annual: i.annual === true && i.billing === 'mensual',
       },
     ];
   });
@@ -108,6 +113,7 @@ export function cleanData(raw: unknown): TemplateData {
     includes: lines(b.includes),
     terms: lines(b.terms),
     validityDays: Math.min(365, Math.max(0, Math.round(Number(b.validityDays) || 0))) || 30,
+    timeline: str(b.timeline, 160),
   };
 }
 
@@ -179,6 +185,7 @@ const SEEDS: { key: string; name: string; category: Category; data: TemplateData
           billing: 'mensual',
           optional: false,
           details: [],
+          annual: true,
         },
         {
           name: 'Servidor',
@@ -208,12 +215,13 @@ const SEEDS: { key: string; name: string; category: Category; data: TemplateData
       includes: [],
       terms: [
         'La instalación y el setup son un pago único.',
-        'La mensualidad de inteligencia artificial cubre hasta 800 chats mensuales.',
+        'La mensualidad de inteligencia artificial cubre hasta 800 chats mensuales y se puede pagar mes a mes o por año.',
         'El servidor se paga por año.',
         'El soporte mensual y la sincronización de agenda son opcionales: se suman solo si se requieren.',
         'Valores en pesos colombianos (COP).',
       ],
       validityDays: 30,
+      timeline: 'Máximo 1 mes desde la aprobación',
     }),
   },
   agencyPlan('wp-landing', 'WordPress · Plan A Landing Page', 'Landing Page en WordPress', 'Una página de alta conversión para captar leads y comunicar la propuesta de valor.', 1_000_000, [
@@ -439,6 +447,31 @@ function seed(): void {
 }
 seed();
 
+/**
+ * Ajustes a plantillas base que ya se crearon (una vez cada uno). Chatbot Grupo Oral Flex: la IA se puede pagar por
+ * año y la implementación dura máximo 1 mes. Solo completa lo que falte: no pisa lo que hayas editado.
+ */
+function patchSeeds(): void {
+  const done = new Set(db.getSetting<string[]>('proposal_templates_patches') ?? []);
+  const key = 'chatbot-anual-y-plazo';
+  if (done.has(key)) return;
+  const r = sqlite.prepare('SELECT * FROM proposal_templates WHERE seed_key = ?').get('chatbot-grupo-oral-flex-click-lab') as unknown as Row | undefined;
+  if (r) {
+    const d = parse(r.data);
+    if (!d.timeline) d.timeline = 'Máximo 1 mes desde la aprobación';
+    for (const it of d.items) if (it.billing === 'mensual' && /inteligencia artificial/i.test(it.name)) it.annual = true;
+    d.terms = d.terms.map((t) =>
+      t === 'La mensualidad de inteligencia artificial cubre hasta 800 chats mensuales.'
+        ? 'La mensualidad de inteligencia artificial cubre hasta 800 chats mensuales y se puede pagar mes a mes o por año.'
+        : t,
+    );
+    sqlite.prepare('UPDATE proposal_templates SET data = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(d), now(), r.id);
+  }
+  done.add(key);
+  db.setSetting('proposal_templates_patches', [...done]);
+}
+patchSeeds();
+
 // ───────── La propuesta en HTML (diseño del Cotizador 2026) ─────────
 
 /**
@@ -510,7 +543,9 @@ const cop = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
 const PERIOD: Record<Billing, string> = { unico: 'pago único', mensual: '/ mes', anual: '/ año', hora: '/ hora' };
 const GROUP: Record<Billing, string> = { unico: 'Pago único', mensual: 'Mensual', anual: 'Anual', hora: 'Por hora' };
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
-const priceText = (i: TemplateItem, c: string) => `${cop(i.price)} ${c} ${PERIOD[i.billing]}`.replace(' pago único', ' · pago único');
+const priceText = (i: TemplateItem, c: string) =>
+  `${cop(i.price)} ${c} ${PERIOD[i.billing]}`.replace(' pago único', ' · pago único') + (i.annual ? ` · o ${cop(i.price * 12)} ${c} / año` : '');
+const annualLine = (i: TemplateItem, c: string) => (i.annual ? `También en pago anual: ${cop(i.price * 12)} ${c} / año (12 meses).` : '');
 
 /** «Chatbot con inteligencia artificial para» + «Grupo Oral Flex.»: el cliente (o las últimas palabras) va resaltado. */
 function headline(d: TemplateData): { title: string; accent: string } {
@@ -549,7 +584,7 @@ export function proposalData(d: TemplateData, date = new Date(), nro = String(10
     accent: h.accent,
     lead: intro[0] ?? '',
     slogan: ESLOGAN,
-    ficha: [...ficha, ['Fecha', fecha], ['Vigencia', vigencia], ['Presenta', PRESENTA]],
+    ficha: [...ficha, ...(d.timeline ? [['Implementación', d.timeline]] : []), ['Fecha', fecha], ['Vigencia', vigencia], ['Presenta', PRESENTA]],
   });
   if (intro.length) {
     slides.push({
@@ -579,7 +614,7 @@ export function proposalData(d: TemplateData, date = new Date(), nro = String(10
   }
   for (const b of ['mensual', 'anual', 'hora'] as Billing[]) {
     const its = base.filter((i) => i.billing === b);
-    if (its.length) steps.push({ value: GROUP[b], label: `${cop(its.reduce((s, i) => s + i.price, 0))} ${c} ${PERIOD[b]}`, text: its.map((i) => i.name).join(', ') + '.' });
+    if (its.length) steps.push({ value: GROUP[b], label: `${cop(its.reduce((s, i) => s + i.price, 0))} ${c} ${PERIOD[b]}`, text: its.map((i) => (i.annual ? `${i.name} (o ${cop(i.price * 12)} ${c} al año)` : i.name)).join(', ') + '.' });
   }
   slides.push({
     role: 'inversion',
@@ -587,9 +622,18 @@ export function proposalData(d: TemplateData, date = new Date(), nro = String(10
     menu: 'Inversión y pago',
     eyebrow: 'Inversión y forma de pago',
     title: base.length > 1 ? 'Una inversión clara, separada por concepto.' : 'Una inversión clara, sin sorpresas.',
-    plans: base.map((i) => ({ name: i.name, price: cop(i.price), unit: `${c} ${i.billing === 'unico' ? '· pago único' : PERIOD[i.billing]}`, items: [i.description, ...i.details].filter(Boolean).slice(0, 5) })),
+    plans: base.map((i) => ({ name: i.name, price: cop(i.price), unit: `${c} ${i.billing === 'unico' ? '· pago único' : PERIOD[i.billing]}`, items: [i.description, ...i.details, annualLine(i, c)].filter(Boolean).slice(0, 6) })),
     payment: { heading: 'Cómo se paga', steps },
-    notes: { heading: 'Ten en cuenta', items: (d.terms.length ? d.terms : [`Valores en ${c === 'USD' ? 'dólares (USD)' : 'pesos colombianos (COP)'}.`]).slice(0, 6).concat(`La propuesta tiene vigencia de ${vigencia} desde su fecha.`).slice(0, 6) },
+    notes: {
+      heading: 'Ten en cuenta',
+      items: [
+        ...(d.timeline ? [`Implementación: ${d.timeline.charAt(0).toLowerCase()}${d.timeline.slice(1).replace(/\.$/, '')}.`] : []),
+        ...(d.terms.length ? d.terms : [`Valores en ${c === 'USD' ? 'dólares (USD)' : 'pesos colombianos (COP)'}.`]),
+      ]
+        .slice(0, 6)
+        .concat(`La propuesta tiene vigencia de ${vigencia} desde su fecha.`)
+        .slice(0, 7),
+    },
     tags: [c === 'USD' ? 'Dólares (USD)' : 'Pesos colombianos (COP)'],
   });
   if (extras.length) {
@@ -629,6 +673,7 @@ export function proposalData(d: TemplateData, date = new Date(), nro = String(10
       ...base.map((i) => [i.name, priceText(i, c)]),
       ...extras.map((i) => [`${i.name} (opcional)`, priceText(i, c)]),
       ...(unico && split ? [['Forma de pago', '50% anticipo · 50% contra entrega']] : []),
+      ...(d.timeline ? [['Implementación', d.timeline]] : []),
       ['Medios de pago', MEDIOS_PAGO.resumen],
       ['Vigencia', vigencia],
     ],
@@ -661,7 +706,9 @@ export function proposalData(d: TemplateData, date = new Date(), nro = String(10
               ]
             : [{ concepto: 'Pago único', cuando: 'Al aprobar', fecha: null, porcentaje: 100, valores: { _: unico } }]
           : [],
-        recurrentes: base.filter((i) => i.billing !== 'unico').map((i) => ({ concepto: i.name, valor: i.price, periodo: i.billing })),
+        // Cobros recurrentes; con `anual`, el cliente elige al aprobar si paga mes a mes o por año (12 meses).
+        recurrentes: base.filter((i) => i.billing !== 'unico').map((i) => ({ concepto: i.name, valor: i.price, periodo: i.billing, anual: i.annual ? i.price * 12 : null })),
+        plazo: d.timeline || null,
         adicionales: extras.map((i) => ({ concepto: i.name, valor: i.price, periodo: i.billing })),
       },
     },
@@ -758,7 +805,7 @@ async function draftWithAi(brief: string): Promise<{ name: string; data: Templat
     system: `Eres el asistente comercial de DeerSystems, una agencia colombiana de desarrollo de software, automatización e IA.
 Convierte la descripción en una propuesta comercial estructurada, en español neutro y claro, sin inventar valores: usa solo los precios que te den (si no hay, deja 0).
 Devuelve SOLO JSON con esta forma:
-{"name": "nombre corto de la plantilla", "data": {"title": "título que ve el cliente", "agency": "a quién va dirigida (empresa o agencia)", "endClient": "cliente final si es una agencia, si no vacío", "intro": "2 a 4 frases: qué se propone y para qué", "currency": "COP" o "USD", "items": [{"name": "...", "description": "...", "price": número entero sin puntos, "billing": "unico" | "mensual" | "anual" | "hora", "optional": true si es un adicional, "details": ["qué incluye", "..."]}], "includes": [], "terms": ["condiciones: pagos, qué es opcional, qué no incluye"], "validityDays": 30}}`,
+{"name": "nombre corto de la plantilla", "data": {"title": "título que ve el cliente", "agency": "a quién va dirigida (empresa o agencia)", "endClient": "cliente final si es una agencia, si no vacío", "intro": "2 a 4 frases: qué se propone y para qué", "currency": "COP" o "USD", "items": [{"name": "...", "description": "...", "price": número entero sin puntos, "billing": "unico" | "mensual" | "anual" | "hora", "optional": true si es un adicional, "details": ["qué incluye", "..."], "annual": true solo si es mensual y se permite pagarlo por año}], "includes": [], "terms": ["condiciones: pagos, qué es opcional, qué no incluye"], "validityDays": 30, "timeline": "plazo de implementación si lo dan, p. ej. Máximo 1 mes desde la aprobación; si no, vacío"}}`,
     prompt: brief.slice(0, 6000),
     maxOutputTokens: 4000,
   });
@@ -822,10 +869,16 @@ export async function handleTemplates(
       if (clientId && !db.getClient(clientId)) throw new HttpError(400, 'El cliente no existe.');
       const html = Buffer.from(renderHtml(data), 'utf8');
       const slug = slugify(str(body.slug, 120) || defaultSlug(data));
-      const created = await proposals.publish(
-        { filename: `${slug}.html`, files: new Map([['index.html', html]]), size: html.length, hasAssets: false },
-        { slug, title: str(body.title, 200) || [data.agency, data.endClient].filter(Boolean).join(' · ') || t.name, by: v.email },
-      );
+      const upload = { filename: `${slug}.html`, files: new Map([['index.html', html]]), size: html.length, hasAssets: false };
+      // Misma URL que una propuesta ya publicada: con `replace`, se publica como versión nueva en el mismo enlace
+      // (el cliente que ya lo tiene ve la propuesta actualizada; la anterior queda en el historial).
+      const current = getProposalBySlug(slug);
+      if (current && body.replace !== true) {
+        throw new HttpError(409, `Ya hay una propuesta publicada en /${slug}. Puedes publicarla como versión nueva en ese mismo enlace.`);
+      }
+      const created = current
+        ? await proposals.replace(current, upload, { by: v.email, note: `Actualizada desde la plantilla «${t.name}»` })
+        : await proposals.publish(upload, { slug, title: str(body.title, 200) || [data.agency, data.endClient].filter(Boolean).join(' · ') || t.name, by: v.email });
       if (clientId) setProposalClient(created.id, clientId);
       sqlite.prepare('UPDATE proposal_templates SET uses = uses + 1 WHERE id = ?').run(id);
       json(res, 201, proposalView(getProposal(created.id)!));
