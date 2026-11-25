@@ -212,7 +212,7 @@ Todos los temporizadores usan `.unref()`.
 
 ### Sesión (`partners/auth.ts`)
 
-- **Cookie `dp_session`:** `base64url(JSON {k, …, exp}) + "." + HMAC-SHA256(clave "partners:" + SESSION_SECRET)`. Es `HttpOnly`, `SameSite=Lax` y `Secure` con HTTPS, y dura 14 días.
+- **Cookie `dp_session`:** `base64url(JSON {k, …, exp}) + "." + HMAC-SHA256(clave "partners:" + SESSION_SECRET)`. Es `HttpOnly`, `SameSite=Lax` y `Secure` con HTTPS. Lleva `Max-Age` y `Expires` (la app instalada en iOS solo respeta `Expires`) y dura 60 días desde el último uso: `GET /api/me` la renueva si se emitió hace más de 12 horas.
 - **Tipos de sesión (`k`):**
   - `owner`: correo de Google igual a `SUPERADMIN_EMAIL`.
   - `account`: id y `session_version` de la cuenta.

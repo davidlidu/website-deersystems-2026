@@ -20,7 +20,9 @@ function cookies(req: IncomingMessage): Record<string, string> {
 }
 
 function cookie(name: string, value: string, maxAge: number): string {
-  return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${SECURE ? '; Secure' : ''}`;
+  const expires = new Date(maxAge > 0 ? Date.now() + maxAge * 1000 : 0).toUTCString();
+  // Expires además de Max-Age: algunos navegadores (apps instaladas en iOS) solo respetan Expires.
+  return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}; Expires=${expires}${SECURE ? '; Secure' : ''}`;
 }
 
 /** Correo de la sesión activa, o null. Se revalida contra la lista de autorizados en cada petición. */

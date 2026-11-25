@@ -35,7 +35,8 @@ Los permisos se aplican **en el servidor** (`partners/common.ts`, `requireOwner`
 
 ## Sesión
 
-- Cookie `dp_session` `HttpOnly`, `SameSite=Lax` y `Secure` en producción. Dura **14 días**.
+- Cookie `dp_session` `HttpOnly`, `SameSite=Lax` y `Secure` en producción. Dura **60 días desde el último uso**: se renueva sola al abrir la app, así que quien la usa seguido no vuelve a iniciar sesión. Vence al cerrar sesión, al cambiar la contraseña o al desactivar la cuenta.
+- La app se puede instalar en la pantalla de inicio (iPhone, iPad, Android): tiene manifiesto e íconos propios (`web/public`).
 - Va firmada con HMAC (`SESSION_SECRET`).
 - Las cuentas con contraseña llevan un `session_version`: cambiar la contraseña o desactivar la cuenta invalida todas sus sesiones.
 - El administrador entra con Google (OAuth con `state` en cookie de 10 minutos). Solo se acepta `SUPERADMIN_EMAIL`.

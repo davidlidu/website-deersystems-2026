@@ -11,6 +11,16 @@ Las propuestas comerciales se publican como páginas HTML en `propuestas.deersys
 - **Visitas:** cada propuesta cuenta cuántas veces se abrió y cuándo fue la última. No cuenta tus visitas con sesión ni las vistas previas de WhatsApp, Slack, Telegram, bots o `curl`.
 - Una propuesta se puede **pausar**: deja de verse sin perder nada.
 
+## Plantillas de propuestas
+
+En **Propuestas → Plantillas** están las propuestas prediseñadas, guardadas como datos (tabla `proposal_templates`):
+
+- **Para agencias:** los planes de agencias.deersystems.net (WordPress A/B/C, Shopify Básico/Estándar/Avanzado, Email y SMS, Mantenimiento Básico/Premium y Ajustes por horas) y **Chatbot Grupo Oral Flex Click Lab** (instalación y setup $1.000.000 pago único; IA $70.000/mes hasta 800 chats; servidor $850.000/año; opcionales: soporte $200.000/mes y sincronización de agenda $250.000). Se crean una vez; si eliminas una, no vuelve.
+- **Personalizadas:** las que armas con **+ Propuesta personalizada**, con **Duplicar** o con **✨ Crear con IA** (describes servicio, cliente y valores; perfil *Propuestas*). Todas quedan guardadas para volver a usarlas.
+- Cada plantilla tiene título, a quién va (cliente o agencia y cliente final), introducción, ítems con valor y cobro (pago único, mensual, anual o por hora), opcionales (no suman en los totales), qué incluye y condiciones. Si una condición menciona «50 %», el pago único se muestra 50 % anticipo y 50 % contra entrega.
+- **Usar:** eliges el cliente (opcional), a quién va y la URL; se publica como cualquier propuesta (versiones, visitas, botón de aprobar) y desde ahí la envías por correo.
+- **Diseño:** se publica con la plantilla del **Cotizador 2026** (`src/partners/plantilla-propuesta.html`, la misma de `generar_propuesta.py`): portada con ficha, contexto, alcance, inversión y forma de pago, adicionales, medios de pago con QR, trayectoria y cierre. Lleva `meta.aprobacion` para que el plan de pagos llegue exacto al aprobar. Si cambias la plantilla en el Drive, reemplaza ese archivo.
+
 ## Versiones
 
 - **Cada reemplazo guarda una versión nueva y conserva las anteriores**, en `files/{id}/v{n}/`, con fecha, autor, tamaño y nota.

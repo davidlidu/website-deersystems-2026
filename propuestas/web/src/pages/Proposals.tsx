@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
-import { api, ApiError, formatDateTime, formatSize, timeAgo, useApi } from '../lib';
+import { api, ApiError, formatDateTime, formatSize, navigate, timeAgo, useApi, useLocation } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../ui';
 import { SendProposalsDialog } from './ProposalSend';
+import { ProposalTemplates } from './ProposalTemplates';
 
 export interface ProposalRow {
   id: number;
@@ -359,6 +360,8 @@ export function ProposalsPage() {
   const input = useRef<HTMLInputElement>(null);
   const { busy, run } = useAction();
   const toast = useToast();
+  const { query } = useLocation();
+  const tab = query.get('tab') === 'plantillas' ? 'plantillas' : 'publicadas';
   // Mientras la IA arma el plan de alguna aprobación del cliente, la lista se actualiza cada 5 s.
   const generating = !!data?.some((p) => p.approvals.some((a) => a.status === 'generando'));
   useEffect(() => {
@@ -411,11 +414,32 @@ export function ProposalsPage() {
         }
       >
         <p>
-          Sube el <span className="mono">.html</span> o un <span className="mono">.zip</span> con imágenes. El enlace queda en{' '}
+          Sube el <span className="mono">.html</span> o un <span className="mono">.zip</span> con imágenes, o créala desde una plantilla. El enlace queda en{' '}
           <span className="mono">{host}</span> y no cambia aunque subas versiones nuevas; las anteriores quedan en el historial.
         </p>
       </PageHead>
 
+      <div className="segmented tpl-tabs" role="tablist">
+        <button role="tab" aria-selected={tab === 'publicadas'} className={tab === 'publicadas' ? 'is-active' : ''} onClick={() => navigate('/propuestas')}>
+          Publicadas ({list.length})
+        </button>
+        <button role="tab" aria-selected={tab === 'plantillas'} className={tab === 'plantillas' ? 'is-active' : ''} onClick={() => navigate('/propuestas?tab=plantillas')}>
+          Plantillas
+        </button>
+      </div>
+
+      {tab === 'plantillas' ? (
+        <ProposalTemplates
+          onPublished={(p, send) => {
+            setData([p, ...list.filter((x) => x.id !== p.id)]);
+            if (send) {
+              navigate('/propuestas');
+              setSending([p]);
+            }
+          }}
+        />
+      ) : (
+      <>
       {pending ? (
         <form className="card form-section" onSubmit={publish}>
           <div className="form-section__head">
@@ -507,6 +531,8 @@ export function ProposalsPage() {
           <Empty>{filter === 'pendientes' ? 'No hay propuestas sin aprobar.' : 'Todavía no has publicado propuestas.'}</Empty>
         )}
       </section>
+      </>
+      )}
 
       {picked.length > 0 && (
         <div className="send-bar" role="region" aria-label="Propuestas seleccionadas">
