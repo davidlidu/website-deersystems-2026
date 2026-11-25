@@ -163,6 +163,7 @@ interface GeneratedData {
   meta?: {
     titulo?: string;
     cliente?: string;
+    agencia?: string;
     nro?: string;
     aprobacion?: {
       moneda?: string;
@@ -186,6 +187,10 @@ interface GeneratedData {
       recurrentes?: { concepto: string; valor: number; periodo: string; anual?: number | null }[];
       /** Plazo de implementación (propuestas de plantillas). */
       plazo?: string | null;
+      /** Adicionales opcionales (propuestas de plantillas). */
+      adicionales?: { concepto: string; valor: number; periodo: string; anual?: number | null }[];
+      /** Todos los conceptos de la propuesta (propuestas de plantillas): incluidos y opcionales. */
+      conceptos?: Concept[];
     };
   };
   slides?: {
@@ -320,11 +325,88 @@ function alreadyApproved(proposalId: number): Map<string, string> {
   return out;
 }
 
-/** Cobros mensuales que el cliente puede pagar por año: los elige al aprobar. */
-function annualChoices(data: GeneratedData | null) {
-  return (data?.meta?.aprobacion?.recurrentes ?? []).filter((x) => x.periodo === 'mensual' && typeof x.anual === 'number' && x.anual > 0);
-}
 const moneyText = (n: number, c: string) => `$${n.toLocaleString('es-CO')} ${c}`;
+
+/** Un concepto de la propuesta (setup, mensualidad, servidor, adicional…), para aprobarlo y elegir cómo pagarlo. */
+interface Concept {
+  concepto: string;
+  descripcion?: string;
+  valor: number;
+  periodo: 'unico' | 'mensual' | 'anual' | 'hora';
+  opcional: boolean;
+  /** Valor si se paga por año (solo mensualidades que lo permiten). */
+  anual?: number | null;
+}
+const PERIOD_TXT: Record<Concept['periodo'], string> = { unico: 'pago único', mensual: '/ mes', anual: '/ año', hora: '/ hora' };
+const periodOf = (v: string): Concept['periodo'] => (v === 'mensual' || v === 'anual' || v === 'hora' ? v : 'unico');
+
+/**
+ * Los conceptos de una propuesta hecha desde una plantilla: lo incluido y los adicionales opcionales. Las publicadas
+ * antes de guardar `conceptos` se reconstruyen con los planes de la inversión y los adicionales. Las demás (del
+ * cotizador o subidas a mano) no tienen: devuelve [] y la página funciona como siempre.
+ */
+function conceptsOf(data: GeneratedData | null): Concept[] {
+  const ap = data?.meta?.aprobacion;
+  if (!ap) return [];
+  if (Array.isArray(ap.conceptos) && ap.conceptos.length) {
+    return ap.conceptos
+      .filter((c) => c && typeof c.concepto === 'string' && Number(c.valor) >= 0)
+      .map((c) => ({ ...c, valor: Number(c.valor), periodo: periodOf(c.periodo), opcional: !!c.opcional, anual: Number(c.anual) > 0 ? Number(c.anual) : null }));
+  }
+  if (!ap.recurrentes && !ap.adicionales) return [];
+  const plans = data?.slides?.find((x) => x.role === 'inversion')?.plans ?? [];
+  const annual = new Map((ap.recurrentes ?? []).map((r) => [r.concepto, Number(r.anual) > 0 ? Number(r.anual) : null]));
+  const base: Concept[] = plans.map((pl) => {
+    const unit = (pl.unit ?? '').toLowerCase();
+    return {
+      concepto: pl.name,
+      descripcion: pl.items?.[0] ?? '',
+      valor: Number(pl.price.replace(/[^\d]/g, '')) || 0,
+      periodo: unit.includes('mes') ? 'mensual' : unit.includes('año') ? 'anual' : unit.includes('hora') ? 'hora' : 'unico',
+      opcional: false,
+      anual: annual.get(pl.name) ?? null,
+    };
+  });
+  const extras: Concept[] = (ap.adicionales ?? []).map((a) => ({
+    concepto: a.concepto,
+    valor: Number(a.valor) || 0,
+    periodo: periodOf(a.periodo),
+    opcional: true,
+    anual: Number(a.anual) > 0 ? Number(a.anual) : null,
+  }));
+  return [...base, ...extras];
+}
+
+/** Lo que el cliente eligió: qué adicionales suma y cómo paga cada mensualidad que permite pago anual. */
+function describeChoice(concepts: Concept[], extras: Set<number>, pay: Record<string, unknown>, currency: string) {
+  const lines: string[] = [];
+  const totals: Record<'unico' | 'mensual' | 'anual' | 'hora', number> = { unico: 0, mensual: 0, anual: 0, hora: 0 };
+  const chosenExtras: string[] = [];
+  concepts.forEach((c, i) => {
+    if (c.opcional && !extras.has(i)) return;
+    const yearly = !!c.anual && pay[String(i)] === 'anual';
+    const value = yearly ? c.anual! : c.valor;
+    const period = yearly ? 'anual' : c.periodo;
+    totals[period] += value;
+    if (c.opcional) chosenExtras.push(c.concepto);
+    lines.push(
+      `${c.concepto}${c.opcional ? ' (adicional)' : ''}: ${moneyText(value, currency)} ${PERIOD_TXT[period]}${
+        c.anual ? (yearly ? ', pago anual' : ', mes a mes') : ''
+      }`,
+    );
+  });
+  const skipped = concepts.filter((c, i) => c.opcional && !extras.has(i)).map((c) => c.concepto);
+  const sum = (Object.keys(totals) as (keyof typeof totals)[])
+    .filter((k) => totals[k] > 0)
+    .map((k) => `${moneyText(totals[k], currency)} ${PERIOD_TXT[k]}`)
+    .join(' + ');
+  return {
+    /** Corto: lo que ves en la lista de propuestas y en el correo de confirmación. */
+    name: chosenExtras.length ? `Propuesta + ${chosenExtras.join(', ')}` : 'Propuesta sin adicionales',
+    /** Completo: queda en la aprobación y lo lee la IA del plan. */
+    text: `Aprobó: ${lines.join('; ')}.${skipped.length ? ` No tomó: ${skipped.join(', ')}.` : ''} Total: ${sum}.`,
+  };
+}
 
 const dateEs = (iso: string) =>
   new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'America/Bogota' });
@@ -336,7 +418,8 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 function page(p: Proposal, data: GeneratedData | null, options: PublicOption[], multi: boolean, approved: Map<string, string>, client: db.Client | null): string {
   const title = data?.meta?.titulo || p.title || 'Propuesta DeerSystems';
   const nro = data?.meta?.nro ? `Propuesta N.º DS-${data.meta.nro}` : 'Propuesta';
-  const company = client?.name ?? data?.meta?.cliente ?? '';
+  // Vía agencia, quien aprueba suele ser la agencia: se prellena ella y no el cliente final.
+  const company = client?.name ?? data?.meta?.agencia ?? data?.meta?.cliente ?? '';
   // Sin correo guardado (cliente solo de facturación) no hay a dónde mandar la confirmación: llena el formulario.
   const known = client && knownContact(client).email ? knownContact(client) : null;
   const currency = data?.meta?.aprobacion?.moneda === 'USD' ? 'USD' : 'COP';
@@ -376,16 +459,35 @@ function page(p: Proposal, data: GeneratedData | null, options: PublicOption[], 
         .join('')}</fieldset>`
     : '';
   const plazo = data?.meta?.aprobacion?.plazo;
-  const billing = annualChoices(data)
-    .map(
-      (x, i) => `<fieldset class="opts"><legend>¿Cómo quieres pagar «${esc(x.concepto)}»?</legend>
-        <label class="opt"><input type="radio" name="billing_${i}" value="mensual" checked data-concepto="${esc(x.concepto)}">
-          <span><strong>Mes a mes</strong><em>${esc(moneyText(x.valor, currency))} / mes</em></span></label>
-        <label class="opt"><input type="radio" name="billing_${i}" value="anual" data-concepto="${esc(x.concepto)}">
-          <span><strong>Pago anual</strong><small>Los 12 meses en un solo pago.</small><em>${esc(moneyText(x.anual!, currency))} / año</em></span></label>
-      </fieldset>`,
-    )
-    .join('');
+  const concepts = conceptsOf(data);
+  // Cada concepto con su valor; si es una mensualidad que permite pago anual, elige mes a mes o anual.
+  const payChoice = (c: Concept, i: number) =>
+    c.anual
+      ? `<div class="pay" role="radiogroup" aria-label="Cómo pagar ${esc(c.concepto)}">
+          <label><input type="radio" name="pay_${i}" value="mensual" checked data-i="${i}"><span>Mes a mes · ${esc(moneyText(c.valor, currency))} / mes</span></label>
+          <label><input type="radio" name="pay_${i}" value="anual" data-i="${i}"><span>Pago anual · ${esc(moneyText(c.anual, currency))} / año</span></label>
+        </div>`
+      : '';
+  const conceptBody = (c: Concept, i: number) =>
+    `<span><strong>${esc(c.concepto)}</strong>${c.descripcion ? `<small>${esc(c.descripcion)}</small>` : ''}<em>${esc(moneyText(c.valor, currency))} ${PERIOD_TXT[c.periodo]}</em>${payChoice(c, i)}</span>`;
+  const attrs = (c: Concept, i: number) =>
+    `data-i="${i}" data-valor="${c.valor}" data-periodo="${c.periodo}"${c.anual ? ` data-anual="${c.anual}"` : ''}`;
+  const base = concepts.map((c, i) => ({ c, i })).filter((x) => !x.c.opcional);
+  const extras = concepts.map((c, i) => ({ c, i })).filter((x) => x.c.opcional);
+  const billing = concepts.length
+    ? `<fieldset class="opts" id="concepts" data-currency="${currency}"><legend>Lo que apruebas</legend>
+        ${base.map(({ c, i }) => `<div class="opt is-fixed"><input type="checkbox" checked disabled ${attrs(c, i)}>${conceptBody(c, i)}</div>`).join('')}
+      </fieldset>
+      ${
+        extras.length
+          ? `<fieldset class="opts"><legend>Adicionales opcionales</legend>
+        <p class="muted legend-hint">Márcalos si los quieres sumar desde ya. También puedes pedirlos después.</p>
+        ${extras.map(({ c, i }) => `<label class="opt"><input type="checkbox" name="extra" value="${i}" ${attrs(c, i)}>${conceptBody(c, i)}</label>`).join('')}
+      </fieldset>`
+          : ''
+      }
+      <div class="sum" id="sum" aria-live="polite"></div>`
+    : '';
   return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex, nofollow"><title>Aprobar · ${esc(title)}</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
@@ -417,6 +519,11 @@ fieldset.opts{border:0;padding:0;margin:0;display:grid;gap:10px}legend{font:600 
 .legend-hint{margin:-6px 0 2px}.total{margin:4px 0 0;font:600 15px/1.4 'Space Grotesk',sans-serif;color:var(--ink)}.total em{font:500 14px/1.4 'JetBrains Mono',monospace;color:var(--verde);font-style:normal}
 .check{display:flex;gap:10px;align-items:flex-start;font-size:14px}.check input{margin-top:4px;accent-color:var(--verde)}
 .hp{position:absolute;left:-9999px}
+.opt.is-fixed{cursor:default;border-color:rgba(126,217,87,.35)}.opt.is-fixed input{opacity:.9}
+.pay{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.pay label{display:flex;gap:6px;align-items:center;padding:6px 10px;border:1px solid var(--hairline);border-radius:8px;font-size:13px;color:var(--body);cursor:pointer}
+.pay label:has(input:checked){border-color:var(--verde);color:var(--ink)}.pay input{margin:0;accent-color:var(--verde)}
+.sum{padding:14px 16px;border-radius:12px;background:rgba(126,217,87,.06);border:1px solid rgba(126,217,87,.35);display:grid;gap:4px}.sum:empty{display:none}
+.sum p{margin:0;display:flex;justify-content:space-between;gap:12px}.sum b{font:600 14px/1.4 'Space Grotesk',sans-serif;color:var(--ink)}.sum em{font:500 14px/1.4 'JetBrains Mono',monospace;color:var(--verde);font-style:normal}
 button{justify-self:start;padding:13px 24px;border:0;border-radius:8px;background:var(--verde);color:#0a1622;font:600 15px/1 Inter,sans-serif;cursor:pointer}
 button:disabled{opacity:.6;cursor:wait}
 .err{color:var(--rojo);font-size:14px;margin:0}.muted{color:var(--mute);font-size:13px}
@@ -496,6 +603,24 @@ ${
     if(all)all.addEventListener('change',function(){boxes.forEach(function(b){b.checked=all.checked;});sync();});
     boxes.forEach(function(b){b.addEventListener('change',sync);});
   }
+  // Resumen en vivo: lo incluido, los adicionales marcados y cómo se paga cada mensualidad.
+  var cs=document.getElementById('concepts'),sumBox=document.getElementById('sum');
+  if(cs&&sumBox){
+    var ccy=cs.getAttribute('data-currency'),lbl={unico:'Pago único',mensual:'Mensual',anual:'Anual',hora:'Por hora'},per={unico:'',mensual:' / mes',anual:' / año',hora:' / hora'};
+    var fmt=function(n){return '$'+n.toLocaleString('es-CO')+' '+ccy;};
+    var resum=function(){
+      var t={unico:0,mensual:0,anual:0,hora:0};
+      [].slice.call(f.querySelectorAll('input[data-valor]')).forEach(function(b){
+        if(!b.disabled&&!b.checked)return;
+        var i=b.getAttribute('data-i'),pick=f.querySelector('input[name=pay_'+i+']:checked');
+        if(pick&&pick.value==='anual')t.anual+=Number(b.getAttribute('data-anual'));else t[b.getAttribute('data-periodo')]+=Number(b.getAttribute('data-valor'));
+      });
+      sumBox.innerHTML='';var h=document.createElement('p');var hb=document.createElement('b');hb.textContent='Total de lo que apruebas';h.appendChild(hb);sumBox.appendChild(h);
+      Object.keys(t).forEach(function(k){if(!t[k])return;var p=document.createElement('p'),s=document.createElement('span'),e=document.createElement('em');s.textContent=lbl[k];e.textContent=fmt(t[k])+per[k];p.appendChild(s);p.appendChild(e);sumBox.appendChild(p);});
+    };
+    f.addEventListener('change',function(e){if(e.target.name==='extra'||String(e.target.name).indexOf('pay_')===0)resum();});
+    resum();
+  }
   var other=document.getElementById('other');
   if(other)other.addEventListener('click',function(){
     document.getElementById('known').hidden=true;document.getElementById('who').hidden=false;
@@ -504,8 +629,9 @@ ${
   });
   f.addEventListener('submit',function(e){
     e.preventDefault();err.hidden=true;
-    var d=new FormData(f),o={};d.forEach(function(v,k){if(k!=='options'&&k.indexOf('billing_')!==0)o[k]=v;});o.accept=!!f.accept.checked;
-    o.billing={};[].slice.call(f.querySelectorAll('input[name^=billing_]:checked')).forEach(function(b){o.billing[b.getAttribute('data-concepto')]=b.value;});
+    var d=new FormData(f),o={};d.forEach(function(v,k){if(k!=='options'&&k!=='extra'&&k.indexOf('pay_')!==0)o[k]=v;});o.accept=!!f.accept.checked;
+    o.extras=[].slice.call(f.querySelectorAll('input[name=extra]:checked')).map(function(b){return Number(b.value);});
+    o.pay={};[].slice.call(f.querySelectorAll('input[name^=pay_]:checked')).forEach(function(b){o.pay[b.getAttribute('data-i')]=b.value;});
     if(boxes.length){o.options=boxes.filter(function(b){return b.checked;}).map(function(b){return b.value;});if(!o.options.length)return fail('Elige al menos una opción, o la propuesta completa.');}
     if(f.querySelector('input[name=option]')&&!o.option)return fail('Elige la opción que apruebas.');
     var asKnown=!!f.querySelector('input[name=known]');
@@ -584,16 +710,15 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
       );
   }
   const option = chosen.length ? combined(chosen, options) : undefined;
-  // Pago mensual o anual de los cobros que lo permiten: queda en la aprobación (lo ves tú y lo lee la IA del plan).
+  // Propuesta de plantilla: lo incluido, los adicionales marcados y cómo paga cada mensualidad. Queda en la aprobación
+  // (lo ves tú en Propuestas y lo lee la IA del plan) y en el correo de confirmación.
   const currency = data?.meta?.aprobacion?.moneda === 'USD' ? 'USD' : 'COP';
-  const picked = (body.billing && typeof body.billing === 'object' ? body.billing : {}) as Record<string, unknown>;
-  const billingText = annualChoices(data)
-    .map((x) =>
-      picked[x.concepto] === 'anual'
-        ? `${x.concepto}: pago anual (${moneyText(x.anual!, currency)} / año)`
-        : `${x.concepto}: mes a mes (${moneyText(x.valor, currency)} / mes)`,
-    )
-    .join(' · ');
+  const concepts = conceptsOf(data);
+  const wantedExtras = new Set(
+    (Array.isArray(body.extras) ? body.extras : []).map(Number).filter((i) => Number.isInteger(i) && concepts[i]?.opcional),
+  );
+  const pay = (body.pay && typeof body.pay === 'object' ? body.pay : {}) as Record<string, unknown>;
+  const choice = concepts.length ? describeChoice(concepts, wantedExtras, pay, currency) : null;
   // Solo cuentan los envíos válidos: un error al llenar el formulario no bloquea al cliente.
   rateLimit(ip);
 
@@ -616,13 +741,13 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
       proposal.id,
       proposal.version,
       option?.id ?? '',
-      option?.name ?? '',
-      option?.summary ?? '',
+      option?.name ?? choice?.name ?? '',
+      option?.summary ?? choice?.text ?? '',
       name,
       email,
       client ? client.name : str(body.company, 160),
       str(body.phone, 60) || (useKnown ? known.phone : ''),
-      [billingText ? `Forma de pago elegida: ${billingText}.` : '', str(body.notes, 2000)].filter(Boolean).join('\n'),
+      [choice?.text ?? '', str(body.notes, 2000)].filter(Boolean).join('\n'),
       ip.slice(0, 64),
       String(req.headers['user-agent'] ?? '').slice(0, 300),
       client?.id ?? null,
@@ -637,10 +762,10 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
     actor: null,
     projectId: null,
     title: `${name} aprobó «${title}»`,
-    body: `${option ? `${option.name}. ` : ''}Estamos armando el plan de trabajo con IA para que lo revises.`,
+    body: `${option ? `${option.name}. ` : choice ? `${choice.name}. ` : ''}Estamos armando el plan de trabajo con IA para que lo revises.`,
     path: `/propuestas/${proposal.id}/aprobar?aprobacion=${id}`,
   });
-  void confirmToClient(email, name, title, [option?.name, billingText].filter(Boolean).join(' · '));
+  void confirmToClient(email, name, title, option?.name ?? choice?.text ?? '');
   void generatePlan(id);
 }
 

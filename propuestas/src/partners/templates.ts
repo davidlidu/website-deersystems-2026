@@ -709,7 +709,17 @@ export function proposalData(d: TemplateData, date = new Date(), nro = String(10
         // Cobros recurrentes; con `anual`, el cliente elige al aprobar si paga mes a mes o por año (12 meses).
         recurrentes: base.filter((i) => i.billing !== 'unico').map((i) => ({ concepto: i.name, valor: i.price, periodo: i.billing, anual: i.annual ? i.price * 12 : null })),
         plazo: d.timeline || null,
-        adicionales: extras.map((i) => ({ concepto: i.name, valor: i.price, periodo: i.billing })),
+        adicionales: extras.map((i) => ({ concepto: i.name, valor: i.price, periodo: i.billing, anual: i.annual ? i.price * 12 : null })),
+        // Todo lo de la propuesta, para la página de aprobar: el cliente ve lo incluido, marca los adicionales
+        // y elige cómo pagar cada mensualidad que permite pago anual.
+        conceptos: d.items.map((i) => ({
+          concepto: i.name,
+          descripcion: i.description,
+          valor: i.price,
+          periodo: i.billing,
+          opcional: i.optional,
+          anual: i.annual ? i.price * 12 : null,
+        })),
       },
     },
     slides,
