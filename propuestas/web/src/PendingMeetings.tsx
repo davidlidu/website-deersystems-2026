@@ -42,56 +42,91 @@ export function PendingMeetingsBar({ me, path }: { me: Me; path: string }) {
 
   if (me.role === 'owner') {
     return (
-      <div className="pending-bar" role="status">
-        <div className="pending-bar__in">
-          <span className="pending-bar__icon" aria-hidden="true">
-            🗓
-          </span>
-          <span className="pending-bar__text">
-            <strong>{items.length === 1 ? 'Un cliente propuso otro horario' : `${items.length} reuniones con otro horario propuesto por el cliente`}</strong>
-          </span>
-          <span className="pending-bar__chips">
-            {items.slice(0, 3).map((m) => (
-              <Link key={m.id} className="pending-bar__chip" to={`/reuniones/${m.id}`}>
-                {m.clientName ?? m.projectName} · {m.clientProposal ? short(m.clientProposal.startAt) : short(m.startAt)}
-              </Link>
-            ))}
-          </span>
-        </div>
-      </div>
+      <Collapsible
+        title={items.length === 1 ? 'Un cliente propuso otro horario' : `${items.length} reuniones con otro horario propuesto por el cliente`}
+        links={items.map((m) => ({
+          id: m.id,
+          to: `/reuniones/${m.id}`,
+          label: `${m.clientName ?? m.projectName} · ${short(m.clientProposal?.startAt ?? m.startAt)}`,
+          sent: false,
+        }))}
+      />
     );
   }
 
   // En la página de confirmar ya está todo: el aviso sobra.
   if (path === '/reuniones-por-confirmar') return null;
-  const waiting = items.filter((m) => !m.clientProposal);
-  const n = waiting.length;
+  const n = items.filter((m) => !m.clientProposal).length;
   return (
-    <div className="pending-bar" role="status">
+    <Collapsible
+      title={n === 0 ? 'Propusiste otro horario: DeerSystems te confirmará' : n === 1 ? 'Tienes una reunión por confirmar' : `Tienes ${n} reuniones por confirmar`}
+      hint="Confirma el día y la hora, o propón otro horario."
+      links={items.map((m) => ({ id: m.id, to: `/reuniones-por-confirmar?reunion=${m.id}`, label: `${short(m.startAt)} · ${m.title}`, sent: !!m.clientProposal }))}
+      cta={{ to: '/reuniones-por-confirmar', label: n ? 'Confirmar reuniones' : 'Ver reuniones' }}
+    />
+  );
+}
+
+const OPEN_KEY = 'ds:pending-bar-open';
+
+/**
+ * El aviso empieza comprimido (una línea delgada, sin ruido); con un clic se expande y muestra cada reunión.
+ * Si la persona lo deja abierto, se recuerda mientras dure la sesión del navegador.
+ */
+function Collapsible({
+  title,
+  hint,
+  links,
+  cta,
+}: {
+  title: string;
+  hint?: string;
+  links: { id: number; to: string; label: string; sent: boolean }[];
+  cta?: { to: string; label: string };
+}) {
+  const [open, setOpen] = useState(() => {
+    try {
+      return sessionStorage.getItem(OPEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    setOpen(!open);
+    try {
+      sessionStorage.setItem(OPEN_KEY, open ? '0' : '1');
+    } catch {
+      /* sin almacenamiento: solo no se recuerda */
+    }
+  };
+  return (
+    <div className={`pending-bar${open ? ' is-open' : ''}`} role="status">
       <div className="pending-bar__in">
-        <span className="pending-bar__icon" aria-hidden="true">
-          🗓
-        </span>
-        <span className="pending-bar__text">
-          <strong>
-            {n === 0
-              ? 'Propusiste otro horario: DeerSystems te confirmará'
-              : n === 1
-                ? 'Tienes una reunión por confirmar'
-                : `Tienes ${n} reuniones por confirmar`}
-          </strong>
-          <small>Confirma el día y la hora, o propón otro horario.</small>
-        </span>
-        <span className="pending-bar__chips">
-          {items.slice(0, 3).map((m) => (
-            <Link key={m.id} className={`pending-bar__chip${m.clientProposal ? ' is-sent' : ''}`} to={`/reuniones-por-confirmar?reunion=${m.id}`}>
-              {short(m.startAt)} · {m.title}
-            </Link>
-          ))}
-        </span>
-        <Link className="btn btn--primary btn--sm pending-bar__cta" to="/reuniones-por-confirmar">
-          {n ? 'Confirmar reuniones' : 'Ver reuniones'}
-        </Link>
+        <button type="button" className="pending-bar__toggle" aria-expanded={open} onClick={toggle}>
+          <span className="pending-bar__dot" aria-hidden="true" />
+          <strong>{title}</strong>
+          <span className="pending-bar__more">{open ? 'Ocultar' : 'Ver'}</span>
+          <svg className="pending-bar__chev" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+        {open && (
+          <div className="pending-bar__body">
+            {hint && <small className="pending-bar__hint">{hint}</small>}
+            <span className="pending-bar__chips">
+              {links.map((l) => (
+                <Link key={l.id} className={`pending-bar__chip${l.sent ? ' is-sent' : ''}`} to={l.to}>
+                  {l.label}
+                </Link>
+              ))}
+            </span>
+            {cta && (
+              <Link className="btn btn--primary btn--sm pending-bar__cta" to={cta.to}>
+                {cta.label}
+              </Link>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

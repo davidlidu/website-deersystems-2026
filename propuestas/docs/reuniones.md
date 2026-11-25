@@ -26,7 +26,7 @@ Las reuniones de avance que se agendan al aprobar una propuesta usan este mismo 
 
 Al agendar puedes **solo reservar el horario**: queda en tu Calendar con «Por confirmar ·» y el cliente todavía no recibe la invitación.
 
-- **Aviso al cliente:** le llega a la campana (y por correo, si está encendido) «Confirma la reunión…». Al entrar al portal ve una **franja naranja en la cabecera** con las reuniones por confirmar y el botón **Confirmar reuniones**.
+- **Aviso al cliente:** le llega a la campana (y por correo, si está encendido) «Confirma la reunión…». Al entrar al portal ve en la cabecera una **línea delgada y comprimida** («Tienes 2 reuniones por confirmar · Ver») para no generar ruido; con un clic se expande y muestra cada reunión y el botón **Confirmar reuniones** (si la deja abierta, se recuerda mientras dure la sesión del navegador).
 - **Página *Reuniones por confirmar*** (`/reuniones-por-confirmar`): cada reunión con proyecto, día y hora (Colombia), duración y quién va por DeerSystems. Dos opciones:
   - **Confirmar día y hora:** la reserva pasa a reunión y Google le envía la invitación con Meet. Te llega un aviso.
   - **Proponer otro día y hora:** fecha, hora y una nota opcional. Se revisa que el horario esté libre en tu agenda (sin mostrar con qué se cruza) y, si está ocupado, se sugiere el siguiente libre. Te llega un aviso; la reserva sigue por confirmar y el cliente puede cambiar su propuesta o confirmar el horario original.

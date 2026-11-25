@@ -8616,49 +8616,95 @@ ul.scope-history__reason {
   color: var(--verde);
 }
 
-/* ── Reuniones por confirmar: aviso en la cabecera y página del cliente */
+/* ── Reuniones por confirmar: aviso en la cabecera (comprimido; se expande con un clic) y página del cliente */
 
 .pending-bar {
-  border-top: 1px solid color-mix(in srgb, var(--naranja) 40%, transparent);
-  background: color-mix(in srgb, var(--naranja) 14%, var(--surface-strong));
+  border-top: 1px solid color-mix(in srgb, var(--naranja) 30%, transparent);
+  background: color-mix(in srgb, var(--naranja) 7%, var(--canvas));
+}
+
+.pending-bar.is-open {
+  background: color-mix(in srgb, var(--naranja) 12%, var(--surface-strong));
 }
 
 .pending-bar__in {
-  display: flex;
-  align-items: center;
-  gap: 8px 14px;
   width: min(1120px, 100% - 32px);
   margin-inline: auto;
-  padding: 9px 0;
-  font-size: 0.86rem;
+  font-size: 0.8rem;
   color: var(--ink);
 }
 
-.pending-bar__icon {
-  font-size: 1.05rem;
+.pending-bar__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
 }
 
-.pending-bar__text {
-  display: grid;
-  gap: 1px;
+.pending-bar__toggle strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.pending-bar__text small {
+.pending-bar__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--naranja);
+  box-shadow: 0 0 0 3px rgba(251, 133, 0, 0.2);
+}
+
+.pending-bar__more {
+  flex: none;
+  color: #fdba74;
+}
+
+.pending-bar__toggle:hover .pending-bar__more {
+  text-decoration: underline;
+}
+
+.pending-bar__chev {
+  flex: none;
+  color: #fdba74;
+  transition: transform 0.2s var(--ease);
+}
+
+.pending-bar.is-open .pending-bar__chev {
+  transform: rotate(180deg);
+}
+
+.pending-bar__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 2px 0 10px 15px;
+}
+
+.pending-bar__hint {
+  flex-basis: 100%;
   color: var(--body);
-  font-size: 0.78rem;
 }
 
 .pending-bar__chips {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   flex: 1 1 0;
   min-width: 0;
-  overflow: hidden;
 }
 
 .pending-bar__chip {
-  flex: 0 1 auto;
-  min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   padding: 3px 10px;
   border: 1px solid color-mix(in srgb, var(--naranja) 55%, transparent);
@@ -8680,19 +8726,9 @@ ul.scope-history__reason {
   color: var(--body);
 }
 
-.pending-bar__cta {
-  margin-left: auto;
-}
-
 @media (max-width: 640px) {
   .pending-bar__chips {
-    display: none;
-  }
-  .pending-bar__in {
-    flex-wrap: nowrap;
-  }
-  .pending-bar__text small {
-    display: none;
+    flex-basis: 100%;
   }
 }
 
