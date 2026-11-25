@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { api, useApi } from '../lib';
+import { api, ApiError, useApi } from '../lib';
 import { Empty, ErrorBox, Loading, MoneyInput, useAction, useToast } from '../ui';
 import type { ProposalRow } from './Proposals';
 
@@ -18,6 +18,8 @@ interface Item {
   billing: Billing;
   optional: boolean;
   details: string[];
+  /** Mensualidad que el cliente puede pagar por año (12 meses) al aprobar. */
+  annual?: boolean;
 }
 
 export interface TemplateData {
@@ -30,6 +32,8 @@ export interface TemplateData {
   includes: string[];
   terms: string[];
   validityDays: number;
+  /** Plazo de implementación, p. ej. «Máximo 1 mes desde la aprobación». */
+  timeline?: string;
 }
 
 interface Template {
@@ -342,6 +346,14 @@ function TemplateEditor({
         <Field label="Vigencia (días)">
           <input type="number" min={1} max={365} value={d.validityDays} onChange={(e) => set({ validityDays: Number(e.target.value) || 30 })} />
         </Field>
+        <Field label="Plazo de implementación (opcional)" wide>
+          <input
+            value={d.timeline ?? ''}
+            maxLength={160}
+            onChange={(e) => set({ timeline: e.target.value })}
+            placeholder="Máximo 1 mes desde la aprobación"
+          />
+        </Field>
       </div>
 
       <div>
@@ -369,6 +381,11 @@ function TemplateEditor({
                 <label className="check tpl-item__opt" title="Adicional que el cliente puede sumar; no entra en los totales">
                   <input type="checkbox" checked={it.optional} onChange={(e) => setItem(i, { optional: e.target.checked })} /> Opcional
                 </label>
+                {it.billing === 'mensual' && (
+                  <label className="check tpl-item__opt" title="Al aprobar, el cliente elige pagarlo mes a mes o los 12 meses en un solo pago">
+                    <input type="checkbox" checked={!!it.annual} onChange={(e) => setItem(i, { annual: e.target.checked })} /> Pago anual
+                  </label>
+                )}
                 <span className="tpl-item__tools">
                   <button type="button" className="icon-btn" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Subir">
                     ↑
@@ -622,12 +639,15 @@ function PublishDialog({
           disabled={busy}
           onClick={() =>
             run(async () => {
-              const p = await api<ProposalRow>('POST', `proposal-templates/${template.id}/publish`, {
-                data,
-                clientId: Number(clientId) || null,
-                slug: slug || defaultSlug(data),
-              });
-              setDone(p);
+              const body = { data, clientId: Number(clientId) || null, slug: slug || defaultSlug(data) };
+              try {
+                setDone(await api<ProposalRow>('POST', `proposal-templates/${template.id}/publish`, body));
+              } catch (err) {
+                // Ya hay una propuesta en esa URL: se ofrece publicarla como versión nueva en el mismo enlace.
+                if (!(err instanceof ApiError) || err.status !== 409) throw err;
+                if (!confirm(`${err.message}\n\n¿Publicarla como versión nueva? El enlace no cambia y la versión anterior queda en el historial.`)) return;
+                setDone(await api<ProposalRow>('POST', `proposal-templates/${template.id}/publish`, { ...body, replace: true }));
+              }
             })
           }
         >
