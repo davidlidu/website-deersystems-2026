@@ -20,6 +20,8 @@
 | DeerSystems comenta o deja una nota compartida | Cliente | ✓ | ✓ |
 | DeerSystems comparte un archivo | Cliente | ✓ | — |
 | Se agenda una reunión (además de la invitación de Calendar) | Cliente | ✓ | — |
+| Hay una reunión reservada para que el cliente la confirme o proponga otro horario | Cliente | ✓ | ✓ |
+| El cliente confirma una reunión o propone otro horario | Tú | ✓ | ✓ |
 | Hay un resumen de reunión listo para revisar | Tú | ✓ | ✓ |
 | Se aprueba el resumen de una reunión (además del correo) | Cliente | ✓ | — |
 | Llega un pago en línea (Wompi) | Tú | ✓ | ✓ |

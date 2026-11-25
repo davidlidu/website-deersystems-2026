@@ -16,10 +16,22 @@ Se agenda en **Clientes → Reuniones** o en la pestaña *Reuniones* del proyect
 - Eliges el proyecto en marcha, la fecha y hora, la duración y la agenda.
 - Eliges a quién invitar: el cliente, tu equipo y otros correos.
 - Se crea en tu Google Calendar con Meet (`conferenceData`) y Google envía las invitaciones (`sendUpdates=all`). El cliente recibe además un aviso en la campana.
+- O **solo reservas el horario** para que el cliente lo confirme (ver *Reuniones por confirmar*).
 - El evento lleva una marca privada (`extendedProperties.private.dsPartners = 1` y el id del proyecto).
 - **Cancelar** borra el evento y Google avisa a los invitados.
 
 Las reuniones de avance que se agendan al aprobar una propuesta usan este mismo camino. Ver [Aprobación](./aprobacion.md).
+
+### Reuniones por confirmar (el cliente responde desde el portal)
+
+Al agendar puedes **solo reservar el horario**: queda en tu Calendar con «Por confirmar ·» y el cliente todavía no recibe la invitación.
+
+- **Aviso al cliente:** le llega a la campana (y por correo, si está encendido) «Confirma la reunión…». Al entrar al portal ve en la cabecera una **línea delgada y comprimida** («Tienes 2 reuniones por confirmar · Ver») para no generar ruido; con un clic se expande y muestra cada reunión y el botón **Confirmar reuniones** (si la deja abierta, se recuerda mientras dure la sesión del navegador).
+- **Página *Reuniones por confirmar*** (`/reuniones-por-confirmar`): cada reunión con proyecto, día y hora (Colombia), duración y quién va por DeerSystems. Dos opciones:
+  - **Confirmar día y hora:** la reserva pasa a reunión y Google le envía la invitación con Meet. Te llega un aviso.
+  - **Proponer otro día y hora:** fecha, hora y una nota opcional. Se revisa que el horario esté libre en tu agenda (sin mostrar con qué se cruza) y, si está ocupado, se sugiere el siguiente libre. Te llega un aviso; la reserva sigue por confirmar y el cliente puede cambiar su propuesta o confirmar el horario original.
+- **Tú:** en la reunión (y en la pestaña *Reuniones* del proyecto) ves el horario propuesto con **Aceptar horario propuesto** (mueve la reunión y envía la invitación). También puedes confirmar el original o editar la fecha: con otra fecha, el cliente la vuelve a ver por confirmar con el horario nuevo. En tu cabecera aparece una franja cuando un cliente propuso otro horario.
+- Solo responden las personas del cliente que ven el proyecto; quien solo ve sus tareas, si está entre los invitados.
 
 ## 2. Sincronización
 

@@ -8615,3 +8615,202 @@ ul.scope-history__reason {
 .side--todos {
   color: var(--verde);
 }
+
+/* ── Reuniones por confirmar: aviso en la cabecera (comprimido; se expande con un clic) y página del cliente */
+
+.pending-bar {
+  border-top: 1px solid color-mix(in srgb, var(--naranja) 30%, transparent);
+  background: color-mix(in srgb, var(--naranja) 7%, var(--canvas));
+}
+
+.pending-bar.is-open {
+  background: color-mix(in srgb, var(--naranja) 12%, var(--surface-strong));
+}
+
+.pending-bar__in {
+  width: min(1120px, 100% - 32px);
+  margin-inline: auto;
+  font-size: 0.8rem;
+  color: var(--ink);
+}
+
+.pending-bar__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pending-bar__toggle strong {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pending-bar__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--naranja);
+  box-shadow: 0 0 0 3px rgba(251, 133, 0, 0.2);
+}
+
+.pending-bar__more {
+  flex: none;
+  color: #fdba74;
+}
+
+.pending-bar__toggle:hover .pending-bar__more {
+  text-decoration: underline;
+}
+
+.pending-bar__chev {
+  flex: none;
+  color: #fdba74;
+  transition: transform 0.2s var(--ease);
+}
+
+.pending-bar.is-open .pending-bar__chev {
+  transform: rotate(180deg);
+}
+
+.pending-bar__body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 2px 0 10px 15px;
+}
+
+.pending-bar__hint {
+  flex-basis: 100%;
+  color: var(--body);
+}
+
+.pending-bar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.pending-bar__chip {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--naranja) 55%, transparent);
+  border-radius: 999px;
+  color: #fdba74;
+  font-size: 0.78rem;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.2s var(--ease);
+}
+
+.pending-bar__chip:hover {
+  background: rgba(251, 133, 0, 0.16);
+}
+
+.pending-bar__chip.is-sent {
+  border-style: dashed;
+  color: var(--body);
+}
+
+@media (max-width: 640px) {
+  .pending-bar__chips {
+    flex-basis: 100%;
+  }
+}
+
+.confirm-list {
+  display: grid;
+  gap: 14px;
+}
+
+.confirm-meeting {
+  display: grid;
+  gap: 14px;
+  padding: 20px 22px;
+  border-left: 3px solid var(--naranja);
+  scroll-margin-top: 140px;
+}
+
+.confirm-meeting.is-focus {
+  box-shadow: 0 0 0 2px rgba(251, 133, 0, 0.5);
+}
+
+.confirm-meeting.is-sent {
+  border-left-style: dashed;
+}
+
+.confirm-meeting__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.confirm-meeting__head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.confirm-meeting__head .eyebrow {
+  margin: 0 0 4px;
+}
+
+.confirm-meeting__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px 20px;
+  margin: 0;
+}
+
+.confirm-meeting__facts dt {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.confirm-meeting__facts dd {
+  margin: 3px 0 0;
+  color: var(--ink);
+}
+
+.confirm-meeting__facts dd.is-struck {
+  color: var(--mute);
+  text-decoration: line-through;
+}
+
+.confirm-meeting .callout {
+  margin: 0;
+}
+
+.confirm-meeting__form {
+  display: grid;
+  gap: 10px;
+}
+
+.confirm-meeting__form .hint {
+  margin: 0;
+}
+
+.meeting__proposal {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.82rem;
+  color: #fdba74;
+}
