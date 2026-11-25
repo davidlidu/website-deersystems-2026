@@ -38,6 +38,7 @@ import { handleFiles, handlePage } from './files.ts';
 import { handleImages } from './images.ts';
 import { handleProposalMail, lastSend } from './proposalMail.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
+import { handleTemplates } from './templates.ts';
 import { handleBilling } from './billing.ts';
 import { handleScheduled } from './scheduled.ts';
 import { handlePlanAdjust } from './planAdjust.ts';
@@ -1423,6 +1424,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handleImages(route, id, req, res, v, url)) return;
   if (await handlePeople(route, id, req, res, v)) return;
   if (await handleMeetings(route, id, req, res, v, url)) return;
+  if (await handleTemplates(route, id, req, res, v, proposalView)) return;
   if (await handlePayments(route, id, req, res, v)) return;
   if (await handleFinance(route, id, req, res, v, url)) return;
   if (await handleBilling(route, id, req, res, v, url)) return;
