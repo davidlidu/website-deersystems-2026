@@ -94,6 +94,7 @@ export function ProposalTemplates({ onPublished }: { onPublished: (p: ProposalRo
   const [editing, setEditing] = useState<Editing | null>(null);
   const [ai, setAi] = useState(false);
   const [using, setUsing] = useState<{ id: number; name: string; data: TemplateData } | null>(null);
+  const [previewing, setPreviewing] = useState<{ id: number; html: string } | null>(null);
   const { busy, run } = useAction();
   const toast = useToast();
 
@@ -181,6 +182,14 @@ export function ProposalTemplates({ onPublished }: { onPublished: (p: ProposalRo
                       <button className="btn btn--primary btn--sm" onClick={() => setUsing({ id: t.id, name: t.name, data: t.data })}>
                         Usar
                       </button>
+                      <button
+                        className="btn btn--outline btn--sm"
+                        disabled={busy}
+                        title="Ver la propuesta tal como la verá el cliente"
+                        onClick={() => run(async () => setPreviewing({ id: t.id, html: await previewHtml(t.data) }))}
+                      >
+                        Vista previa
+                      </button>
                       <button className="btn btn--outline btn--sm" onClick={() => setEditing({ id: t.id, name: t.name, category: t.category, data: t.data })}>
                         Editar
                       </button>
@@ -221,6 +230,17 @@ export function ProposalTemplates({ onPublished }: { onPublished: (p: ProposalRo
           onDraft={(name, d) => {
             setAi(false);
             setEditing({ id: null, name, category: 'personalizada', data: d });
+          }}
+        />
+      )}
+      {previewing && (
+        <PreviewDialog
+          html={previewing.html}
+          onClose={() => setPreviewing(null)}
+          onUse={() => {
+            const t = list.find((x) => x.id === previewing.id);
+            setPreviewing(null);
+            if (t) setUsing({ id: t.id, name: t.name, data: t.data });
           }}
         />
       )}
@@ -398,8 +418,7 @@ function TemplateEditor({
           disabled={busy}
           onClick={() =>
             run(async () => {
-              const r = await api<{ html: string }>('POST', 'proposal-templates/preview', { data: d });
-              setPreview(r.html);
+              setPreview(await previewHtml(d));
             })
           }
         >
@@ -460,9 +479,20 @@ function Modal({ title, wide, onClose, children, busy }: { title: string; wide?:
   );
 }
 
-function PreviewDialog({ html, onClose }: { html: string; onClose: () => void }) {
+/** El HTML de la propuesta tal como se publicaría (con el diseño del Cotizador 2026). */
+const previewHtml = async (data: TemplateData) => (await api<{ html: string }>('POST', 'proposal-templates/preview', { data })).html;
+
+function PreviewDialog({ html, onClose, onUse }: { html: string; onClose: () => void; onUse?: () => void }) {
   return (
     <Modal title="Vista previa de la propuesta" wide onClose={onClose}>
+      {onUse && (
+        <div className="actions actions--tight tpl-preview__bar">
+          <span className="hint">Así la verá el cliente. La fecha y el número de propuesta se ponen al publicarla.</span>
+          <button className="btn btn--primary btn--sm" onClick={onUse}>
+            Usar esta plantilla
+          </button>
+        </div>
+      )}
       {/* La presentación se dibuja con su propio JavaScript: solo scripts, sin acceso al portal (sin allow-same-origin). */}
       <iframe className="mail-preview tpl-preview__frame" sandbox="allow-scripts" srcDoc={html} title="Vista previa de la propuesta" />
     </Modal>
@@ -517,6 +547,7 @@ function PublishDialog({
   const [clientId, setClientId] = useState('');
   const [slug, setSlug] = useState('');
   const [done, setDone] = useState<ProposalRow | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
   const { busy, run } = useAction();
   const toast = useToast();
   const data = { ...template.data, agency, endClient };
@@ -602,7 +633,11 @@ function PublishDialog({
         >
           {busy ? 'Publicando…' : 'Publicar propuesta'}
         </button>
+        <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => run(async () => setPreview(await previewHtml(data)))}>
+          Vista previa
+        </button>
       </div>
+      {preview !== null && <PreviewDialog html={preview} onClose={() => setPreview(null)} />}
     </Modal>
   );
 }

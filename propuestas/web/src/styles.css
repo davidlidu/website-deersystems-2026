@@ -8899,12 +8899,14 @@ ul.scope-history__reason {
   margin-left: auto;
 }
 
-.tpl-preview .modal__in {
-  width: min(960px, 100vw - 32px);
+/* Vista previa de la propuesta: ancha, para ver la presentación como en escritorio. */
+.modal.tpl-preview {
+  width: min(1100px, calc(100vw - 32px));
 }
 
 .tpl-preview__frame {
-  height: min(75vh, 900px);
+  width: 100%;
+  height: min(75dvh, 900px);
   background: #fff;
 }
 
@@ -8912,4 +8914,9 @@ ul.scope-history__reason {
   .tpl .item__actions {
     justify-content: flex-start;
   }
+}
+
+.tpl-preview__bar {
+  justify-content: space-between;
+  margin-bottom: 10px;
 }
