@@ -93,3 +93,12 @@ Registra con autor y fecha:
 - Reuniones agendadas, canceladas y resúmenes aprobados.
 
 Las entradas internas, como las notas internas, no le aparecen al cliente.
+
+
+## Festivos de Colombia
+
+Las fechas tienen en cuenta los festivos de Colombia (Ley 51 de 1983, «Ley Emiliani»), calculados para cualquier año en `src/partners/holidays.ts`: los mismos que publica festivos.com.co, sin depender de ese sitio.
+
+- **Plan con IA** (al aprobar, ajustar el plan o el alcance): la IA recibe la lista de festivos de los próximos 12 meses y la regla de días hábiles. Si aun así propone una fecha en fin de semana o festivo, pasa al siguiente día hábil y queda un aviso.
+- **Ajustes de alcance:** una fecha en festivo cuenta como fin de semana (solo con «Permitir fin de semana»).
+- **Agenda de reuniones:** los festivos están ocupados todo el día: no se agenda ni se sugiere nada en ellos (tampoco cuando el cliente propone otro horario).

@@ -2,6 +2,7 @@ import { db as sqlite } from '../db.ts';
 import * as google from '../google.ts';
 import { HttpError } from '../http.ts';
 import type { DraftMeeting } from './extract.ts';
+import { holidaysBetween } from './holidays.ts';
 
 /**
  * Disponibilidad para agendar: lo ocupado en tu Google Calendar más las reuniones programadas en Partners.
@@ -66,10 +67,17 @@ export async function busyBetween(from: number, to: number, exclude?: number | n
       console.warn('Disponibilidad sin Google Calendar:', (err as Error).message);
     }
   }
+  // Festivos de Colombia: todo el día ocupado, así no se agenda ni se sugiere nada en ellos.
+  for (const h of holidaysBetween(bogota(from).date, bogota(to).date)) {
+    const start = at(h.date, '00:00');
+    out.push({ start, end: start + DAY, title: `Festivo: ${h.name}` });
+  }
   return out.sort((a, b) => a.start - b.start);
 }
 
 const clash = (busy: Busy[], start: number, end: number) => busy.find((b) => b.start < end && b.end > start);
+/** «8:00 a. m. – 9:00 a. m.», o «todo el día» para un festivo. */
+const span = (b: Busy) => (b.title.startsWith('Festivo:') ? 'todo el día' : `${hour(b.start)} – ${hour(b.end)}`);
 
 /** Siguiente inicio libre desde `from` en horario laboral, en pasos de 15 minutos, hasta 30 días después. */
 export function nextFree(busy: Busy[], from: number, minutes: number): number | null {
@@ -92,7 +100,7 @@ export function nextFree(busy: Busy[], from: number, minutes: number): number | 
 }
 
 export interface SlotCheck {
-  conflict: { title: string; start: string; end: string } | null;
+  conflict: { title: string; start: string; end: string; span: string } | null;
   suggestion: { date: string; time: string } | null;
 }
 
@@ -121,7 +129,7 @@ export async function checkSlots(slots: Slot[], excludeMeetingId?: number | numb
     const kept = c ? next : start;
     if (kept !== null) taken.push({ start: kept, end: kept + s.durationMinutes * 60_000, title: 'Otra reunión de este plan' });
     return {
-      conflict: c ? { title: c.title, start: hour(c.start), end: hour(c.end) } : null,
+      conflict: c ? { title: c.title, start: hour(c.start), end: hour(c.end), span: span(c) } : null,
       suggestion: next !== null ? bogota(next) : null,
     };
   });
@@ -138,7 +146,7 @@ export async function assertFree(start: Date, end: Date, excludeMeetingId?: numb
   throw new HttpError(
     409,
     // "a. m." ya termina en punto.
-    `Ese horario se cruza con «${c.title}» (${hour(c.start)} – ${hour(c.end)}).${next !== null ? ` Siguiente horario libre: ${label(next)}.` : ''}`.replace(/\.\.$/, '.'),
+    `${c.title.startsWith('Festivo:') ? `Ese día es festivo en Colombia (${c.title.slice(9)}).` : `Ese horario se cruza con «${c.title}» (${span(c)}).`}${next !== null ? ` Siguiente horario libre: ${label(next)}.` : ''}`.replace(/\.\.$/, '.'),
   );
 }
 

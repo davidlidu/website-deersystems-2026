@@ -70,6 +70,8 @@ sqlite.exec(`
 const hasColumn = (table: string, col: string) => (sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === col);
 if (!hasColumn('proposals', 'client_id')) sqlite.exec('ALTER TABLE proposals ADD COLUMN client_id INTEGER');
 if (!hasColumn('proposal_approvals', 'client_id')) sqlite.exec('ALTER TABLE proposal_approvals ADD COLUMN client_id INTEGER');
+// Propuestas de plantillas: qué adicionales marcó el cliente y cómo paga cada mensualidad ({ extras: [i], pay: { i: 'anual' } }).
+if (!hasColumn('proposal_approvals', 'choice')) sqlite.exec('ALTER TABLE proposal_approvals ADD COLUMN choice TEXT');
 // Cambios de alcance: «retiro» (scope/remove) o «adicional» (scope/add). En un adicional, tasks_removed cuenta las tareas
 // creadas y detail guarda el valor base, el descuento y cuándo se paga.
 if (!hasColumn('scope_changes', 'kind')) sqlite.exec("ALTER TABLE scope_changes ADD COLUMN kind TEXT NOT NULL DEFAULT 'retiro'");
@@ -345,7 +347,7 @@ const periodOf = (v: string): Concept['periodo'] => (v === 'mensual' || v === 'a
  * antes de guardar `conceptos` se reconstruyen con los planes de la inversión y los adicionales. Las demás (del
  * cotizador o subidas a mano) no tienen: devuelve [] y la página funciona como siempre.
  */
-function conceptsOf(data: GeneratedData | null): Concept[] {
+export function conceptsOf(data: GeneratedData | null): Concept[] {
   const ap = data?.meta?.aprobacion;
   if (!ap) return [];
   if (Array.isArray(ap.conceptos) && ap.conceptos.length) {
@@ -375,6 +377,86 @@ function conceptsOf(data: GeneratedData | null): Concept[] {
     anual: Number(a.anual) > 0 ? Number(a.anual) : null,
   }));
   return [...base, ...extras];
+}
+
+interface Choice {
+  extras: Set<number>;
+  pay: Record<string, unknown>;
+}
+
+/**
+ * La elección guardada al aprobar. Las aprobaciones hechas antes de guardarla se reconstruyen con su resumen
+ * («Aprobó: … Sincronización de agenda (adicional): … ; Inteligencia artificial: … , pago anual …»).
+ */
+function choiceOf(a: ApprovalRow, concepts: Concept[]): Choice {
+  const saved = parseJson<{ extras?: number[]; pay?: Record<string, unknown> } | null>((a as ApprovalRow & { choice?: string | null }).choice ?? null, null);
+  if (saved) return { extras: new Set((saved.extras ?? []).filter((i) => concepts[i]?.opcional)), pay: saved.pay ?? {} };
+  const approved = (a.option_summary || a.notes).split('No tomó:')[0];
+  const extras = new Set<number>();
+  const pay: Record<string, unknown> = {};
+  concepts.forEach((c, i) => {
+    const at = approved.indexOf(`${c.concepto}${c.opcional ? ' (adicional)' : ''}:`);
+    if (at < 0) return;
+    if (c.opcional) extras.add(i);
+    if (c.anual && /^[^;]*pago anual/.test(approved.slice(at))) pay[String(i)] = 'anual';
+  });
+  return { extras, pay };
+}
+
+const parseJson = <T>(s: string | null, fallback: T): T => {
+  try {
+    return s ? (JSON.parse(s) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+/**
+ * El plan de pagos de una propuesta de plantilla con lo que el cliente aprobó: lo de pago único (setup y adicionales
+ * de pago único) en un pago, o en anticipo y contra entrega si la propuesta es 50/50; y el primer cobro de cada
+ * concepto recurrente (el primer mes, o el año si eligió pago anual o si es anual).
+ */
+function paymentsFromChoice(data: GeneratedData | null, concepts: Concept[], choice: Choice): { payments: PaymentInput[]; warnings: string[] } {
+  const currency = data?.meta?.aprobacion?.moneda === 'USD' ? 'USD' : 'COP';
+  const chosen = concepts.map((c, i) => ({ c, i })).filter(({ c, i }) => !c.opcional || choice.extras.has(i));
+  const once = chosen.filter(({ c }) => c.periodo === 'unico');
+  const total = once.reduce((s, { c }) => s + c.valor, 0);
+  const names = once.map(({ c }) => c.concepto).join(' + ');
+  const split = (data?.meta?.aprobacion?.pagos?.length ?? 0) >= 2;
+  const out: { label: string; amount: number }[] = [];
+  if (total) {
+    if (split) {
+      const first = Math.round(total / 2);
+      out.push({ label: `Anticipo 50% · ${names}`, amount: first }, { label: `Contra entrega 50% · ${names}`, amount: total - first });
+    } else {
+      out.push({ label: `Pago único · ${names}`, amount: total });
+    }
+  }
+  const monthly: string[] = [];
+  for (const { c, i } of chosen) {
+    if (c.periodo === 'unico' || c.periodo === 'hora') continue;
+    const yearly = c.periodo === 'anual' || (!!c.anual && choice.pay[String(i)] === 'anual');
+    if (c.periodo === 'mensual' && !yearly) {
+      out.push({ label: `${c.concepto} · primer mes`, amount: c.valor });
+      monthly.push(`${c.concepto} (${moneyText(c.valor, currency)} / mes)`);
+    } else {
+      out.push({
+        label: c.periodo === 'mensual' ? `${c.concepto} · pago anual (12 meses)` : `${c.concepto} · primer año`,
+        amount: c.periodo === 'mensual' ? c.anual! : c.valor,
+      });
+    }
+  }
+  const grand = out.reduce((s, p) => s + p.amount, 0);
+  return {
+    payments: out.map((p) => ({
+      label: p.label.slice(0, 160),
+      percent: grand ? Math.round((p.amount / grand) * 10000) / 100 : null,
+      amount: p.amount,
+      currency,
+      dueDate: null,
+    })),
+    warnings: monthly.length ? [`Los meses siguientes de ${monthly.join(', ')} se cobran aparte cada mes: el plan solo trae el primero.`] : [],
+  };
 }
 
 /** Lo que el cliente eligió: qué adicionales suma y cómo paga cada mensualidad que permite pago anual. */
@@ -734,8 +816,8 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
   const t = now();
   const { lastInsertRowid } = sqlite
     .prepare(
-      `INSERT INTO proposal_approvals (proposal_id, version, option_id, option_name, option_summary, name, email, company, phone, notes, ip, user_agent, status, client_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generando', ?, ?, ?)`,
+      `INSERT INTO proposal_approvals (proposal_id, version, option_id, option_name, option_summary, name, email, company, phone, notes, ip, user_agent, status, client_id, choice, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'generando', ?, ?, ?, ?)`,
     )
     .run(
       proposal.id,
@@ -751,6 +833,7 @@ export async function handleApprovalPage(req: IncomingMessage, res: ServerRespon
       ip.slice(0, 64),
       String(req.headers['user-agent'] ?? '').slice(0, 300),
       client?.id ?? null,
+      concepts.length ? JSON.stringify({ extras: [...wantedExtras], pay }) : null,
       t,
       t,
     );
@@ -801,8 +884,18 @@ export async function generatePlan(id: number): Promise<void> {
       notes: [a.notes ? `Comentarios del cliente al aprobar: ${a.notes}` : '', earlierNote(a)].filter(Boolean).join('\n'),
     });
     draft.approvalNotes = a.notes;
-    const exact = paymentsOf(await generatedData(approved), a.option_id);
-    if (exact) draft.payments = exact;
+    const data = await generatedData(approved);
+    const concepts = conceptsOf(data);
+    if (concepts.length) {
+      // Propuesta de plantilla: los pagos salen de lo que el cliente aprobó (adicionales y pago anual incluidos).
+      const choice = choiceOf(a, concepts);
+      const plan = paymentsFromChoice(data, concepts, choice);
+      draft.payments = plan.payments;
+      draft.warnings.push(...plan.warnings);
+    } else {
+      const exact = paymentsOf(data, a.option_id);
+      if (exact) draft.payments = exact;
+    }
     const linked = (a as ApprovalRow & { client_id: number | null }).client_id;
     const client = linked ? db.getClient(linked) : undefined;
     if (client) {

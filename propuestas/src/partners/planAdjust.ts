@@ -5,6 +5,7 @@ import type { Viewer } from './auth.ts';
 import { actor, requireOwner, str } from './common.ts';
 import * as db from './db.ts';
 import { checkSlots } from './availability.ts';
+import { holidaysForAi } from './holidays.ts';
 import { meetingOfTask, moveMeeting } from './meetings.ts';
 import { peopleOf } from './people.ts';
 
@@ -164,7 +165,7 @@ export function normalizeOps(projectId: number, raw: Record<string, unknown>): {
 export function weekdaysRule(allowWeekends: boolean): string {
   return allowWeekends
     ? 'Fechas desde hoy en adelante, coherentes: el inicio no puede ser después de la entrega. EXCEPCIÓN ACORDADA: las tareas pueden caer en sábado o domingo si la instrucción lo pide o lo necesita para cumplir; no muevas a fin de semana lo que no se pide.'
-    : 'Fechas en días hábiles (lunes a viernes), desde hoy en adelante, coherentes: el inicio no puede ser después de la entrega. Si la instrucción exige trabajar en fin de semana, no propongas cambios y explica en "changes" que hay que marcar «Permitir fin de semana».';
+    : `Fechas en días hábiles (lunes a viernes, sin festivos de Colombia), desde hoy en adelante, coherentes: el inicio no puede ser después de la entrega. Si la instrucción exige trabajar en fin de semana o festivo, no propongas cambios y explica en "changes" que hay que marcar «Permitir fin de semana». ${holidaysForAi(new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' }))}`;
 }
 
 /** Aviso de horario por tarea: se movió al siguiente libre (`clash: false`) o sigue cruzada (`clash: true`). */

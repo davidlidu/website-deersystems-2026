@@ -9027,3 +9027,19 @@ ul.scope-history__reason {
 .mail-results .is-error {
   color: var(--coral);
 }
+
+/* Enlace con aspecto de texto (p. ej. «Volver a armar el plan» en el aviso del plan aprobado). */
+.linkbtn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--cian);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.linkbtn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
