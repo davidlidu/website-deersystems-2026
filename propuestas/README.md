@@ -20,13 +20,14 @@ Un servidor Node atiende dos subdominios desde un solo contenedor y los distingu
 | Archivos | Google Drive por cliente y proyecto; selector de tu Drive; compartido o interno; ver y descargar | [archivos](./docs/archivos.md) |
 | Pagos | Plan de pagos desde la propuesta (USD/COP); «Pagado» → abono e ingreso en el Gestor financiero, con USD convertido a la TRM oficial | [pagos-y-finanzas](./docs/pagos-y-finanzas.md) |
 | Facturación | Cuentas de cobro (numeración de SmartBilling, PDF, envío por Gmail), abonos, estado de cuenta del cliente, reportes, pago en línea opcional (Wompi) e importador desde SmartBilling | [facturacion](./docs/facturacion.md) |
+| Correos | Correos con la marca a varios destinatarios (cada uno el suyo), con datos por persona (`{dominio}`, `{vence}`, `{valor}`), plantillas (renovación de dominio y hosting), vista previa, prueba e historial | [correos](./docs/correos.md) |
 | Avisos | Campana con beep, correos agrupados; tú decides para todos y cada persona apaga los suyos | [avisos-y-tour](./docs/avisos-y-tour.md) |
 | Tour | Recorrido guiado por rol, dentro de un proyecto real; «Terminar tour» no vuelve a salir | [avisos-y-tour](./docs/avisos-y-tour.md) |
 | IA | Perfiles *Propuestas* y *Reuniones*, Gemini u OpenRouter, respaldo, solo privados, consumo y prueba | [ia](./docs/ia.md) |
 
 ## Roles
 
-Menú del administrador: **Clientes** (y Reuniones) · **Propuestas** · **Facturación** · **Configuración** (y Equipo).
+Menú del administrador: **Clientes** (y Reuniones) · **Propuestas** · **Facturación** · **Correos** · **Configuración** (y Equipo).
 
 | Rol | Entra con | Ve |
 |---|---|---|

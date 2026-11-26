@@ -8920,3 +8920,110 @@ ul.scope-history__reason {
   justify-content: space-between;
   margin-bottom: 10px;
 }
+
+/* ── Correos con la marca */
+
+.mail-var {
+  margin: 2px 4px 2px 0;
+  padding: 1px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  background: none;
+  color: var(--cian);
+  font: 500 0.75rem var(--font-mono);
+  cursor: pointer;
+}
+
+.mail-var:hover {
+  border-color: var(--cian);
+}
+
+.mail-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.mail-fields__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.mail-fields__x {
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mute);
+  cursor: pointer;
+}
+
+.mail-table {
+  overflow-x: auto;
+}
+
+.mail-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.mail-table th {
+  padding: 6px 6px 8px;
+  text-align: left;
+  font: 500 0.68rem var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+  white-space: nowrap;
+}
+
+.mail-table td {
+  padding: 3px;
+}
+
+.mail-table td input {
+  width: 100%;
+  min-width: 120px;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: rgba(5, 25, 35, 0.6);
+  color: var(--ink);
+  font: inherit;
+}
+
+.mail-table td input:focus {
+  border-color: var(--cian);
+  outline: 0;
+}
+
+.mail-pick {
+  display: grid;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.mail-pick .check span {
+  display: grid;
+  gap: 2px;
+}
+
+.mail-pick small {
+  color: var(--mute);
+}
+
+.mail-results {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  font: 0.78rem/1.6 var(--font-mono);
+  color: var(--body);
+}
+
+.mail-results .is-error {
+  color: var(--coral);
+}
