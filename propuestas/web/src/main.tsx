@@ -2,6 +2,7 @@ import { Component, lazy, StrictMode, Suspense, useEffect, useState, type ReactN
 import { createRoot } from 'react-dom/client';
 import { Bell } from './Bell';
 import { PendingMeetingsBar } from './PendingMeetings';
+import { registerServiceWorker } from './Push';
 import { Tour, tourPostponed } from './Tour';
 import { PreviewBanner, ViewAsButton } from './ViewAs';
 import { api, loadChunk, match, navigate, useLocation, type Me } from './lib';
@@ -260,6 +261,7 @@ function App() {
 }
 
 reportVitals();
+registerServiceWorker();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

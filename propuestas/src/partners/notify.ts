@@ -4,6 +4,7 @@ import { notificationDigest } from '../mail.ts';
 import type { Viewer } from './auth.ts';
 import { accountOwnsTask } from './common.ts';
 import * as db from './db.ts';
+import { pushTo } from './push.ts';
 import * as telegram from './telegram.ts';
 
 /**
@@ -195,6 +196,8 @@ export function notify(
           link: ctx.path,
           collapse: type === 'client_status',
         });
+        // También en los dispositivos donde la persona activó las notificaciones (celular, iPad, Mac).
+        pushTo(t.recipient, { title: ctx.title, body: body || (project?.name ?? ''), path: ctx.path, tag: ctx.taskId ? `${type}-${ctx.taskId}` : undefined });
       }
       if (pref.telegram && t.recipient.kind === 'owner' && telegramAllowed(type)) {
         telegram.sendAlert({ title: ctx.title, body: body || project?.name, path: ctx.path });
