@@ -65,3 +65,13 @@ Aparece **al iniciar sesión** hasta que la persona lo termina. Resalta cada par
 - **El botón ?** del encabezado lo repite cuando quieras.
 
 Si la persona no tiene proyectos, los pasos del proyecto se omiten.
+
+## Notificaciones push
+
+Los avisos «en la plataforma» (los de la campana) también llegan como **notificación del dispositivo**, aunque la app esté cerrada, en cada dispositivo donde la persona las active.
+
+- **Dónde se activan:** *Configuración → Avisos → Notificaciones push* (tú) o *Mi cuenta* (equipo y clientes), con **Activar notificaciones**. Se pide el permiso del navegador y llega una notificación de prueba. Se activan por dispositivo: celular, iPad y Mac por separado.
+- **iPhone y iPad:** solo con la app agregada a la pantalla de inicio (Safari → Compartir → Agregar a inicio) e iOS/iPadOS 16.4 o más reciente. Se activan desde la app abierta desde el ícono.
+- **Mac:** en Safari (o en la app agregada al Dock), Chrome o Edge.
+- **Qué llega:** lo mismo que la campana, con las mismas preferencias: si alguien apaga un aviso «en la plataforma», tampoco le llega por push. Al tocar la notificación se abre la pantalla del aviso.
+- **Técnica:** Web Push con claves VAPID que se crean solas la primera vez (setting `push_vapid`); suscripciones en `push_subscriptions`; service worker en `/sw.js`. Los dispositivos que ya no existen se borran solos. API: `GET /api/push/key`, `POST /api/push/subscribe`, `/unsubscribe` y `/test`.

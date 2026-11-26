@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, compact, formatDateTime, navigate, useApi, useLocation, usd, type BillingProfile } from '../lib';
 import { ErrorBox, Loading, PageHead, useAction, useToast } from '../ui';
+import { PushToggle } from '../Push';
 import { TeamPage } from './Team';
 import { CatchUpSwitch } from './billing/CatchUp';
 import { PromptSettings } from './PromptSettings';
@@ -1300,6 +1301,15 @@ function NotificationsTab() {
           </span>
         </label>
         <p className="hint">Los correos solo salen con Google conectado (pestaña Google y correo).</p>
+      </section>
+
+      <section className="card form-section">
+        <h2>Notificaciones push</h2>
+        <p className="hint">
+          Los avisos «en la plataforma» también llegan como notificación a los dispositivos donde cada persona las active (aquí, o en «Mi cuenta» para
+          tu equipo y tus clientes). En iPhone y iPad, con la app agregada a la pantalla de inicio.
+        </p>
+        <PushToggle />
       </section>
 
       <TelegramCard />

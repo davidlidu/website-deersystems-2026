@@ -1,5 +1,6 @@
 import { type FormEvent } from 'react';
 import { api, useApi, type Me } from '../lib';
+import { PushToggle } from '../Push';
 import { setSoundEnabled, soundEnabled } from '../sound';
 import { ErrorBox, Loading, PageHead, useAction, useToast } from '../ui';
 
@@ -27,7 +28,7 @@ function MyNotifications({ me }: { me: Me }) {
     <section className="card form-section narrow-col">
       <h2>Mis avisos</h2>
       <p className="hint">
-        Elige qué quieres recibir en la campana de la plataforma y en tu correo ({me.email}).
+        Elige qué quieres recibir en la campana de la plataforma y en tu correo ({me.email}). Lo de la plataforma también te llega como notificación en los dispositivos donde la actives.
       </p>
       <div className="notify-group">
         <div className="notify-row notify-row--head">
@@ -54,6 +55,7 @@ function MyNotifications({ me }: { me: Me }) {
           </div>
         ))}
       </div>
+      <PushToggle preview={!!me.preview} />
       <label className="check">
         <input type="checkbox" defaultChecked={soundEnabled()} onChange={(e) => setSoundEnabled(e.target.checked)} />
         Sonido al llegar un aviso nuevo (en este navegador)

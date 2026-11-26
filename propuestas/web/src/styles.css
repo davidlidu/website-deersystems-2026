@@ -9043,3 +9043,26 @@ ul.scope-history__reason {
   opacity: 0.6;
   cursor: wait;
 }
+
+/* ── Notificaciones push en el dispositivo */
+.push-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  background: rgba(5, 25, 35, 0.45);
+}
+
+.push-card strong {
+  color: var(--ink);
+}
+
+.push-card .hint {
+  margin: 4px 0 0;
+  max-width: 60ch;
+}

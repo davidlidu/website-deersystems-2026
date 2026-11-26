@@ -41,6 +41,7 @@ import { handleProposalMail, lastSend } from './proposalMail.ts';
 import { handleMeetings, scheduleMeeting } from './meetings.ts';
 import { handleTemplates } from './templates.ts';
 import { handleCampaigns } from './campaigns.ts';
+import { handlePush } from './push.ts';
 import { handleBilling } from './billing.ts';
 import { handleScheduled } from './scheduled.ts';
 import { handlePlanAdjust } from './planAdjust.ts';
@@ -1429,6 +1430,7 @@ choquen con el cambio. Responde SOLO con JSON: { "text": "las instrucciones adic
   if (await handleMeetings(route, id, req, res, v, url)) return;
   if (await handleTemplates(route, id, req, res, v, proposalView)) return;
   if (await handleCampaigns(route, id, req, res, v)) return;
+  if (await handlePush(route, req, res, v)) return;
   if (await handlePayments(route, id, req, res, v)) return;
   if (await handleFinance(route, id, req, res, v, url)) return;
   if (await handleBilling(route, id, req, res, v, url)) return;
@@ -1466,6 +1468,11 @@ export async function handlePartners(req: IncomingMessage, res: ServerResponse, 
     const ok = await sendFile(req, res, join(APP_DIR, path), { 'Cache-Control': 'public, max-age=31536000, immutable' });
     if (ok) return;
     throw new HttpError(404, 'No encontrado.');
+  }
+  // Service worker de las notificaciones push: en la raíz (su alcance es toda la app) y sin caché, para que se actualice.
+  if (path === '/sw.js') {
+    const ok = await sendFile(req, res, join(APP_DIR, 'sw.js'), { 'Cache-Control': 'no-cache', 'Content-Type': 'text/javascript; charset=utf-8' });
+    if (ok) return;
   }
   // Manifiesto e iconos de la app instalable (están en la raíz del build).
   if (/^\/(manifest\.webmanifest|apple-touch-icon\.png|icon-(192|512|maskable-512)\.png)$/.test(path)) {
