@@ -10,6 +10,7 @@ import * as db from './db.ts';
 import { createPayments } from './payments.ts';
 import { applyPlan, normalizeOps, placeMoves, preview, tasksForAi, weekdaysRule } from './planAdjust.ts';
 import { DELIVERY_RULE } from './extract.ts';
+import { isWorkday } from './holidays.ts';
 
 /**
  * Retirar del alcance una opción o fase ya aprobada (el cliente pidió quitarla a mitad de camino):
@@ -60,7 +61,8 @@ interface AdditionTask {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const day = (v: unknown) => (typeof v === 'string' && DATE_RE.test(v) ? v : null);
 const todayBogota = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Bogota' });
-const isWeekend = (d: string) => [0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay());
+/** Fin de semana o festivo de Colombia (solo se permite con «Permitir fin de semana»). */
+const isWeekend = (d: string) => !isWorkday(d);
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const pct = (n: number) => String(n).replace('.', ',');
 
@@ -139,7 +141,7 @@ Reglas:
     .filter(Boolean)
     .slice(0, 5);
   if (!p.allowWeekends && tasks.some((t) => (t.startDate && isWeekend(t.startDate)) || (t.dueDate && isWeekend(t.dueDate))))
-    notes.push('Alguna fecha cae en fin de semana: cámbiala o marca «Permitir fin de semana».');
+    notes.push('Alguna fecha cae en fin de semana o festivo: cámbiala o marca «Permitir fin de semana».');
   return { tasks, notes, ai: { provider: completion.provider, model: completion.model, costUsd: completion.costUsd, latencyMs: completion.latencyMs } };
 }
 
@@ -225,7 +227,7 @@ Reglas del plan:
   const notes = await placeMoves(ops);
   const warnings = [...skipped, ...list(data.notes, 5)];
   if (!p.allowWeekends && [...ops.updates, ...ops.creates].some((t) => (t.startDate && isWeekend(t.startDate)) || (t.dueDate && isWeekend(t.dueDate))))
-    warnings.push('Alguna fecha del plan cae en fin de semana: marca «Permitir fin de semana» o vuelve a proponer.');
+    warnings.push('Alguna fecha del plan cae en fin de semana o festivo: marca «Permitir fin de semana» o vuelve a proponer.');
   return {
     scopeBefore: project.scope,
     scope,
@@ -570,7 +572,7 @@ export async function handleScope(route: string, id: number, req: IncomingMessag
       const allowWeekends = body.allowWeekends === true;
       if (!allowWeekends) {
         const w = tasks.find((t) => (t.startDate && isWeekend(t.startDate)) || (t.dueDate && isWeekend(t.dueDate)));
-        if (w) throw new HttpError(400, `«${w.title}» cae en fin de semana. Cambia la fecha o marca «Permitir fin de semana».`);
+        if (w) throw new HttpError(400, `«${w.title}» cae en fin de semana o festivo. Cambia la fecha o marca «Permitir fin de semana».`);
       }
       const price = priceOf(body);
       const payWhen: PayWhen = body.payWhen === 'entregar' || body.payWhen === 'fecha' ? body.payWhen : 'aprobar';

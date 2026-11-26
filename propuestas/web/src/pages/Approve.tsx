@@ -863,6 +863,24 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
             <p className="callout">
               Plan armado con <strong>{project.approvedOption}</strong>
               {project.approvalNotes ? ` · ${project.approvalNotes.replace(/[.\s]+$/, '')}` : ''}.
+              {approvalId && (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className="linkbtn"
+                    disabled={busy}
+                    title="Vuelve a armar las fases, tareas, reuniones y pagos con la IA. Se pierden los cambios que hayas hecho aquí."
+                    onClick={() => {
+                      if (!confirm('¿Volver a armar el plan con IA? Se reemplazan las fases, tareas, reuniones y pagos, y se pierden los cambios que hayas hecho aquí.')) return;
+                      setStarted(false);
+                      retryApproval();
+                    }}
+                  >
+                    Volver a armar el plan
+                  </button>
+                </>
+              )}
             </p>
           )}
           {aiInfo && (
@@ -1327,7 +1345,7 @@ export function ApprovePage({ proposalId }: { proposalId: number }) {
                     if (!c?.conflict) return null;
                     return (
                       <p className="alert slot-status">
-                        Horario ocupado: se cruza con «{c.conflict.title}» ({c.conflict.start} – {c.conflict.end}).{' '}
+                        Horario ocupado: se cruza con «{c.conflict.title}» ({c.conflict.span ?? `${c.conflict.start} – ${c.conflict.end}`}).{' '}
                         {c.suggestion && (
                           <button
                             type="button"

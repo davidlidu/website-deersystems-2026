@@ -12,7 +12,7 @@ interface Contacts {
 // ───────── Disponibilidad ─────────
 
 export interface SlotResult {
-  slots: { conflict: { title: string; start: string; end: string } | null; suggestion: { date: string; time: string } | null }[];
+  slots: { conflict: { title: string; start: string; end: string; span?: string } | null; suggestion: { date: string; time: string } | null }[];
   days: Record<string, { start: string; end: string; title: string }[]>;
 }
 
@@ -69,7 +69,7 @@ export function SlotStatus({
   if (s?.conflict) {
     return (
       <p className="alert slot-status">
-        Ese horario está ocupado: se cruza con «{s.conflict.title}» ({s.conflict.start} – {s.conflict.end}).{' '}
+        Ese horario está ocupado: se cruza con «{s.conflict.title}» ({s.conflict.span ?? `${s.conflict.start} – ${s.conflict.end}`}).{' '}
         {s.suggestion ? (
           <button type="button" className="btn btn--outline btn--xs" onClick={() => onPick(s.suggestion!.date, s.suggestion!.time)}>
             Usar el siguiente libre: {slotLabel(s.suggestion.date, s.suggestion.time)}

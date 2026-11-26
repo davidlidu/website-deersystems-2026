@@ -4,6 +4,7 @@ import type { Proposal } from '../db.ts';
 import { listVersionFiles, resolveFile } from '../storage.ts';
 import type { Side } from './db.ts';
 import { placeMeetings } from './availability.ts';
+import { holidaysForAi, isWorkday, nextWorkday } from './holidays.ts';
 import { normalizePayment, PAYMENTS_PROMPT, type PaymentInput } from './payments.ts';
 
 export interface DraftTask {
@@ -161,7 +162,7 @@ Devuelve este JSON:
 }
 
 Reglas:
-- Usa el cronograma de la propuesta si lo tiene (semanas, fases, hitos). Si no, estima un plan realista. Fechas a partir de ${today}, solo días hábiles (lunes a viernes).
+- Usa el cronograma de la propuesta si lo tiene (semanas, fases, hitos). Si no, estima un plan realista. Fechas a partir de ${today}, solo días hábiles (lunes a viernes, sin festivos de Colombia). ${holidaysForAi(today)}
 - "side" es "cliente" cuando la tarea depende del cliente: entregar accesos, contenidos, logos, información, aprobar diseños, validar entregables, hacer pagos. Todo lo demás es "deersystems".
 - Incluye las tareas del cliente necesarias para que el proyecto avance (accesos, insumos, aprobaciones).
 - ${DELIVERY_RULE}
@@ -184,6 +185,31 @@ const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice
 const date = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v)) ? v : null);
 
 /** Valida y recorta lo que devuelve el modelo (o lo que llega del panel al confirmar). */
+/**
+ * Lo que propone la IA no puede caer en fin de semana ni en festivo de Colombia: las fechas de tareas, reuniones y
+ * pagos pasan al siguiente día hábil (y la entrega nunca queda antes del inicio). Queda dicho en los avisos.
+ */
+export function toWorkdays(draft: Draft): void {
+  let moved = 0;
+  const fix = (d: string | null) => {
+    if (!d || isWorkday(d)) return d;
+    moved++;
+    return nextWorkday(d);
+  };
+  for (const ph of draft.phases) {
+    for (const t of ph.tasks) {
+      t.startDate = fix(t.startDate);
+      t.dueDate = fix(t.dueDate);
+      if (t.startDate && t.dueDate && t.dueDate < t.startDate) t.dueDate = t.startDate;
+    }
+  }
+  for (const m of draft.meetings) m.date = fix(m.date);
+  for (const p of draft.payments) p.dueDate = fix(p.dueDate);
+  draft.startDate = fix(draft.startDate);
+  draft.endDate = fix(draft.endDate);
+  if (moved) draft.warnings.push(`${moved === 1 ? 'Una fecha caía' : `${moved} fechas caían`} en fin de semana o festivo de Colombia: se ${moved === 1 ? 'pasó' : 'pasaron'} al siguiente día hábil.`);
+}
+
 export function normalizeDraft(raw: Record<string, unknown>): Draft {
   const phases = (Array.isArray(raw.phases) ? raw.phases : []).slice(0, 20).map((ph: Record<string, unknown>, i) => ({
     name: str(ph?.name, 120) || `Fase ${i + 1}`,
@@ -383,6 +409,7 @@ export async function extractDraft(proposal: Proposal, approval: Approval = { op
     prompt: prompt(text, today, approval),
   });
   const draft = normalizeDraft(data);
+  toWorkdays(draft);
   draft.approvedOption = approval.option?.name ?? '';
   draft.approvalNotes = approval.notes;
   if (!draft.phases.some((p) => p.tasks.length)) {
@@ -450,7 +477,7 @@ Devuelve el plan COMPLETO ya ajustado, con la misma forma:
 
 Reglas:
 - Cambia SOLO lo que se pide y lo que sea consecuencia directa (por ejemplo, correr las fechas siguientes si se mueve una fase). Todo lo demás queda igual, con el mismo texto.
-- Fechas en días hábiles (lunes a viernes), coherentes entre sí: el inicio de una tarea no puede ser después de su entrega, y "endDate" es la entrega más tardía.
+- Fechas en días hábiles (lunes a viernes, sin festivos de Colombia), coherentes entre sí: el inicio de una tarea no puede ser después de su entrega, y "endDate" es la entrega más tardía. ${holidaysForAi(today)}
 - "side" es "cliente" cuando la tarea depende del cliente (accesos, contenidos, aprobaciones, pagos); lo demás es "deersystems".
 - ${DELIVERY_RULE} Conserva el valor actual de las tareas que no cambian.
 - No incluyas precios ni valores en tareas. Los valores van SOLO en "payments".
@@ -458,6 +485,7 @@ Reglas:
 - "changes": entre 1 y 8 frases que expliquen qué cambiaste. Si la instrucción no se puede aplicar, deja el plan igual y explícalo en "changes".`,
   });
   const draft = normalizeDraft(data);
+  toWorkdays(draft);
   if (!draft.phases.some((ph) => ph.tasks.length)) {
     throw new AiError(`El modelo ${completion.model} devolvió un plan sin tareas. Vuelve a intentarlo o reformula el ajuste.`);
   }
