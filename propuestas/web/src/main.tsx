@@ -21,6 +21,7 @@ const MeetingReviewPage = lazy(() => loadChunk(() => import('./pages/Meetings'))
 const ProposalsPage = lazy(() => loadChunk(() => import('./pages/Proposals')).then((m) => ({ default: m.ProposalsPage })));
 const CalendarPage = lazy(() => loadChunk(() => import('./pages/Calendar')).then((m) => ({ default: m.CalendarPage })));
 const PendingMeetingsPage = lazy(() => loadChunk(() => import('./pages/PendingMeetings')).then((m) => ({ default: m.PendingMeetingsPage })));
+const MailPage = lazy(() => loadChunk(() => import('./pages/Mail')).then((m) => ({ default: m.MailPage })));
 const SettingsPage = lazy(() => loadChunk(() => import('./pages/Settings')).then((m) => ({ default: m.SettingsPage })));
 
 /**
@@ -77,6 +78,7 @@ function Nav({ me, path }: { me: Me; path: string }) {
             ? ([
                 ['/propuestas', 'Propuestas'],
                 ['/facturacion', 'Facturación'],
+                ['/correos', 'Correos'],
               ] as [string, string][])
             : []),
         ];
@@ -175,6 +177,7 @@ function Routes({ me, path }: { me: Me; path: string }) {
     if (path === '/reuniones') return <MeetingsPage />;
     if ((m = match('/reuniones/:id', path))) return <MeetingReviewPage id={Number(m.id)} />;
     if (path === '/facturacion') return <BillingPage />;
+    if (path === '/correos') return <MailPage />;
     if (path === '/facturacion/nueva') return <InvoiceFormPage />;
     if ((m = match('/cuentas-de-cobro/:id/editar', path))) return <InvoiceFormPage id={Number(m.id)} />;
     if (path === '/equipo') return <GoTo to="/configuracion?tab=equipo" />;

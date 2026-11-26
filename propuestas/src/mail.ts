@@ -552,3 +552,30 @@ export function proposalsOffer(p: {
 
   return { to: p.to, subject: p.subject, html, text };
 }
+
+/**
+ * Correo libre con la marca (Correos en Partners): renovaciones, avisos, recordatorios. El mensaje va en Markdown
+ * simple (negritas, enlaces, viñetas, títulos) y ya viene con las variables de cada destinatario reemplazadas.
+ */
+export function brandedMessage(p: {
+  to: string;
+  subject: string;
+  eyebrow: string;
+  title: string;
+  body: string;
+  cta?: { label: string; url: string } | null;
+  footnote?: string;
+}): Mail {
+  return {
+    to: p.to,
+    subject: p.subject,
+    ...layout({
+      eyebrow: p.eyebrow || 'DeerSystems',
+      title: p.title || p.subject,
+      paragraphs: [],
+      rich: { html: mdHtml(p.body), text: p.body.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/^#{1,6}\s+/gm, '') },
+      ...(p.cta?.label && p.cta.url ? { cta: p.cta } : {}),
+      ...(p.footnote ? { footnote: p.footnote } : {}),
+    }),
+  };
+}
