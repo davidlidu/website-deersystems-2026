@@ -6,6 +6,7 @@ import { HttpError, json, readBody, readJson, redirect } from '../http.ts';
 import { clearFailures, clientIp, internalOwnerCookie, rateLimited, readCookies, recordFailure, sessionViewer as viewer, setCookie, type Viewer } from './auth.ts';
 import { requireOwner, str } from './common.ts';
 import * as db from './db.ts';
+import { clientFormsText } from './forms.ts';
 
 /**
  * Servidor MCP: conecta Claude (claude.ai, la app de escritorio, el móvil o Claude Code) con el portal.
@@ -384,6 +385,13 @@ const TOOLS: Tool[] = [
     description: 'Estado de cuenta de un cliente: totales, cuentas de cobro y abonos. Solo lectura.',
     inputSchema: schema({ clientId: { type: 'integer' } }, ['clientId']),
     run: async (a) => api('GET', `clients/${num(a.clientId, 'clientId')}/statement`),
+  },
+  {
+    name: 'get_client_forms',
+    title: 'Formularios del cliente',
+    description: 'Formularios y onboardings que se le enviaron a un cliente, con su estado y todas sus respuestas, archivos y comentarios en texto. Solo lectura.',
+    inputSchema: schema({ clientId: { type: 'integer' } }, ['clientId']),
+    run: async (a) => clientFormsText(num(a.clientId, 'clientId')),
   },
   {
     name: 'list_team',

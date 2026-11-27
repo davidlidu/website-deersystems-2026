@@ -29,6 +29,8 @@ export const EVENTS = {
   meeting_summary: { audience: 'client', label: 'Se aprueba el resumen de una reunión (además del correo con el resumen)', app: true, email: false },
   online_payment: { audience: 'owner', label: 'Llega un pago en línea (Wompi)', app: true, email: true },
   scheduled_mail: { audience: 'owner', label: 'Sale (o falla) un correo que programaste', app: true, email: false },
+  form_submitted: { audience: 'owner', label: 'Un cliente envía un formulario u onboarding', app: true, email: true },
+  form_requested: { audience: 'client', label: 'Hay un formulario para que el cliente lo llene (además del correo)', app: true, email: false },
   proposal_approved: { audience: 'owner', label: 'Un cliente aprueba una propuesta desde el enlace (y el plan con IA queda listo)', app: true, email: true },
 } as const;
 
@@ -231,6 +233,7 @@ const PERSONAL_LABEL: Partial<Record<EventType, { client?: string; team?: string
   meeting_scheduled: { client: 'Se agenda una reunión' },
   meeting_summary: { client: 'Llega el resumen de una reunión' },
   meeting_to_confirm: { client: 'Tengo una reunión por confirmar' },
+  form_requested: { client: 'Tengo un formulario por llenar' },
 };
 
 /** Avisos que le pueden llegar a esta persona, con lo que tú permites y lo que ella eligió. */

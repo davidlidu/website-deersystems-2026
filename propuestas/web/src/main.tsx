@@ -22,6 +22,8 @@ const MeetingReviewPage = lazy(() => loadChunk(() => import('./pages/Meetings'))
 const ProposalsPage = lazy(() => loadChunk(() => import('./pages/Proposals')).then((m) => ({ default: m.ProposalsPage })));
 const CalendarPage = lazy(() => loadChunk(() => import('./pages/Calendar')).then((m) => ({ default: m.CalendarPage })));
 const PendingMeetingsPage = lazy(() => loadChunk(() => import('./pages/PendingMeetings')).then((m) => ({ default: m.PendingMeetingsPage })));
+const FormsPage = lazy(() => loadChunk(() => import('./pages/Forms')).then((m) => ({ default: m.FormsPage })));
+const FormFillPage = lazy(() => loadChunk(() => import('./pages/FormFill')).then((m) => ({ default: m.FormFillPage })));
 const MailPage = lazy(() => loadChunk(() => import('./pages/Mail')).then((m) => ({ default: m.MailPage })));
 const SettingsPage = lazy(() => loadChunk(() => import('./pages/Settings')).then((m) => ({ default: m.SettingsPage })));
 
@@ -86,10 +88,10 @@ function Nav({ me, path }: { me: Me; path: string }) {
   return (
     <nav className="nav" aria-label="Principal">
       {items.map(([to, label]) => {
-        // Clientes agrupa también las reuniones; Facturación, las cuentas de cobro.
+        // Clientes agrupa también las reuniones y los formularios; Facturación, las cuentas de cobro.
         const active =
           to === '/'
-            ? path === '/' || path.startsWith('/clientes') || path.startsWith('/proyectos') || path.startsWith('/reuniones')
+            ? path === '/' || path.startsWith('/clientes') || path.startsWith('/proyectos') || path.startsWith('/reuniones') || path.startsWith('/formularios')
             : to === '/facturacion'
               ? path.startsWith('/facturacion') || path.startsWith('/cuentas-de-cobro')
               : path.startsWith(to);
@@ -179,6 +181,7 @@ function Routes({ me, path }: { me: Me; path: string }) {
     if ((m = match('/reuniones/:id', path))) return <MeetingReviewPage id={Number(m.id)} />;
     if (path === '/facturacion') return <BillingPage />;
     if (path === '/correos') return <MailPage />;
+    if (path === '/formularios') return <FormsPage />;
     if (path === '/facturacion/nueva') return <InvoiceFormPage />;
     if ((m = match('/cuentas-de-cobro/:id/editar', path))) return <InvoiceFormPage id={Number(m.id)} />;
     if (path === '/equipo') return <GoTo to="/configuracion?tab=equipo" />;
@@ -208,7 +211,9 @@ function App() {
     }
   }, [me?.email]); // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState<string | null>(null);
-  const isPublic = PUBLIC_PATHS.includes(path);
+  // /f/{token}: el formulario que el cliente llena con su enlace, sin iniciar sesión.
+  const formToken = match('/f/:token', path)?.token;
+  const isPublic = PUBLIC_PATHS.includes(path) || !!formToken;
 
   useEffect(() => {
     if (isPublic) return;
@@ -222,6 +227,13 @@ function App() {
       });
   }, [isPublic]);
 
+  if (formToken) {
+    return (
+      <Suspense fallback={<Loading />}>
+        <FormFillPage token={formToken} />
+      </Suspense>
+    );
+  }
   if (path === '/login') return <LoginPage onLogin={(m) => setMe(m)} />;
   if (path === '/recuperar') return <ForgotPage />;
   if (path === '/restablecer') return <ResetPage />;
