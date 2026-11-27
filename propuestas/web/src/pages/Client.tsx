@@ -8,6 +8,7 @@ import { ReceiptForm } from './billing/ReceiptForm';
 import { CatchUpBanner, CatchUpInvoices, useCatchUp } from './billing/CatchUp';
 import { ProjectCard } from './Home';
 import { ClientPeople, type ClientAccount } from './ClientPeople';
+import { AnswersDialog, LinkList, type LinkSummary } from './Forms';
 
 interface ClientDetail {
   id: number;
@@ -414,9 +415,32 @@ export function ClientPage({ me, id }: { me: Me; id: number }) {
           <Empty>Este cliente no tiene proyectos.</Empty>
         )}
       </section>
+      {owner && <ClientForms clientId={c.id} />}
       {owner && c.account && <ClientPeople clientId={c.id} accounts={c.accounts} projects={c.projects} onChange={reload} />}
       {owner && <ClientStatement clientId={c.id} />}
       {owner && <BillingData key={c.id} c={c} onSaved={reload} />}
     </>
+  );
+}
+
+/** Los formularios y onboardings que le enviaste al cliente, con sus respuestas (quedan en su espacio). */
+function ClientForms({ clientId }: { clientId: number }) {
+  const { data, reload } = useApi<LinkSummary[]>(`clients/${clientId}/forms`);
+  const [viewing, setViewing] = useState<number | null>(null);
+  return (
+    <section className="section">
+      <div className="section__head">
+        <h2>Formularios y onboardings</h2>
+        <span className="mono">{data?.length ?? 0}</span>
+      </div>
+      {data && data.length ? (
+        <LinkList links={data} onView={setViewing} onChange={reload} />
+      ) : (
+        <Empty>
+          Aún no le has enviado formularios. Créalos y envíalos desde <Link to="/formularios">Formularios</Link>.
+        </Empty>
+      )}
+      {viewing && <AnswersDialog id={viewing} onClose={() => setViewing(null)} onChange={reload} />}
+    </section>
   );
 }

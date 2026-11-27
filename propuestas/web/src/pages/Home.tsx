@@ -4,7 +4,7 @@ import { Empty, ErrorBox, Link, Loading, PageHead, ProgressBar } from '../ui';
 import { InvoiceStatus } from './billing/InvoiceStatus';
 
 /** Clientes agrupa dos vistas para el administrador: clientes y proyectos, y reuniones. */
-export function ClientsTabs({ active }: { active: 'clientes' | 'reuniones' }) {
+export function ClientsTabs({ active }: { active: 'clientes' | 'reuniones' | 'formularios' }) {
   return (
     <div className="tabs subtabs" role="tablist" data-tour="clients-tabs">
       <Link to="/" role="tab" aria-selected={active === 'clientes'} className={active === 'clientes' ? 'is-active' : ''}>
@@ -12,6 +12,9 @@ export function ClientsTabs({ active }: { active: 'clientes' | 'reuniones' }) {
       </Link>
       <Link to="/reuniones" role="tab" aria-selected={active === 'reuniones'} className={active === 'reuniones' ? 'is-active' : ''}>
         Reuniones
+      </Link>
+      <Link to="/formularios" role="tab" aria-selected={active === 'formularios'} className={active === 'formularios' ? 'is-active' : ''}>
+        Formularios
       </Link>
     </div>
   );
@@ -97,6 +100,51 @@ function MyAccount({ clientId }: { clientId: number }) {
   );
 }
 
+interface MyForm {
+  id: number;
+  title: string;
+  projectName: string | null;
+  status: 'pendiente' | 'en_progreso' | 'enviado';
+  url: string;
+  progress: { done: number; total: number };
+  submittedAt: string | null;
+}
+
+/** Formularios y onboardings que DeerSystems le envió al cliente: los pendientes arriba, para llenarlos. */
+function MyForms() {
+  const { data } = useApi<MyForm[]>('me/forms');
+  if (!data?.length) return null;
+  const label = { pendiente: 'Por llenar', en_progreso: 'Sin terminar', enviado: 'Enviado' } as const;
+  return (
+    <section className="section">
+      <div className="section__head">
+        <h2>Formularios</h2>
+        <span className="mono">{data.length}</span>
+      </div>
+      <div className="list">
+        {[...data].sort((a, b) => Number(a.status === 'enviado') - Number(b.status === 'enviado')).map((f) => (
+          <a key={f.id} className="item card myform" href={f.url}>
+            <div>
+              <div className="item__title">
+                {f.title}
+                <span className={`tag${f.status === 'enviado' ? ' tag--activo' : ' tag--warn'}`}>{label[f.status]}</span>
+              </div>
+              <div className="item__meta">
+                {f.projectName && <span>{f.projectName}</span>}
+                <span>
+                  {f.progress.done} de {f.progress.total} respondidas
+                </span>
+                {f.submittedAt && <span>Enviado {formatDateTime(f.submittedAt)}</span>}
+              </div>
+            </div>
+            <span className="btn btn--outline btn--sm">{f.status === 'enviado' ? 'Ver' : 'Llenar'}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ClientHome({ me }: { me: Me }) {
   const { data, error, loading, reload } = useApi<ProjectSummary[]>('projects');
   if (loading) return <Loading />;
@@ -119,6 +167,7 @@ function ClientHome({ me }: { me: Me }) {
           <Empty>No tienes proyectos en curso.</Empty>
         )}
       </section>
+      <MyForms />
       {me.client && me.billing !== false && <MyAccount clientId={me.client.id} />}
       {history.length > 0 && (
         <section className="section">

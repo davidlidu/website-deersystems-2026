@@ -9066,3 +9066,201 @@ ul.scope-history__reason {
   margin: 4px 0 0;
   max-width: 60ch;
 }
+
+/* ── Formularios y onboardings */
+
+.formfill {
+  width: min(760px, 100% - 32px);
+  margin: 0 auto;
+  padding: 28px 0 80px;
+}
+
+.formfill__brand {
+  display: inline-block;
+  margin-bottom: 18px;
+  font: 700 1.1rem var(--font-display);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.formfill__card {
+  display: grid;
+  gap: 14px;
+  padding: 28px 26px;
+}
+
+.formfill__card h1 {
+  margin: 0;
+  font: 700 clamp(1.4rem, 3.5vw, 1.9rem) / 1.2 var(--font-display);
+  color: var(--ink);
+}
+
+.formfill__card .eyebrow {
+  margin: 0;
+}
+
+.formfill__card--preview {
+  padding: 4px 0;
+}
+
+.formfill__desc {
+  margin: 0;
+  color: var(--body);
+}
+
+.formfill__fields {
+  display: grid;
+  gap: 18px;
+  margin-top: 6px;
+}
+
+.formfill__heading {
+  margin-top: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.formfill__heading h2,
+.formfill__section h2 {
+  margin: 0 0 4px;
+  font: 700 1.1rem var(--font-display);
+  color: var(--ink);
+}
+
+.formfill__label {
+  text-transform: none;
+  letter-spacing: 0;
+  font: 500 0.92rem var(--font-body);
+  color: var(--ink);
+}
+
+.formfill__req {
+  color: var(--coral);
+}
+
+.formfill__choices {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.formfill__choices legend {
+  margin-bottom: 8px;
+}
+
+.formfill__opts {
+  display: grid;
+  gap: 8px;
+}
+
+.formfill__scale {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.formfill__files {
+  margin: 4px 0 6px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 0.88rem;
+}
+
+.formfill__files li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.formfill__files a {
+  color: var(--cian);
+}
+
+.formfill__section {
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+}
+
+.formfill__submit {
+  display: grid;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.tpl-item.is-section {
+  border-color: rgba(0, 180, 216, 0.4);
+  background: rgba(0, 180, 216, 0.06);
+}
+
+.tpl-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.formsend__url {
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(5, 25, 35, 0.6);
+  font-size: 0.82rem;
+}
+
+.myform {
+  color: inherit;
+  text-decoration: none;
+}
+
+.answers {
+  display: grid;
+  gap: 6px;
+  max-height: 70dvh;
+  overflow-y: auto;
+}
+
+.answers__section {
+  margin: 14px 0 2px;
+  font: 700 1rem var(--font-display);
+  color: var(--ink);
+}
+
+.answers__row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--hairline);
+  font-size: 0.9rem;
+}
+
+.answers__q {
+  color: var(--mute);
+}
+
+.answers__a {
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.answers__comment {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+
+@media (max-width: 640px) {
+  .answers__row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+  .tpl-actions {
+    justify-content: flex-start;
+  }
+}

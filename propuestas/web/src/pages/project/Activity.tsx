@@ -64,6 +64,8 @@ function describe(a: ActivityItem): string {
       return `propuso otro horario para la reunión ${q(d.title)}: ${d.when}`;
     case 'meeting_updated':
       return `actualizó la reunión ${q(d.title)} (${d.when})`;
+    case 'form_submitted':
+      return `envió el formulario ${q(d.title)}`;
     case 'meeting_cancelled':
       return `canceló la reunión ${q(d.title)}`;
     case 'file_added':
