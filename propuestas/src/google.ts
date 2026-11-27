@@ -391,7 +391,14 @@ export async function createCalendarEvent(e: {
  */
 export async function updateCalendarEvent(
   eventId: string,
-  e: { summary: string; startIso: string; endIso: string; attendees: string[] },
+  e: {
+    summary: string;
+    startIso: string;
+    endIso: string;
+    attendees: string[];
+    /** Cambia la descripción a partir de la actual (p. ej. quitar «Reservada: por confirmar…» al confirmar). */
+    description?: (current: string) => string;
+  },
   notify: boolean,
 ): Promise<CalendarEvent> {
   const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
@@ -410,6 +417,7 @@ export async function updateCalendarEvent(
     headers,
     body: JSON.stringify({
       summary: e.summary,
+      ...(e.description ? { description: e.description((current as CalendarEvent & { description?: string }).description ?? '') } : {}),
       start: { dateTime: e.startIso, timeZone: 'America/Bogota' },
       end: { dateTime: e.endIso, timeZone: 'America/Bogota' },
       attendees,

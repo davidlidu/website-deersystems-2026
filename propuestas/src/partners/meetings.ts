@@ -156,9 +156,14 @@ export interface ClientProposal {
   at: string;
 }
 
+// Reuniones a las que la sincronización les copió «Por confirmar · » en el nombre: se limpian al arrancar.
+sqlite.prepare("UPDATE meetings SET title = TRIM(SUBSTR(title, 17)) WHERE title LIKE 'Por confirmar · %'").run();
+
 /** En Calendar, la reserva se distingue por el título hasta que el cliente confirma. */
 const TENTATIVE_PREFIX = 'Por confirmar · ';
-const calendarSummary = (m: Pick<Row, 'tentative'>, title: string) => (m.tentative ? `${TENTATIVE_PREFIX}${title}` : title);
+/** El título sin el «Por confirmar · » de Calendar (la sincronización lo trae del evento y no debe quedar en el nombre). */
+const withoutPrefix = (title: string) => title.replace(/^(\s*por confirmar\s*·\s*)+/i, '').trim();
+const calendarSummary = (m: Pick<Row, 'tentative'>, title: string) => (m.tentative ? `${TENTATIVE_PREFIX}${withoutPrefix(title)}` : withoutPrefix(title));
 
 interface Prospect {
   company: string;
@@ -489,6 +494,18 @@ function askClientToConfirm(m: Row, v: Viewer, moved = false): void {
  * La reserva pasa a reunión: se invita al cliente (Google le envía la invitación) con la fecha y hora que tenga.
  * La confirmas tú o el propio cliente desde el portal.
  */
+/**
+ * El nombre con que queda la reunión al confirmarla: sin «Por confirmar» y con el nombre de la empresa del cliente
+ * adelante («Click Lab · Reunión de arranque»), si no lo tiene ya.
+ */
+function confirmedTitle(m: Row): string {
+  const base = withoutPrefix(m.title) || 'Reunión';
+  const client = m.client_id ? db.getClient(m.client_id) : undefined;
+  const company = client?.name?.trim();
+  if (!company || base.toLowerCase().includes(company.toLowerCase())) return base.slice(0, 200);
+  return `${company} · ${base}`.slice(0, 200);
+}
+
 async function confirmTentative(m: Row, v: Viewer): Promise<Row> {
   if (m.status !== 'programada') throw new HttpError(409, 'Solo se pueden confirmar reuniones que aún no ocurren.');
   if (!m.tentative) throw new HttpError(409, 'Esta reunión ya está confirmada.');
@@ -496,13 +513,29 @@ async function confirmTentative(m: Row, v: Viewer): Promise<Row> {
   const current = parse<Attendee[]>(m.attendees, []);
   const extra = parse<string[]>(m.pending_attendees, []).filter((e) => !current.some((a) => a.email === e));
   const emails = [...current.map((a) => a.email), ...extra];
+  const title = confirmedTitle(m);
   let event: google.CalendarEvent | null = null;
   if (m.event_id) {
     if (!google.connectionStatus().connected) {
       throw new HttpError(503, v.kind === 'owner' ? 'Conecta Google en Configuración para confirmar reuniones.' : 'No pudimos confirmar la reunión en este momento. Inténtalo más tarde.');
     }
     try {
-      event = await google.updateCalendarEvent(m.event_id, { summary: m.title, startIso: m.start_at, endIso: m.end_at, attendees: emails }, true);
+      // La invitación sale con el nombre definitivo (empresa · reunión) y sin la nota de «Reservada: por confirmar».
+      event = await google.updateCalendarEvent(
+        m.event_id,
+        {
+          summary: title,
+          startIso: m.start_at,
+          endIso: m.end_at,
+          attendees: emails,
+          description: (d) =>
+            d
+              .split(/\n{2,}/)
+              .filter((p) => !/^Reservada: por confirmar/i.test(p.trim()))
+              .join('\n\n'),
+        },
+        true,
+      );
     } catch (err) {
       throw err instanceof google.GoogleError ? new HttpError(502, err.message) : err;
     }
@@ -510,6 +543,7 @@ async function confirmTentative(m: Row, v: Viewer): Promise<Row> {
   const staff = staffEmails();
   const clients = clientByEmail();
   update(m.id, {
+    title,
     tentative: 0,
     pending_attendees: null,
     client_proposal: null,
@@ -522,10 +556,10 @@ async function confirmTentative(m: Row, v: Viewer): Promise<Row> {
   if (m.project_id) {
     const a = actor(v);
     const when = whenLabel(m.start_at);
-    db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: v.kind === 'client' ? 'meeting_confirmed' : 'meeting_scheduled', data: { title: m.title, when } });
-    notify('meeting_scheduled', { actor: v, projectId: m.project_id, title: `Reunión agendada: «${m.title}»`, body: when, path: `/proyectos/${m.project_id}?tab=reuniones` });
+    db.logActivity({ projectId: m.project_id, actorKind: a.kind, actorName: a.name, type: v.kind === 'client' ? 'meeting_confirmed' : 'meeting_scheduled', data: { title, when } });
+    notify('meeting_scheduled', { actor: v, projectId: m.project_id, title: `Reunión agendada: «${title}»`, body: when, path: `/proyectos/${m.project_id}?tab=reuniones` });
     if (v.kind === 'client') {
-      notify('meeting_reply', { actor: v, projectId: m.project_id, title: `${v.name || v.email} confirmó «${m.title}»`, body: when, path: `/reuniones/${m.id}` });
+      notify('meeting_reply', { actor: v, projectId: m.project_id, title: `${v.name || v.email} confirmó «${title}»`, body: when, path: `/reuniones/${m.id}` });
     }
   }
   return get(m.id)!;
@@ -723,7 +757,7 @@ async function doSync(): Promise<SyncState> {
       const start = new Date(e.start.dateTime).toISOString();
       const end = new Date(e.end.dateTime).toISOString();
       const fields = {
-        title: e.summary?.trim() || 'Reunión',
+        title: withoutPrefix(e.summary?.trim() || '') || 'Reunión',
         start_at: start,
         end_at: end,
         meet_code: meetCodeOf(e),
