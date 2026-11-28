@@ -577,6 +577,8 @@ export interface BillingProfile {
   phone: string;
   email: string;
   bankInfo: string;
+  /** Datos para pagos en dólares (cuenta en EE. UU.). */
+  bankInfoUsd?: string;
   /** Texto legal en letra pequeña (art. 616-2 del ET, etc.). */
   legalNote: string;
   signatureName: string;
@@ -679,7 +681,19 @@ export interface Statement {
     usdWithoutTrm: number;
     upcoming: { label: string; projectName: string; dueDate: string | null; amount: number; currency: Currency; amountCop: number | null }[];
   };
-  howToPay?: { name: string; docType: string; docNumber: string; bankInfo: string; qr: string | null };
+  howToPay?: { name: string; docType: string; docNumber: string; bankInfo: string; bankInfoUsd?: string; qr: string | null };
+}
+
+/**
+ * El saldo del cliente: con sus cuentas de cobro o, si el plan de pagos de sus proyectos es mayor (clientes a los
+ * que no se les emite cuenta de cobro), con el plan. Así no aparece «Facturado $0» con lo pagado como saldo a favor.
+ */
+export function accountSummary(s: Statement) {
+  const plan = s.plan;
+  const byPlan = !!plan && plan.total > 0 && plan.total >= s.totals.invoiced;
+  const base = byPlan ? plan!.total : s.totals.invoiced;
+  const paid = byPlan ? Math.max(s.totals.paid, plan!.paid) : s.totals.paid;
+  return { byPlan, base, paid, balance: Math.round((base - paid) * 100) / 100, usdWithoutTrm: byPlan ? plan!.usdWithoutTrm : 0 };
 }
 
 /** Como en SmartBilling: "$ 2.500.000" en COP y "US$ 1.500,00" en USD. */

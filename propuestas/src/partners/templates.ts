@@ -680,11 +680,19 @@ export function proposalData(d: TemplateData, date = new Date(), nro = String(10
     eyebrow: 'Medios de pago',
     title: 'Paga desde la app de tu banco, sin complicaciones.',
     holder: MEDIOS_PAGO.titular,
-    methods: MEDIOS_PAGO.medios,
+    methods:
+      c === 'USD'
+        ? [
+            { nombre: 'Cuenta en EE. UU. (USD)', detalle: 'Lead Bank · Checking · Routing 101019644 · Beneficiario: David Lidueñas Gil', valor: '211412772914' },
+            ...MEDIOS_PAGO.medios,
+          ]
+        : MEDIOS_PAGO.medios,
     qr: true,
     qrKey: '@deersystems',
     note:
-      (c === 'USD' ? 'Los pagos en dólares (USD) se reciben en la cuenta Bancolombia. ' : '') +
+      (c === 'USD'
+        ? 'Los pagos en dólares (USD) se reciben en la cuenta en EE. UU. (Lead Bank). Desde Wise: registra un destinatario nuevo en USD con cuenta bancaria en EE. UU. y usa estos datos (dirección del beneficiario: Calle 56, 41114, Medellín, Antioquia 050012, Colombia). '
+        : '') +
       'Cada pago se hace por el valor indicado en la propuesta. Al recibirlo te enviamos la cuenta de cobro y la confirmación.',
   });
   slides.push(structuredClone(TRAYECTORIA));

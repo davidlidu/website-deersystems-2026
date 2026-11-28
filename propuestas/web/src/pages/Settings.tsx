@@ -759,6 +759,10 @@ function IssuerProfile() {
         area: true,
         hint: 'Cuenta de ahorros Bancolombia 000-000000-00 a nombre de…',
       })}
+      {text('bankInfoUsd', 'Pagos en dólares (USD): cuenta en EE. UU. (sale en las cuentas de cobro en USD y en el portal cuando hay pagos en USD)', {
+        area: true,
+        hint: 'Beneficiario, banco, número de cuenta, routing number…',
+      })}
       {text('legalNote', 'Texto legal (sale en letra pequeña en la cuenta de cobro, no en el portal)', {
         area: true,
         hint: 'En virtud de lo contemplado en el artículo 616-2 del ET…',

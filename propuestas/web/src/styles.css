@@ -9400,3 +9400,156 @@ ul.scope-history__reason {
   margin-top: 6px;
   font-size: 0.85rem;
 }
+
+
+.mymeet__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mymeet__alert.mymeet__toggle {
+  display: flex;
+  margin: 0;
+}
+
+.mymeet__head {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mymeet__head small {
+  font: 400 0.84rem var(--font-body);
+  color: var(--body);
+}
+
+.mymeet__listhead .subhead {
+  margin: 0;
+}
+
+.mymeet__chev {
+  flex: none;
+  color: var(--mute);
+  transition: transform 0.2s var(--ease);
+}
+
+.mymeet__chev.is-open {
+  transform: rotate(180deg);
+}
+
+.mymeet__toggle[aria-expanded='true'] {
+  margin-bottom: 6px;
+}
+
+
+.how-to-pay__usd {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+
+.mymeet__head small {
+  grid-column: auto;
+}
+
+/* ── Pregúntale a la IA (ficha del cliente) */
+.ask__card {
+  display: grid;
+  gap: 10px;
+  padding: 18px 20px;
+  border-color: rgba(0, 180, 216, 0.35);
+  background: linear-gradient(135deg, rgba(126, 217, 87, 0.06), rgba(0, 180, 216, 0.06)), var(--surface);
+}
+
+.ask__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ask__head h2 {
+  margin: 0;
+  font: 700 1.05rem var(--font-display);
+  color: var(--ink);
+}
+
+.ask__card > .hint {
+  margin: 0;
+}
+
+.ask__quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ask__form {
+  display: flex;
+  gap: 8px;
+}
+
+.ask__form .input {
+  flex: 1;
+}
+
+.ask__chat {
+  display: grid;
+  gap: 14px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+
+.ask__turn {
+  display: grid;
+  gap: 6px;
+}
+
+.ask__q {
+  justify-self: end;
+  max-width: 85%;
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 12px 12px 2px 12px;
+  background: rgba(0, 180, 216, 0.14);
+  color: var(--ink);
+  font-size: 0.9rem;
+}
+
+.ask__a {
+  padding: 10px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px 12px 12px 12px;
+  background: rgba(5, 25, 35, 0.5);
+  font-size: 0.9rem;
+}
+
+.ask__turn > .hint {
+  margin: 0;
+  font-size: 0.7rem;
+}
+
+@media (max-width: 640px) {
+  .ask__form {
+    flex-direction: column;
+  }
+}
+
+.mymeet__alert.mymeet__toggle {
+  font: 600 1rem var(--font-display);
+  color: var(--ink);
+}

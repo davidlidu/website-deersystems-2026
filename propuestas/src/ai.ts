@@ -282,6 +282,7 @@ export const PROMPT_TASKS = {
   avance: { label: 'Avance del día', hint: 'El texto del avance que se publica al cliente.', purposes: ['avance'] },
   reunion: { label: 'Resumen de reuniones', hint: 'Resumen, acuerdos y tareas a partir de la transcripción.', purposes: ['reunion'] },
   correo: { label: 'Correo con la propuesta tras la llamada', hint: 'El mensaje que acompaña el enlace de la propuesta.', purposes: ['propuesta-correo'] },
+  cliente: { label: 'Pregúntale a la IA sobre un cliente', hint: 'Cómo responde sobre el estado, las reuniones y los pendientes de un cliente.', purposes: ['cliente'] },
 } as const;
 export type PromptTask = keyof typeof PROMPT_TASKS;
 export const isPromptTask = (v: unknown): v is PromptTask => typeof v === 'string' && v in PROMPT_TASKS;

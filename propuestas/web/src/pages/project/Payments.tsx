@@ -767,14 +767,14 @@ export function PaymentsPanel({ me, projectId, clientId }: { me: Me; projectId: 
         <Empty>{owner ? 'Aún no hay pagos. Sugiérelos desde la propuesta o agrégalos a mano.' : 'Aún no hay pagos registrados en este proyecto.'}</Empty>
       )}
 
-      <ProjectInvoices me={me} projectId={projectId} clientId={clientId} />
+      <ProjectInvoices me={me} projectId={projectId} clientId={clientId} usd={hasUsd} />
     </div>
     </ProjectTrm.Provider>
   );
 }
 
 /** Cuentas de cobro del proyecto y, para el cliente, cómo pagar. */
-function ProjectInvoices({ me, projectId, clientId }: { me: Me; projectId: number; clientId: number }) {
+function ProjectInvoices({ me, projectId, clientId, usd }: { me: Me; projectId: number; clientId: number; usd: boolean }) {
   const invoices = useApi<InvoiceSummary[]>(`invoices?projectId=${projectId}`);
   const statement = useApi<Statement>(me.role === 'client' ? `clients/${clientId}/statement` : null);
   const pay = statement.data?.howToPay;
@@ -817,6 +817,7 @@ function ProjectInvoices({ me, projectId, clientId }: { me: Me; projectId: numbe
           <div>
             <h3 className="subhead">Cómo pagar</h3>
             {pay.bankInfo && <p className="pre">{pay.bankInfo}</p>}
+            {usd && pay.bankInfoUsd && <p className="pre how-to-pay__usd">{pay.bankInfoUsd}</p>}
             <p className="hint">Cuando pagues, envíanos el comprobante respondiendo el correo de la cuenta de cobro.</p>
           </div>
           {pay.qr && <img src={pay.qr} alt="Código QR para pagar" />}
