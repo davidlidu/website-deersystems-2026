@@ -230,9 +230,10 @@ export function ProjectMeetings({
                         {owner ? 'Por confirmar con el cliente' : m.clientProposal ? 'Propusiste otro horario' : 'Por confirmar'}
                       </span>
                     )}
-                    {m.tentative && m.clientProposal && (
+                    {m.clientProposal && (
                       <span className="meeting__proposal">
-                        {owner ? `${m.clientProposal.by} propone` : 'Propusiste'}: {formatMeetingLong(m.clientProposal.startAt)}
+                        {owner ? `${m.clientProposal.by} ${m.tentative ? 'propone' : 'pide reagendar a'}` : m.tentative ? 'Propusiste' : 'Pediste reagendar a'}:{' '}
+                        {formatMeetingLong(m.clientProposal.startAt)}
                         {m.clientProposal.note ? ` · «${m.clientProposal.note}»` : ''}
                       </span>
                     )}
@@ -254,7 +255,7 @@ export function ProjectMeetings({
                         {m.clientProposal ? 'Ver mi propuesta' : 'Confirmar o proponer horario'}
                       </Link>
                     )}
-                    {owner && m.tentative && m.clientProposal && (
+                    {owner && m.clientProposal && (
                       <button
                         className="btn btn--primary btn--sm"
                         disabled={busy}

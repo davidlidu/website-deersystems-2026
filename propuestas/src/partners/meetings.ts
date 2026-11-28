@@ -391,6 +391,10 @@ function view(m: Row, v: Viewer) {
     tentative: !!m.tentative,
     // La reserva la ven tú y el cliente que la debe confirmar (con el horario que haya propuesto).
     ...(m.tentative && (owner || clientResponds(m, v)) ? { clientProposal: parse<ClientProposal | null>(m.client_proposal, null), canRespond: !owner } : {}),
+    // Reunión confirmada: el cliente puede pedir reagendarla; tú ves lo que pidió.
+    ...(!m.tentative && (owner || clientReschedules(m, v))
+      ? { clientProposal: parse<ClientProposal | null>(m.client_proposal, null), canReschedule: !owner && clientReschedules(m, v) }
+      : {}),
     attendees: parse<Attendee[]>(m.attendees, []),
     // Lo aprobado lo ven todos; el borrador y la transcripción, solo tú.
     ...(approved || owner
@@ -469,6 +473,18 @@ function clientResponds(m: Row, v: Viewer): boolean {
   const p = db.getProject(m.project_id);
   if (!p || !clientSees(v, p)) return false;
   return !limitedToOwnTasks(v) || parse<string[]>(m.pending_attendees, []).includes(v.email.toLowerCase());
+}
+
+/**
+ * ¿Esta persona del cliente puede pedir otro horario para una reunión ya confirmada (reagendar)? Las que ven el
+ * proyecto (o que están invitadas, si solo ven sus tareas), mientras la reunión no haya empezado.
+ */
+function clientReschedules(m: Row, v: Viewer): boolean {
+  if (v.kind !== 'client' || m.tentative || m.status !== 'programada' || !m.project_id || (m.kind ?? 'proyecto') !== 'proyecto') return false;
+  if (new Date(m.start_at).getTime() < Date.now()) return false;
+  const p = db.getProject(m.project_id);
+  if (!p || !clientSees(v, p)) return false;
+  return !limitedToOwnTasks(v) || parse<Attendee[]>(m.attendees, []).some((a) => a.email === v.email.toLowerCase());
 }
 
 /** Lo que ve cada uno de una reunión en las listas: tú todo; los demás lo programado y lo enviado, y el cliente sus reservas por confirmar. */
@@ -1445,19 +1461,48 @@ ${context}
         return true;
       }
       const rows = sqlite
-        .prepare(`SELECT ${LIST()} FROM meetings WHERE tentative = 1 AND status = 'programada' AND project_id IS NOT NULL ORDER BY start_at`)
+        .prepare(
+          `SELECT ${LIST()} FROM meetings WHERE status = 'programada' AND project_id IS NOT NULL AND (tentative = 1 OR client_proposal IS NOT NULL) ORDER BY start_at`,
+        )
         .all() as unknown as Row[];
       const items = v.kind === 'owner' ? rows.filter((m) => !!m.client_proposal) : rows.filter((m) => clientResponds(m, v));
       json(res, 200, { items: items.map((m) => view(m, v)) });
       return true;
     }
 
+    // El inicio del cliente: las reservas que debe confirmar y sus próximas reuniones (para unirse o reagendar).
+    case 'GET me/meetings': {
+      if (v.kind !== 'client') {
+        json(res, 200, { pending: [], upcoming: [] });
+        return true;
+      }
+      const rows = sqlite
+        .prepare(`SELECT ${LIST()} FROM meetings WHERE status = 'programada' AND project_id IS NOT NULL AND end_at > ? ORDER BY start_at`)
+        .all(now()) as unknown as Row[];
+      const pending = rows.filter((m) => clientResponds(m, v));
+      const upcoming = rows
+        .filter((m) => !m.tentative)
+        .filter((m) => {
+          const p = db.getProject(m.project_id!);
+          return !!p && clientSees(v, p) && (!limitedToOwnTasks(v) || parse<Attendee[]>(m.attendees, []).some((a) => a.email === v.email.toLowerCase()));
+        })
+        .slice(0, 6);
+      json(res, 200, { pending: pending.map((m) => view(m, v)), upcoming: upcoming.map((m) => view(m, v)) });
+      return true;
+    }
+
     // El cliente responde la reserva: confirma el día y la hora, o propone otros (con una nota).
     case 'POST meetings/:id/respond': {
       const m = visible(id, v);
-      if (!clientResponds(m, v)) throw new HttpError(403, 'Esta reunión no está pendiente de tu confirmación.');
+      const reschedule = clientReschedules(m, v);
+      if (!clientResponds(m, v) && !reschedule) throw new HttpError(403, 'Esta reunión no está pendiente de tu confirmación.');
       const body = await readJson(req);
-      if (body.action === 'confirm') {
+      if (body.action === 'cancel-proposal' && reschedule) {
+        update(m.id, { client_proposal: null });
+        json(res, 200, view(get(m.id)!, v));
+        return true;
+      }
+      if (body.action === 'confirm' && !reschedule) {
         json(res, 200, view(await confirmTentative(m, v), v));
         return true;
       }
@@ -1471,7 +1516,7 @@ ${context}
       if (start.getTime() < Date.now() + 30 * 60_000) throw new HttpError(400, 'Elige un horario con al menos 30 minutos de anticipación.');
       if (start.getTime() > Date.now() + 120 * 86_400_000) throw new HttpError(400, 'Elige una fecha dentro de los próximos cuatro meses.');
       const end = new Date(start.getTime() + (new Date(m.end_at).getTime() - new Date(m.start_at).getTime()));
-      if (start.toISOString() === m.start_at) throw new HttpError(400, 'Ese es el mismo horario reservado: usa «Confirmar».');
+      if (start.toISOString() === m.start_at) throw new HttpError(400, reschedule ? 'Ese es el mismo horario de la reunión.' : 'Ese es el mismo horario reservado: usa «Confirmar».');
       const check = await freeForClient(start, end, m.id);
       if (!check.free) {
         // "a. m." ya termina en punto.
@@ -1485,7 +1530,7 @@ ${context}
       notify('meeting_reply', {
         actor: v,
         projectId: m.project_id,
-        title: `${proposal.by} propone otro horario para «${m.title}»`,
+        title: reschedule ? `${proposal.by} pide reagendar «${m.title}»` : `${proposal.by} propone otro horario para «${m.title}»`,
         body: `${when}${proposal.note ? ` · ${proposal.note}` : ''}`,
         path: `/reuniones/${m.id}`,
       });
@@ -1498,10 +1543,19 @@ ${context}
       requireOwner(v);
       const m = visible(id, v);
       const p = parse<ClientProposal | null>(m.client_proposal, null);
-      if (!m.tentative || !p) throw new HttpError(409, 'Esta reunión no tiene un horario propuesto por el cliente.');
+      if (!p) throw new HttpError(409, 'Esta reunión no tiene un horario propuesto por el cliente.');
       const { date, time } = bogota(Date.parse(p.startAt));
       await moveMeeting(m.id, date, time, null, v, true);
-      json(res, 200, view(await confirmTentative(get(m.id)!, v), v));
+      if (m.tentative) {
+        json(res, 200, view(await confirmTentative(get(m.id)!, v), v));
+        return true;
+      }
+      // Reagendada: Google ya avisó a los invitados del cambio; en el portal, el aviso al cliente.
+      update(m.id, { client_proposal: null });
+      if (m.project_id) {
+        notify('meeting_scheduled', { actor: v, projectId: m.project_id, title: `Reunión reagendada: «${m.title}»`, body: whenLabel(p.startAt), path: `/proyectos/${m.project_id}?tab=reuniones` });
+      }
+      json(res, 200, view(get(m.id)!, v));
       return true;
     }
 

@@ -568,11 +568,16 @@ export function MeetingReviewPage({ id }: { id: number }) {
                   </p>
                 )}
               </>
+            ) : m.clientProposal ? (
+              <p className="callout callout--warn">
+                <strong>{m.clientProposal.by}</strong> pide reagendar esta reunión para el <strong>{formatMeetingLong(m.clientProposal.startAt)}</strong>
+                {m.clientProposal.note ? <> · «{m.clientProposal.note}»</> : null}. Acéptalo para moverla (Google avisa a los invitados) o edita la fecha.
+              </p>
             ) : (
               <Empty>La reunión aún no ocurre. Cuando termine, se buscará la transcripción de Meet automáticamente.</Empty>
             )}
             <div className="actions actions--tight">
-              {m.tentative && m.clientProposal && (
+              {m.clientProposal && (
                 <button
                   className="btn btn--primary btn--sm"
                   disabled={busy}
@@ -581,7 +586,7 @@ export function MeetingReviewPage({ id }: { id: number }) {
                       const u = await api<Meeting>('POST', `meetings/${m.id}/accept-proposal`);
                       setData({ ...u, transcript: m.transcript });
                       window.dispatchEvent(new Event(PENDING_MEETINGS_EVENT));
-                      toast('Horario aceptado: el cliente recibió la invitación.');
+                      toast(m.tentative ? 'Horario aceptado: el cliente recibió la invitación.' : 'Reunión reagendada: Google avisó a los invitados.');
                     })
                   }
                 >

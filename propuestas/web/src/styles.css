@@ -9264,3 +9264,139 @@ ul.scope-history__reason {
     justify-content: flex-start;
   }
 }
+
+/* ── Inicio del cliente: reuniones por confirmar y próximas */
+.mymeet {
+  display: grid;
+  gap: 12px;
+}
+
+.mymeet__pending {
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+  border: 1px solid rgba(251, 133, 0, 0.55);
+  border-left: 4px solid var(--naranja);
+  background: color-mix(in srgb, var(--naranja) 8%, var(--surface));
+}
+
+.mymeet__alert {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 2px 10px;
+  margin: 0 0 6px;
+  font: 600 1rem var(--font-display);
+  color: var(--ink);
+}
+
+.mymeet__alert small {
+  grid-column: 2;
+  font: 400 0.84rem var(--font-body);
+  color: var(--body);
+}
+
+.mymeet__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--naranja);
+  box-shadow: 0 0 0 4px rgba(251, 133, 0, 0.22);
+  animation: mymeet-pulse 2s ease-in-out infinite;
+}
+
+@keyframes mymeet-pulse {
+  50% {
+    box-shadow: 0 0 0 7px rgba(251, 133, 0, 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mymeet__dot {
+    animation: none;
+  }
+}
+
+.mymeet__list {
+  display: grid;
+  gap: 2px;
+  padding: 14px 18px;
+}
+
+.mymeet__list .subhead {
+  margin-bottom: 4px;
+}
+
+.mymeet__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.mymeet__pending .mymeet__row:first-of-type,
+.mymeet__list .subhead + .mymeet__row {
+  border-top: 0;
+}
+
+.mymeet__date {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 50px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--r-md);
+  background: rgba(5, 25, 35, 0.5);
+  line-height: 1.05;
+}
+
+.mymeet__date strong {
+  font: 700 1.15rem var(--font-display);
+  color: var(--ink);
+}
+
+.mymeet__date small {
+  font: 500 0.66rem var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cian);
+}
+
+.mymeet__row.is-soon .mymeet__date {
+  border-color: rgba(126, 217, 87, 0.6);
+}
+
+.mymeet__info {
+  display: grid;
+  gap: 2px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.mymeet__info strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.mymeet__info small {
+  font-size: 0.82rem;
+  color: var(--body);
+}
+
+.mymeet__rel {
+  color: var(--verde);
+  font-weight: 600;
+}
+
+.mymeet__note {
+  color: #fdba74 !important;
+}
+
+.mymeet__more {
+  justify-self: start;
+  margin-top: 6px;
+  font-size: 0.85rem;
+}

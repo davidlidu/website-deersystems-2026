@@ -159,6 +159,16 @@ td:first-child{color:var(--ink)}
 .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 tfoot td{background:var(--surface-strong);border-top:1px solid var(--hairline-strong);color:var(--ink);font:700 14px/20px var(--font-display);padding:12px 16px}
 .tbl--wide table{min-width:540px}
+/* Detalle agrupado: fases desplegables */
+tr.grp{cursor:pointer}
+tr.grp td{color:var(--ink);font:600 14px/20px var(--font-display);background:var(--surface-strong)}
+tr.grp:hover td,tr.grp:focus-visible td{background:var(--surface);outline:none}
+tr.grp .chev{display:inline-block;width:8px;height:8px;margin-right:12px;border-right:2px solid var(--cian);border-bottom:2px solid var(--cian);transform:rotate(-45deg);transition:transform .2s;vertical-align:2px}
+tr.grp[aria-expanded="true"] .chev{transform:rotate(45deg)}
+tr.grp .grp-meta{margin-left:10px;font:400 13px/20px var(--font-body);color:var(--mute)}
+tr.sub{display:none}
+tr.sub td:first-child{padding-left:36px;color:var(--body)}
+tr.sub.open{display:table-row}
 .tbl--wide td{padding:12px 16px}
 .panel{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(0,.9fr);gap:var(--space-5);align-items:start}
 .panel .figure{font-size:clamp(30px,3.3vw,42px)}
@@ -286,6 +296,8 @@ body.menu-open .drawer{transform:none;visibility:visible}
 
 /* ---------- PDF / impresión: una página 16:9 por diapositiva ---------- */
 @media print{
+  tr.sub{display:table-row!important}
+  tr.grp .chev{transform:rotate(45deg)}
   @page{size:1280px 720px;margin:0}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   html{scroll-snap-type:none;scroll-behavior:auto}
@@ -1066,7 +1078,15 @@ body.menu-open .drawer{transform:none;visibility:visible}
       function cls(j){ return (s.numeric && j === n - 1) ? ' class="num"' : (j === fi ? ' class="fase"' : ''); }
       var t = '<div class="tbl rv' + (s.wide ? ' tbl--wide' : '') + '"><table><thead><tr>' +
         s.columns.map(function(c, j){ return '<th' + cls(j) + '>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-        s.rows.map(function(r){ return '<tr>' + r.map(function(c, j){ return '<td' + cls(j) + '>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') +
+        (s.groups ? s.groups.map(function(g, gi){
+          var gid = 'g' + Math.random().toString(36).slice(2, 8);
+          return '<tr class="grp" data-g="' + gid + '" tabindex="0" role="button" aria-expanded="false">' +
+            '<td colspan="' + (n - 1) + '"><span class="chev" aria-hidden="true"></span>' + esc(g.title) +
+            (g.meta ? '<span class="grp-meta">' + esc(g.meta) + '</span>' : '') + '</td>' +
+            '<td class="num">' + esc(g.hours) + '</td></tr>' +
+            g.rows.map(function(r){ return '<tr class="sub" data-p="' + gid + '">' + r.map(function(c, j){ return '<td' + cls(j) + '>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('');
+        }).join('') :
+        s.rows.map(function(r){ return '<tr>' + r.map(function(c, j){ return '<td' + cls(j) + '>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('')) +
         '</tbody>' + (s.total ? '<tfoot><tr>' + s.total.map(function(c, j){
           var g = (j > 0) ? ' class="' + (s.numeric && j === n - 1 ? 'num ' : '') + '"' : '';
           return '<td' + g + '>' + (j > 0 ? '<span class="grad">' + esc(c) + '</span>' : esc(c)) + '</td>';
@@ -1295,6 +1315,16 @@ body.menu-open .drawer{transform:none;visibility:visible}
       if (need > avail + 1) inn.style.zoom = Math.max(0.6, avail / need - 0.01).toFixed(3);
     });
   }
+  function toggleGrp(tr){
+    var on = tr.getAttribute('aria-expanded') !== 'true';
+    tr.setAttribute('aria-expanded', on ? 'true' : 'false');
+    document.querySelectorAll('tr.sub[data-p="' + tr.getAttribute('data-g') + '"]').forEach(function(r){ r.classList.toggle('open', on); });
+  }
+  document.addEventListener('click', function(e){ var tr = e.target.closest && e.target.closest('tr.grp'); if (tr) toggleGrp(tr); });
+  document.addEventListener('keydown', function(e){
+    var tr = e.target.closest && e.target.closest('tr.grp');
+    if (tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); toggleGrp(tr); }
+  }, true);
   window.addEventListener('beforeprint', function(){ fitPrint(true); });
   window.addEventListener('afterprint', function(){ fitPrint(false); });
   var mqPrint = window.matchMedia && window.matchMedia('print');

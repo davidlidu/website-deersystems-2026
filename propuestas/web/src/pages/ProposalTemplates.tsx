@@ -139,6 +139,7 @@ export function ProposalTemplates({ onPublished }: { onPublished: (p: ProposalRo
 
   return (
     <>
+      <DesignCard />
       <div className="tpl-toolbar">
         <p>
           Elige una plantilla, ajústala para el cliente y publícala: queda en propuestas con su enlace y el botón de aprobar, lista para enviar por
@@ -659,5 +660,69 @@ function PublishDialog({
       </div>
       {preview !== null && <PreviewDialog html={preview} onClose={() => setPreview(null)} />}
     </Modal>
+  );
+}
+
+/**
+ * El diseño de las propuestas: la plantilla del Cotizador 2026. Cuando la cambias en tu equipo (p. ej. fases
+ * desplegables), subes aquí la plantilla-propuesta.html nueva y las propuestas siguientes salen con ella.
+ */
+function DesignCard() {
+  const { data, setData } = useApi<{ custom: boolean; updatedAt: string | null; size: number }>('proposal-templates/design');
+  const input = useRef<HTMLInputElement>(null);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  if (!data) return null;
+  const upload = (file: File) =>
+    run(async () => {
+      const res = await fetch('/api/proposal-templates/design', { method: 'PUT', headers: { 'Content-Type': 'text/html' }, body: file });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? `Error ${res.status}`);
+      setData(body as typeof data);
+      toast('Diseño actualizado: las propuestas que publiques desde ahora salen con la plantilla nueva.');
+    });
+  return (
+    <div className="push-card tpl-design">
+      <div>
+        <strong>Diseño de las propuestas: plantilla del Cotizador 2026</strong>
+        <p className="hint">
+          {data.custom && data.updatedAt
+            ? `Usando la que subiste el ${new Date(data.updatedAt).toLocaleString('es-CO', { day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' })}.`
+            : 'Usando la que viene con el sistema.'}{' '}
+          Si cambias la plantilla-propuesta.html del cotizador (Documentos Empresa/Cotizador-2026-DeerSystems), súbela aquí. Las propuestas ya publicadas no cambian.
+        </p>
+      </div>
+      <span className="actions actions--tight">
+        <button className="btn btn--outline btn--sm" disabled={busy} onClick={() => input.current?.click()}>
+          {busy ? 'Subiendo…' : 'Subir plantilla nueva'}
+        </button>
+        {data.custom && (
+          <button
+            className="btn btn--outline btn--sm"
+            disabled={busy}
+            onClick={() =>
+              confirm('¿Volver a la plantilla que viene con el sistema?') &&
+              run(async () => {
+                setData(await api('DELETE', 'proposal-templates/design'));
+                toast('Volviste a la plantilla del sistema.');
+              })
+            }
+          >
+            Usar la del sistema
+          </button>
+        )}
+        <input
+          ref={input}
+          type="file"
+          accept=".html,text/html"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) upload(f);
+            e.target.value = '';
+          }}
+        />
+      </span>
+    </div>
   );
 }

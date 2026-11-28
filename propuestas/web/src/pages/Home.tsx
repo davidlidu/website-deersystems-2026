@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { docDate, formatDate, formatDateTime, formatMoney, PROJECT_STATUS, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, ProgressBar } from '../ui';
 import { InvoiceStatus } from './billing/InvoiceStatus';
+import { MyMeetings } from '../MyMeetings';
 
 /** Clientes agrupa dos vistas para el administrador: clientes y proyectos, y reuniones. */
 export function ClientsTabs({ active }: { active: 'clientes' | 'reuniones' | 'formularios' }) {
@@ -49,8 +50,15 @@ export function ProjectCard({ p, showClient }: { p: ProjectSummary; showClient?:
 /** Para el cliente: sus cuentas de cobro (de todos sus proyectos), lo abonado, su saldo y cómo pagar. */
 function MyAccount({ clientId }: { clientId: number }) {
   const { data } = useApi<Statement>(`clients/${clientId}/statement`);
-  if (!data || (!data.invoices.length && !data.receipts.length)) return null;
+  const plan = data?.plan;
+  const hasPlan = !!plan && plan.total > 0;
+  if (!data || (!data.invoices.length && !data.receipts.length && !hasPlan)) return null;
   const { totals, invoices, howToPay } = data;
+  // Hay clientes a los que no se les emite cuenta de cobro: lo que deben sale del plan de pagos de sus proyectos.
+  const byPlan = hasPlan && plan!.total >= totals.invoiced;
+  const base = byPlan ? plan!.total : totals.invoiced;
+  const paid = byPlan ? Math.max(totals.paid, plan!.paid) : totals.paid;
+  const balance = Math.round((base - paid) * 100) / 100;
   return (
     <section className="section">
       <div className="section__head">
@@ -58,18 +66,39 @@ function MyAccount({ clientId }: { clientId: number }) {
       </div>
       <div className="kpis">
         <div className="kpi card">
-          <small>Facturado</small>
-          <strong>{formatMoney(totals.invoiced)}</strong>
+          <small>{byPlan ? 'Valor de tus proyectos' : 'Facturado'}</small>
+          <strong>{formatMoney(base)}</strong>
         </div>
         <div className="kpi card">
           <small>Pagado</small>
-          <strong>{formatMoney(totals.paid)}</strong>
+          <strong>{formatMoney(paid)}</strong>
         </div>
         <div className="kpi card">
-          <small>{totals.balance < 0 ? 'Saldo a tu favor' : 'Saldo por pagar'}</small>
-          <strong>{formatMoney(Math.abs(totals.balance))}</strong>
+          <small>{balance < 0 ? 'Saldo a tu favor' : 'Por pagar'}</small>
+          <strong>{formatMoney(Math.abs(balance))}</strong>
+          {byPlan && plan!.usdWithoutTrm > 0 && <small>+ {formatMoney(plan!.usdWithoutTrm, 'USD')} por convertir</small>}
         </div>
       </div>
+      {byPlan && plan!.upcoming.length > 0 && (
+        <div className="table card">
+          {plan!.upcoming.map((u, i) => (
+            <div key={i} className="table__row pay-client">
+              <span>
+                <strong>{u.label}</strong>
+                <small>{u.projectName}</small>
+              </span>
+              <span className="mono">{u.dueDate ? formatDate(u.dueDate) : 'Sin fecha'}</span>
+              <span className="mono">
+                {formatMoney(u.amount, u.currency)}
+                {u.amountCop ? <small> ≈ {formatMoney(u.amountCop)}</small> : null}
+              </span>
+              <span>
+                <span className="tag tag--warn">Pendiente</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {invoices.length > 0 && (
         <div className="table card">
           {invoices.map((i) => (
@@ -87,7 +116,7 @@ function MyAccount({ clientId }: { clientId: number }) {
           ))}
         </div>
       )}
-      {howToPay && (howToPay.bankInfo || howToPay.qr) && totals.balance > 0 && (
+      {howToPay && (howToPay.bankInfo || howToPay.qr) && balance > 0 && (
         <section className="card how-to-pay" style={{ marginTop: 12 }}>
           <div>
             <h3 className="subhead">Cómo pagar</h3>
@@ -156,6 +185,7 @@ function ClientHome({ me }: { me: Me }) {
       <PageHead eyebrow={me.client?.name ?? 'Tu espacio'} title={<>Hola, <span className="grad">{me.name.split(' ')[0] || 'bienvenido'}</span></>}>
         <p>Aquí ves el avance de tus proyectos con DeerSystems, las tareas de cada parte y el historial.</p>
       </PageHead>
+      <MyMeetings />
       <section className="section" data-tour="projects">
         <div className="section__head">
           <h2>En curso</h2>

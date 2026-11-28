@@ -5,10 +5,10 @@ import * as google from '../google.ts';
 import { HttpError, json, readJson } from '../http.ts';
 import { invoiceForClient } from '../mail.ts';
 import type { Viewer } from './auth.ts';
-import { EMAIL_RE, optDate, requireOwner, seesMoney, str } from './common.ts';
+import { clientSees, EMAIL_RE, optDate, requireOwner, seesMoney, str } from './common.ts';
 import * as db from './db.ts';
 import { onScheduled, readSendAt, scheduleMail } from './scheduled.ts';
-import { deleteIncome, FinanceError, paymentMethodFor, todayBogota, trmForProject, upsertIncome } from './finance.ts';
+import { deleteIncome, FinanceError, paymentMethodFor, projectTrm, todayBogota, trmForProject, upsertIncome } from './finance.ts';
 
 /**
  * Facturación (lo que antes vivía en SmartBilling):
@@ -886,6 +886,46 @@ export function statement(clientId: number) {
   return { invoices, receipts, totals: { invoiced, paid, balance: round2(invoiced - paid), catchUp: round2(catchUp) } };
 }
 
+/**
+ * El plan de pagos de los proyectos del cliente, en pesos: lo que vale lo acordado, lo pagado y lo pendiente, con
+ * los próximos pagos. Sirve para el estado de cuenta de los clientes a los que no se les emite cuenta de cobro
+ * (sin esto, el estado de cuenta mostraba «Facturado $0» y lo pagado como saldo a favor).
+ * Los pagos en USD se pasan con la TRM fija del proyecto o, ya pagados, con su valor en pesos; sin TRM quedan aparte.
+ */
+export function projectPlan(clientId: number, v: Viewer) {
+  const projects = db.listProjects(clientId).filter((p) => v.kind !== 'client' || clientSees(v, p));
+  let total = 0;
+  let paid = 0;
+  let usdWithoutTrm = 0;
+  const upcoming: { label: string; projectName: string; dueDate: string | null; amount: number; currency: string; amountCop: number | null }[] = [];
+  for (const p of projects) {
+    const trm = projectTrm(p.id)?.trm ?? null;
+    const rows = sqlite.prepare('SELECT * FROM payments WHERE project_id = ? ORDER BY position, id').all(p.id) as {
+      label: string;
+      amount: number;
+      currency: string;
+      due_date: string | null;
+      paid: number;
+      amount_cop: number | null;
+    }[];
+    for (const r of rows) {
+      const cop = r.currency === 'USD' ? (r.paid && r.amount_cop ? r.amount_cop : trm ? r.amount * trm : null) : r.amount;
+      if (cop === null) {
+        if (!r.paid) {
+          usdWithoutTrm += r.amount;
+          upcoming.push({ label: r.label, projectName: p.name, dueDate: r.due_date, amount: r.amount, currency: r.currency, amountCop: null });
+        }
+        continue;
+      }
+      total += cop;
+      if (r.paid) paid += cop;
+      else upcoming.push({ label: r.label, projectName: p.name, dueDate: r.due_date, amount: r.amount, currency: r.currency, amountCop: r.currency === 'USD' ? Math.round(cop) : null });
+    }
+  }
+  upcoming.sort((a, b) => (a.dueDate ?? '9999').localeCompare(b.dueDate ?? '9999'));
+  return { total: round2(total), paid: round2(paid), pending: round2(total - paid), usdWithoutTrm: round2(usdWithoutTrm), upcoming: upcoming.slice(0, 8) };
+}
+
 // ───────── Perfil del emisor (lo que va en la cuenta de cobro) ─────────
 
 export interface BillingProfile {
@@ -1371,6 +1411,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
       const owner = v.kind === 'owner';
       json(res, 200, {
         totals: s.totals,
+        plan: projectPlan(id, v),
         invoices: s.invoices.filter((i) => owner || i.status !== 'anulada').map(invoiceSummary),
         // Al cliente no se le muestran los de «Poner al día» (solo dejan sus cuentas como pagadas).
         receipts: owner ? s.receipts.map(receiptView) : s.receipts.filter((r) => !r.catch_up).map(receiptForClient),
