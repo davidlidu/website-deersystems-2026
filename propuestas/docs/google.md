@@ -7,6 +7,7 @@ La plataforma usa **una sola cuenta**: `ceo@deersystems.net`, con Business Stand
 | Permiso | Para qué |
 |---|---|
 | `gmail.send` | Correos de bienvenida, contraseñas, avisos, resúmenes de reuniones |
+| `gmail.readonly` | Leer la bandeja para detectar [solicitudes de cotización](./solicitudes.md) y responderlas en el mismo hilo |
 | `drive.file` | Crear la carpeta del cliente y del proyecto, subir, compartir por enlace y exportar a PDF. Solo toca lo que el portal crea o lo que eliges en el selector |
 | `calendar.events` | Crear y cancelar reuniones con Meet; leer los eventos para la sincronización |
 | `meetings.space.readonly` | Leer las transcripciones de Meet |

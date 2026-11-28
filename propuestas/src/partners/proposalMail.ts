@@ -8,6 +8,7 @@ import type { Viewer } from './auth.ts';
 import { proposalClient, setProposalClient } from './approvals.ts';
 import { EMAIL_RE, requireOwner, str } from './common.ts';
 import * as pdb from './db.ts';
+import { getRequest, markReplied } from './inbox.ts';
 
 /**
  * Enviar una o varias propuestas publicadas por correo, en un solo mensaje comercial, a quien elijas.
@@ -35,6 +36,8 @@ export function lastSend(proposalId: number): { to: string; at: string; count: n
 }
 
 interface Draft {
+  /** Solicitud de cotización que se responde (en el mismo hilo de Gmail). */
+  requestId: number | null;
   to: string[];
   subject: string;
   name: string;
@@ -63,7 +66,7 @@ async function readDraft(req: IncomingMessage, strict: boolean): Promise<Draft> 
     return { id: p.id, title: str(r.title, 160) || p.title || p.slug, note: str(r.note, 600), url: proposals.publicUrl(p.slug) };
   });
   const subject = str(body.subject, 200) || (items.length > 1 ? `${items.length} propuestas de DeerSystems para ti` : `Tu propuesta: ${items[0].title}`);
-  return { to, subject, name: str(body.name, 120), message: String(body.message ?? '').slice(0, 4000), items };
+  return { requestId: Number(body.requestId) || null, to, subject, name: str(body.name, 120), message: String(body.message ?? '').slice(0, 4000), items };
 }
 
 export async function handleProposalMail(route: string, req: IncomingMessage, res: ServerResponse, v: Viewer): Promise<boolean> {
@@ -82,6 +85,12 @@ export async function handleProposalMail(route: string, req: IncomingMessage, re
       if (!google.connectionStatus().connected) throw new HttpError(409, 'Conecta Google en Configuración para enviar correos.');
       const d = await readDraft(req, true);
       const m = proposalsOffer({ to: d.to.join(', '), subject: d.subject, name: d.name, message: d.message, items: d.items });
+      // Respuesta a una solicitud de cotización: sale en el mismo hilo de Gmail (con «Re:» y las cabeceras de respuesta).
+      const request = d.requestId ? getRequest(d.requestId) : undefined;
+      if (request) {
+        m.thread = { id: request.thread_id, messageId: request.message_id };
+        if (!/^re:/i.test(m.subject)) m.subject = `Re: ${request.subject || m.subject}`;
+      }
       try {
         await google.sendMail(m);
       } catch (err) {
@@ -96,7 +105,8 @@ export async function handleProposalMail(route: string, req: IncomingMessage, re
         const [clientId] = known;
         for (const it of d.items) if (!proposalClient(it.id)) setProposalClient(it.id, clientId);
       }
-      json(res, 200, { ok: true, to: d.to, count: d.items.length });
+      if (request) markReplied(request.id, d.items.map((it) => it.id));
+      json(res, 200, { ok: true, to: d.to, count: d.items.length, replied: !!request });
       return true;
     }
   }

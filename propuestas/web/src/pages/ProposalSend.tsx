@@ -29,14 +29,24 @@ const defaultMessage = (many: boolean) =>
  * Enviar una o varias propuestas por correo en un solo mensaje comercial. Cada propuesta lleva su nombre
  * (lo que verá el cliente) y una nota opcional; la vista previa muestra el correo tal cual le llegará.
  */
-export function SendProposalsDialog({ proposals, onSent, onClose }: { proposals: ProposalRow[]; onSent: () => void; onClose: () => void }) {
+/** Responder una solicitud de cotización que llegó al correo: sale en el mismo hilo de Gmail. */
+export interface ReplyTo {
+  requestId: number;
+  to: string;
+  name: string;
+  subject: string;
+}
+
+export function SendProposalsDialog({ proposals, onSent, onClose, reply }: { proposals: ProposalRow[]; onSent: () => void; onClose: () => void; reply?: ReplyTo }) {
   const ref = useRef<HTMLDialogElement>(null);
   const toInput = useRef<HTMLInputElement>(null);
   const clients = useApi<ClientLite[]>('clients');
   const many = proposals.length > 1;
-  const [to, setTo] = useState('');
-  const [name, setName] = useState('');
-  const [subject, setSubject] = useState(many ? `${proposals.length} propuestas de DeerSystems para tu empresa` : `Tu propuesta: ${proposals[0].title || proposals[0].slug}`);
+  const [to, setTo] = useState(reply?.to ?? '');
+  const [name, setName] = useState(reply?.name ?? '');
+  const [subject, setSubject] = useState(
+    reply ? (/^re:/i.test(reply.subject) ? reply.subject : `Re: ${reply.subject}`) : many ? `${proposals.length} propuestas de DeerSystems para tu empresa` : `Tu propuesta: ${proposals[0].title || proposals[0].slug}`,
+  );
   const [message, setMessage] = useState(defaultMessage(many));
   const [items, setItems] = useState<Item[]>(proposals.map((p) => ({ id: p.id, title: p.title || p.slug, note: '', active: p.active })));
   const [preview, setPreview] = useState<string | null>(null);
@@ -48,7 +58,7 @@ export function SendProposalsDialog({ proposals, onSent, onClose }: { proposals:
     toInput.current?.focus();
   }, []);
 
-  const payload = () => ({ to, name, subject, message, items: items.map(({ id, title, note }) => ({ id, title, note })) });
+  const payload = () => ({ to, name, subject, message, requestId: reply?.requestId ?? null, items: items.map(({ id, title, note }) => ({ id, title, note })) });
   const paused = items.filter((i) => !i.active);
 
   // Al elegir el correo de un cliente conocido, el saludo usa su contacto.
@@ -68,7 +78,7 @@ export function SendProposalsDialog({ proposals, onSent, onClose }: { proposals:
   const send = () =>
     run(async () => {
       const r = await api<{ to: string[] }>('POST', 'proposals/send', payload());
-      toast(`${many ? `${items.length} propuestas enviadas` : 'Propuesta enviada'} a ${r.to.join(', ')}.`);
+      toast(`${many ? `${items.length} propuestas enviadas` : 'Propuesta enviada'} a ${r.to.join(', ')}${reply ? ', en el mismo hilo del correo' : ''}.`);
       onSent();
       ref.current?.close();
     });
@@ -91,7 +101,7 @@ export function SendProposalsDialog({ proposals, onSent, onClose }: { proposals:
     >
       <div className="modal__in">
         <header className="modal__head">
-          <h2 id="send-proposals-title">{many ? `Enviar ${items.length} propuestas por correo` : 'Enviar la propuesta por correo'}</h2>
+          <h2 id="send-proposals-title">{reply ? 'Responder la solicitud con la propuesta' : many ? `Enviar ${items.length} propuestas por correo` : 'Enviar la propuesta por correo'}</h2>
           <button className="icon-btn" onClick={() => ref.current?.close()} aria-label="Cerrar">
             ✕
           </button>

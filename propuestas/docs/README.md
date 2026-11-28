@@ -11,6 +11,7 @@ Un solo servidor Node atiende dos subdominios:
 | [Arquitectura](./arquitectura.md) | Stack, cómo se reparten los subdominios, carpetas, procesos en segundo plano |
 | [Roles, acceso y seguridad](./roles-y-seguridad.md) | Quién ve qué, inicio de sesión, contraseñas, sesiones y protecciones |
 | [Propuestas](./propuestas.md) | Publicar, reemplazar, versiones, restaurar, visitas |
+| [Solicitudes del correo](./solicitudes.md) | La IA detecta pedidos de cotización en Gmail y respondes con la propuesta en el mismo hilo |
 | [Aprobación y plan de trabajo](./aprobacion.md) | De «Propuesta aprobada» al proyecto: opciones A/B, IA, ajustes, reuniones, pagos, bienvenida |
 | [Proyectos y tareas](./proyectos-y-tareas.md) | Vistas (lista, tablero, cronograma, calendario), estados, notas, avances, bitácora |
 | [Reuniones](./reuniones.md) | Agendar con Meet, transcripción, resumen con IA y aprobación |

@@ -3,6 +3,7 @@ import { api, ApiError, formatDateTime, formatSize, navigate, timeAgo, useApi, u
 import { Empty, ErrorBox, Link, Loading, PageHead, useAction, useToast } from '../ui';
 import { SendProposalsDialog } from './ProposalSend';
 import { ProposalTemplates } from './ProposalTemplates';
+import { QuoteRequests } from './QuoteRequests';
 
 export interface ProposalRow {
   id: number;
@@ -361,7 +362,7 @@ export function ProposalsPage() {
   const { busy, run } = useAction();
   const toast = useToast();
   const { query } = useLocation();
-  const tab = query.get('tab') === 'plantillas' ? 'plantillas' : 'publicadas';
+  const tab = query.get('tab') === 'plantillas' ? 'plantillas' : query.get('tab') === 'solicitudes' ? 'solicitudes' : 'publicadas';
   // Mientras la IA arma el plan de alguna aprobación del cliente, la lista se actualiza cada 5 s.
   const generating = !!data?.some((p) => p.approvals.some((a) => a.status === 'generando'));
   useEffect(() => {
@@ -426,9 +427,14 @@ export function ProposalsPage() {
         <button role="tab" aria-selected={tab === 'plantillas'} className={tab === 'plantillas' ? 'is-active' : ''} onClick={() => navigate('/propuestas?tab=plantillas')}>
           Plantillas
         </button>
+        <button role="tab" aria-selected={tab === 'solicitudes'} className={tab === 'solicitudes' ? 'is-active' : ''} onClick={() => navigate('/propuestas?tab=solicitudes')}>
+          Solicitudes del correo
+        </button>
       </div>
 
-      {tab === 'plantillas' ? (
+      {tab === 'solicitudes' ? (
+        <QuoteRequests proposals={list} onReplied={reload} />
+      ) : tab === 'plantillas' ? (
         <ProposalTemplates
           onPublished={(p, send) => {
             setData([p, ...list.filter((x) => x.id !== p.id)]);
