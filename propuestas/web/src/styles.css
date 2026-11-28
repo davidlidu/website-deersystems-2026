@@ -9553,3 +9553,54 @@ ul.scope-history__reason {
   font: 600 1rem var(--font-display);
   color: var(--ink);
 }
+
+
+/* ── Solicitudes de cotización del correo */
+.qreq.is-new {
+  border-left: 3px solid var(--naranja);
+}
+
+.qreq {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.qreq .item__actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.qreq__main {
+  min-width: 0;
+  max-width: 820px;
+}
+
+.qreq__summary {
+  margin: 8px 0 4px;
+  color: var(--ink);
+  font-size: 0.92rem;
+}
+
+.qreq__reqs {
+  margin: 4px 0 2px;
+  padding-left: 18px;
+  font-size: 0.86rem;
+  color: var(--body);
+}
+
+.qreq__reqs li {
+  margin: 2px 0;
+}
+
+.qreq__body {
+  max-height: 340px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: rgba(5, 25, 35, 0.6);
+  font: 0.82rem/1.6 var(--font-body);
+  color: var(--body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

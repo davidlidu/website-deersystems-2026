@@ -6,12 +6,14 @@ export const REDIRECT_URI = `${PARTNERS_URL}/auth/google/callback`;
 
 /**
  * Permisos que pide "Conectar Google". Se piden todos de una vez para no tener que reconectar en
- * cada fase: Gmail (enviar), Drive (solo archivos que crea la app), Calendar (leer y crear eventos) y Meet (transcripciones).
+ * cada fase: Gmail (enviar y leer la bandeja para detectar solicitudes de cotización), Drive (solo archivos que crea la
+ * app), Calendar (leer y crear eventos) y Meet (transcripciones).
  */
 export const CONNECT_SCOPES = [
   'openid',
   'email',
   'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/drive.file',
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/meetings.space.readonly',
@@ -149,6 +151,8 @@ export interface Mail {
   replyTo?: string;
   /** Adjuntos (p. ej. el PDF de la cuenta de cobro). Con `cid`, va en línea dentro del HTML (src="cid:…"). */
   attachments?: { name: string; mime: string; data: Buffer; cid?: string }[];
+  /** Responder dentro de un hilo de Gmail: el hilo y el Message-ID del correo que se responde. */
+  thread?: { id: string; messageId: string | null };
 }
 
 /** Envía desde la cuenta conectada (normalmente ceo@deersystems.net). */
@@ -173,6 +177,7 @@ export async function sendMail(mail: Mail): Promise<void> {
     `To: ${mail.to}`,
     `Subject: ${header(mail.subject)}`,
     ...(mail.replyTo ? [`Reply-To: ${mail.replyTo}`] : []),
+    ...(mail.thread?.messageId ? [`In-Reply-To: ${mail.thread.messageId}`, `References: ${mail.thread.messageId}`] : []),
     'MIME-Version: 1.0',
   ];
   let raw: string;
@@ -226,12 +231,93 @@ export async function sendMail(mail: Mail): Promise<void> {
   const r = await gfetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
     headers: { Authorization: `Bearer ${await accessToken()}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ raw: Buffer.from(raw).toString('base64url') }),
+    body: JSON.stringify({ raw: Buffer.from(raw).toString('base64url'), ...(mail.thread ? { threadId: mail.thread.id } : {}) }),
   });
   if (!r.ok) {
     const data = (await r.json().catch(() => ({}))) as { error?: { message?: string } };
     throw new GoogleError(`Gmail no envió el correo: ${data.error?.message ?? r.status}`);
   }
+}
+
+// ───────── Gmail: leer la bandeja (solicitudes de cotización) ─────────
+
+export interface InboxMessage {
+  id: string;
+  threadId: string;
+  messageId: string | null;
+  from: string;
+  fromName: string;
+  fromEmail: string;
+  subject: string;
+  date: string;
+  snippet: string;
+  text: string;
+  labels: string[];
+}
+
+/** Ids de correos de la bandeja que cumplen la búsqueda de Gmail (los más recientes primero). */
+export async function inboxIds(q: string, max = 25): Promise<string[]> {
+  const params = new URLSearchParams({ q, maxResults: String(max) });
+  const r = await gfetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
+  const data = (await r.json().catch(() => ({}))) as { messages?: { id: string }[]; error?: { message?: string } };
+  if (!r.ok) throw new GoogleError(`Gmail ${r.status}: ${data.error?.message ?? 'no se pudo leer la bandeja'}.`);
+  return (data.messages ?? []).map((m) => m.id);
+}
+
+interface Part {
+  mimeType?: string;
+  body?: { data?: string };
+  parts?: Part[];
+  headers?: { name: string; value: string }[];
+}
+
+const decodeB64 = (s: string) => Buffer.from(s.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+const htmlToText = (h: string) =>
+  h
+    .replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+/** El correo completo en texto (prefiere text/plain; si no hay, el HTML sin etiquetas). */
+export async function inboxMessage(id: string): Promise<InboxMessage> {
+  const r = await gfetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}?format=full`, { headers: { Authorization: `Bearer ${await accessToken()}` } });
+  const m = (await r.json().catch(() => ({}))) as { id: string; threadId: string; snippet?: string; labelIds?: string[]; internalDate?: string; payload?: Part; error?: { message?: string } };
+  if (!r.ok) throw new GoogleError(`Gmail ${r.status}: ${m.error?.message ?? 'no se pudo leer el correo'}.`);
+  const headers = new Map((m.payload?.headers ?? []).map((h) => [h.name.toLowerCase(), h.value]));
+  let plain = '';
+  let html = '';
+  const walk = (p?: Part) => {
+    if (!p) return;
+    if (p.mimeType === 'text/plain' && p.body?.data && !plain) plain = decodeB64(p.body.data);
+    else if (p.mimeType === 'text/html' && p.body?.data && !html) html = decodeB64(p.body.data);
+    for (const c of p.parts ?? []) walk(c);
+  };
+  walk(m.payload);
+  const from = headers.get('from') ?? '';
+  const email = (/<([^>]+)>/.exec(from)?.[1] ?? from).trim().toLowerCase();
+  const name = from.replace(/<[^>]+>/, '').replace(/"/g, '').trim();
+  return {
+    id: m.id,
+    threadId: m.threadId,
+    messageId: headers.get('message-id') ?? null,
+    from,
+    fromName: name && name !== email ? name : '',
+    fromEmail: email,
+    subject: headers.get('subject') ?? '',
+    date: m.internalDate ? new Date(Number(m.internalDate)).toISOString() : new Date().toISOString(),
+    snippet: m.snippet ?? '',
+    text: (plain || htmlToText(html)).trim().slice(0, 40_000),
+    labels: m.labelIds ?? [],
+  };
 }
 
 // ───────── Drive ─────────

@@ -29,6 +29,7 @@ export const EVENTS = {
   meeting_summary: { audience: 'client', label: 'Se aprueba el resumen de una reunión (además del correo con el resumen)', app: true, email: false },
   online_payment: { audience: 'owner', label: 'Llega un pago en línea (Wompi)', app: true, email: true },
   scheduled_mail: { audience: 'owner', label: 'Sale (o falla) un correo que programaste', app: true, email: false },
+  quote_request: { audience: 'owner', label: 'Llega a tu correo una solicitud de cotización (la detecta la IA)', app: true, email: false },
   form_submitted: { audience: 'owner', label: 'Un cliente envía un formulario u onboarding', app: true, email: true },
   form_requested: { audience: 'client', label: 'Hay un formulario para que el cliente lo llene (además del correo)', app: true, email: false },
   proposal_approved: { audience: 'owner', label: 'Un cliente aprueba una propuesta desde el enlace (y el plan con IA queda listo)', app: true, email: true },

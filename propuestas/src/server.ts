@@ -11,6 +11,7 @@ import { startShareFixer } from './partners/files.ts';
 import { linkOrphanMeetings, startScheduler } from './partners/meetings.ts';
 import { startUpdatesScheduler } from './partners/updates.ts';
 import { startScheduledMails } from './partners/scheduled.ts';
+import { startInboxScanner } from './partners/inbox.ts';
 import { flushAll } from './partners/notify.ts';
 import { approveScript, handleApprovalPage } from './partners/approvals.ts';
 import { handlePartners } from './partners/routes.ts';
@@ -237,6 +238,7 @@ try {
 startScheduler();
 startUpdatesScheduler();
 startScheduledMails();
+startInboxScanner();
 startShareFixer();
 
 // En cada despliegue Dokploy detiene el contenedor: antes de salir se envían los correos de avisos en cola.
