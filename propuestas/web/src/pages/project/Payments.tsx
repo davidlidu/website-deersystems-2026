@@ -19,6 +19,7 @@ import {
 } from '../../lib';
 import { Empty, ErrorBox, Link, Loading, MoneyInput, useAction, useToast } from '../../ui';
 import { GroupBar, useUngroup } from '../billing/GroupBar';
+import { PayQr } from '../PayQr';
 import { InvoiceStatus } from '../billing/InvoiceStatus';
 
 interface FixedTrm {
@@ -820,7 +821,7 @@ function ProjectInvoices({ me, projectId, clientId, usd }: { me: Me; projectId: 
             {usd && pay.bankInfoUsd && <p className="pre how-to-pay__usd">{pay.bankInfoUsd}</p>}
             <p className="hint">Cuando pagues, envíanos el comprobante respondiendo el correo de la cuenta de cobro.</p>
           </div>
-          {pay.qr && <img src={pay.qr} alt="Código QR para pagar" />}
+          {pay.qr && <PayQr src={pay.qr} />}
         </section>
       )}
     </>
