@@ -16,7 +16,8 @@ const REFRESH_MS = 3 * 60_000;
  */
 export function PendingMeetingsBar({ me, path }: { me: Me; path: string }) {
   const [items, setItems] = useState<Meeting[]>([]);
-  const enabled = me.role !== 'team';
+  // Al cliente ya no se le muestra: sus reuniones por confirmar están en su inicio (sección Reuniones).
+  const enabled = me.role === 'owner';
 
   const load = useCallback(() => {
     if (!enabled) return;

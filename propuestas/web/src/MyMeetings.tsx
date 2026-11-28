@@ -23,6 +23,8 @@ const changed = () => window.dispatchEvent(new Event(PENDING_MEETINGS_EVENT));
 export function MyMeetings() {
   const [data, setData] = useState<{ pending: Meeting[]; upcoming: Meeting[] } | null>(null);
   const [all, setAll] = useState(false);
+  const [openPending, setOpenPending] = useState(false);
+  const [openUpcoming, setOpenUpcoming] = useState(false);
   const [moving, setMoving] = useState<{ m: Meeting; mode: 'propose' | 'reschedule' } | null>(null);
   const { busy, run } = useAction();
   const toast = useToast();
@@ -52,12 +54,19 @@ export function MyMeetings() {
 
       {data.pending.length > 0 && (
         <div className="mymeet__pending card">
-          <p className="mymeet__alert">
+          <button type="button" className="mymeet__alert mymeet__toggle" aria-expanded={openPending} onClick={() => setOpenPending(!openPending)}>
             <span className="mymeet__dot" aria-hidden="true" />
-            {data.pending.length === 1 ? 'Tienes una reunión por confirmar' : `Tienes ${data.pending.length} reuniones por confirmar`}
-            <small>Confírmala para recibir la invitación con el enlace de Meet, o propón otro horario.</small>
-          </p>
-          {data.pending.map((m) => (
+            <span className="mymeet__head">
+              {data.pending.length === 1 ? 'Tienes una reunión por confirmar' : `Tienes ${data.pending.length} reuniones por confirmar`}
+              <small>
+                {openPending
+                  ? 'Confírmalas para recibir la invitación con el enlace de Meet, o propón otro horario.'
+                  : `La próxima: ${formatMeetingLong(data.pending[0].startAt).replace(/\.$/, '')}. Toca para verlas y confirmarlas.`}
+              </small>
+            </span>
+            <Chevron open={openPending} />
+          </button>
+          {openPending && data.pending.map((m) => (
             <div key={m.id} className="mymeet__row">
               <DateChip iso={m.startAt} />
               <div className="mymeet__info">
@@ -95,8 +104,18 @@ export function MyMeetings() {
 
       {data.upcoming.length > 0 && (
         <div className="mymeet__list card">
-          <h3 className="subhead">Próximas reuniones</h3>
-          {shown.map((m, i) => {
+          <button type="button" className="mymeet__toggle mymeet__listhead" aria-expanded={openUpcoming} onClick={() => setOpenUpcoming(!openUpcoming)}>
+            <span className="mymeet__head">
+              <span className="subhead">Próximas reuniones ({data.upcoming.length})</span>
+              {!openUpcoming && (
+                <small>
+                  <span className="mymeet__rel">{relative(data.upcoming[0].startAt)}</span> · {data.upcoming[0].title} · {hour(data.upcoming[0].startAt)}
+                </small>
+              )}
+            </span>
+            <Chevron open={openUpcoming} />
+          </button>
+          {openUpcoming && shown.map((m, i) => {
             const soon = i === 0 && Date.parse(m.startAt) - Date.now() < 24 * 3_600_000;
             return (
               <div key={m.id} className={`mymeet__row${soon ? ' is-soon' : ''}`}>
@@ -141,7 +160,7 @@ export function MyMeetings() {
               </div>
             );
           })}
-          {data.upcoming.length > 3 && (
+          {openUpcoming && data.upcoming.length > 3 && (
             <button className="linkbtn mymeet__more" onClick={() => setAll(!all)}>
               {all ? 'Ver menos' : `Ver todas (${data.upcoming.length})`}
             </button>
@@ -161,6 +180,14 @@ export function MyMeetings() {
         />
       )}
     </section>
+  );
+}
+
+function Chevron({ open }: { open: boolean }) {
+  return (
+    <svg className={`mymeet__chev${open ? ' is-open' : ''}`} viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
   );
 }
 

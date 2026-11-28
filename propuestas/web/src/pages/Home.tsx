@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { docDate, formatDate, formatDateTime, formatMoney, PROJECT_STATUS, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
+import { accountSummary, docDate, formatDate, formatDateTime, formatMoney, PROJECT_STATUS, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, ProgressBar } from '../ui';
 import { InvoiceStatus } from './billing/InvoiceStatus';
 import { MyMeetings } from '../MyMeetings';
@@ -53,12 +53,11 @@ function MyAccount({ clientId }: { clientId: number }) {
   const plan = data?.plan;
   const hasPlan = !!plan && plan.total > 0;
   if (!data || (!data.invoices.length && !data.receipts.length && !hasPlan)) return null;
-  const { totals, invoices, howToPay } = data;
+  const { invoices, howToPay } = data;
   // Hay clientes a los que no se les emite cuenta de cobro: lo que deben sale del plan de pagos de sus proyectos.
-  const byPlan = hasPlan && plan!.total >= totals.invoiced;
-  const base = byPlan ? plan!.total : totals.invoiced;
-  const paid = byPlan ? Math.max(totals.paid, plan!.paid) : totals.paid;
-  const balance = Math.round((base - paid) * 100) / 100;
+  const { byPlan, base, paid, balance } = accountSummary(data);
+  // Pagos o cuentas en dólares: se muestran también los datos de la cuenta en EE. UU.
+  const hasUsd = !!plan?.upcoming.some((u) => u.currency === 'USD') || invoices.some((i) => i.currency === 'USD' && i.status !== 'anulada' && !i.paid);
   return (
     <section className="section">
       <div className="section__head">
@@ -116,11 +115,12 @@ function MyAccount({ clientId }: { clientId: number }) {
           ))}
         </div>
       )}
-      {howToPay && (howToPay.bankInfo || howToPay.qr) && balance > 0 && (
+      {howToPay && (howToPay.bankInfo || howToPay.qr || (hasUsd && howToPay.bankInfoUsd)) && balance > 0 && (
         <section className="card how-to-pay" style={{ marginTop: 12 }}>
           <div>
             <h3 className="subhead">Cómo pagar</h3>
             {howToPay.bankInfo && <p className="pre">{howToPay.bankInfo}</p>}
+            {hasUsd && howToPay.bankInfoUsd && <p className="pre how-to-pay__usd">{howToPay.bankInfoUsd}</p>}
           </div>
           {howToPay.qr && <img src={howToPay.qr} alt="Código QR para pagar" />}
         </section>

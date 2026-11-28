@@ -69,3 +69,12 @@ En *Configuración → Finanzas*:
 ## Estado de cuenta del cliente (en su inicio)
 
 Hay clientes a los que no se les emite cuenta de cobro pero sí tienen plan de pagos en sus proyectos. Por eso el estado de cuenta se arma con el **plan de pagos** cuando su valor es mayor que lo facturado: *Valor de tus proyectos*, *Pagado* y *Por pagar*, con la lista de **pagos pendientes** (concepto, proyecto, fecha y valor). Los pagos en USD se pasan a pesos con la TRM fija del proyecto (o su valor en pesos si ya se pagaron); los que no tienen TRM se muestran aparte («+ US$ … por convertir»). Si el cliente tiene cuentas de cobro y el plan no es mayor, se muestra como antes (*Facturado*).
+
+## Pagos en dólares (USD)
+
+En **Configuración → Facturación → Pagos en dólares (USD)** están los datos de la cuenta en EE. UU. (beneficiario, Lead Bank, número de cuenta, routing number, tipo de cuenta y dirección, con la indicación para pagar desde Wise). Salen:
+- en las **cuentas de cobro en USD** (documento y correo), en lugar de la cuenta en pesos y sin el QR;
+- en el **portal del cliente** (inicio y pestaña Pagos del proyecto) cuando tiene pagos o cuentas pendientes en USD;
+- en las **propuestas en USD** hechas con plantillas, como primer medio de pago.
+
+La ficha del cliente (tú) usa el mismo cálculo del estado de cuenta que ve el cliente: con el plan de pagos si no hay cuentas de cobro (o el plan es mayor), con los pagos pendientes y lo que falte por convertir de USD.

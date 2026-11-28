@@ -1,5 +1,5 @@
 import { Fragment, useState } from 'react';
-import { api, docDate, formatDateTime, formatMoney, useApi, type Me, type ProjectSummary, type Receipt, type Statement } from '../lib';
+import { accountSummary, api, docDate, formatDateTime, formatMoney, useApi, type Me, type ProjectSummary, type Receipt, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, SecretBox, useAction, useToast } from '../ui';
 import { InvoiceStatus } from './billing/InvoiceStatus';
 import { useUngroup } from './billing/GroupBar';
@@ -8,6 +8,7 @@ import { ReceiptForm } from './billing/ReceiptForm';
 import { CatchUpBanner, CatchUpInvoices, useCatchUp } from './billing/CatchUp';
 import { ProjectCard } from './Home';
 import { ClientPeople, type ClientAccount } from './ClientPeople';
+import { AskAi } from './ClientAsk';
 import { AnswersDialog, LinkList, type LinkSummary } from './Forms';
 
 interface ClientDetail {
@@ -175,6 +176,7 @@ function ClientStatement({ clientId }: { clientId: number }) {
   if (loading && !data) return <Loading />;
   if (error) return <ErrorBox message={error} onRetry={reload} />;
   const s = data!;
+  const acc = accountSummary(s);
   return (
     <section className="section">
       <div className="section__head">
@@ -190,21 +192,43 @@ function ClientStatement({ clientId }: { clientId: number }) {
       </div>
       <div className="kpis">
         <div className="kpi card">
-          <small>Facturado</small>
-          <strong>{formatMoney(s.totals.invoiced)}</strong>
+          <small>{acc.byPlan ? 'Valor de sus proyectos' : 'Facturado'}</small>
+          <strong>{formatMoney(acc.base)}</strong>
+          {acc.byPlan && <span className="hint">Según el plan de pagos (facturado: {formatMoney(s.totals.invoiced)}).</span>}
         </div>
         <div className="kpi card">
           <small>Abonado</small>
-          <strong>{formatMoney(s.totals.paid)}</strong>
+          <strong>{formatMoney(acc.paid)}</strong>
           {(s.totals.catchUp ?? 0) > 0 && (
             <span className="hint">No incluye {formatMoney(s.totals.catchUp!)} de «Poner al día»: solo marcan cuentas como pagadas.</span>
           )}
         </div>
         <div className="kpi card">
-          <small>{s.totals.balance < 0 ? 'Saldo a favor del cliente' : 'Saldo pendiente'}</small>
-          <strong>{formatMoney(Math.abs(s.totals.balance))}</strong>
+          <small>{acc.balance < 0 ? 'Saldo a favor del cliente' : 'Saldo pendiente'}</small>
+          <strong>{formatMoney(Math.abs(acc.balance))}</strong>
+          {acc.usdWithoutTrm > 0 && <span className="hint">+ {formatMoney(acc.usdWithoutTrm, 'USD')} sin TRM (fíjala en Pagos del proyecto).</span>}
         </div>
       </div>
+      {acc.byPlan && s.plan!.upcoming.length > 0 && (
+        <div className="table card plan-upcoming">
+          {s.plan!.upcoming.map((u, i) => (
+            <div key={i} className="table__row pay-client">
+              <span>
+                <strong>{u.label}</strong>
+                <small>{u.projectName}</small>
+              </span>
+              <span className="mono">{u.dueDate ? docDate(u.dueDate) : 'Sin fecha'}</span>
+              <span className="mono">
+                {formatMoney(u.amount, u.currency)}
+                {u.amountCop ? <small> ≈ {formatMoney(u.amountCop)}</small> : null}
+              </span>
+              <span>
+                <span className="tag tag--warn">Pendiente</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {editing && (
         <ReceiptForm
           key={editing.id}
@@ -404,6 +428,7 @@ export function ClientPage({ me, id }: { me: Me; id: number }) {
           />
         )}
       </PageHead>
+      {owner && <AskAi clientId={c.id} />}
       <section className="section">
         <div className="section__head">
           <h2>Proyectos</h2>

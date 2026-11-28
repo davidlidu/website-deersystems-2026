@@ -938,6 +938,8 @@ export interface BillingProfile {
   phone: string;
   email: string;
   bankInfo: string;
+  /** Datos para pagos en dólares (cuenta en EE. UU.): salen en las cuentas de cobro en USD y donde haya pagos en USD. */
+  bankInfoUsd: string;
   /** Texto legal en letra pequeña (p. ej. art. 616-2 del ET, no responsable de IVA). */
   legalNote: string;
   signatureName: string;
@@ -949,6 +951,17 @@ export interface BillingProfile {
   qr: string | null;
 }
 
+/** La cuenta en EE. UU. para recibir USD (se puede cambiar en Configuración → Facturación). */
+const USD_DEFAULT = `Pagos en dólares (USD) · cuenta bancaria en EE. UU.
+Beneficiario: David Lidueñas Gil
+Banco: Lead Bank
+Número de cuenta: 211412772914
+Routing number (ABA): 101019644
+Tipo de cuenta: Checking
+Dirección del beneficiario: Calle 56, 41114, Medellín, Antioquia 050012, Colombia
+
+Desde Wise: registra un destinatario nuevo en USD con cuenta bancaria en EE. UU. y usa estos datos.`;
+
 const EMPTY_PROFILE: BillingProfile = {
   name: '',
   docType: 'CC',
@@ -959,6 +972,7 @@ const EMPTY_PROFILE: BillingProfile = {
   phone: '',
   email: '',
   bankInfo: '',
+  bankInfoUsd: USD_DEFAULT,
   legalNote: '',
   signatureName: '',
   signatureDoc: '',
@@ -1002,6 +1016,7 @@ export function saveBillingProfile(body: Record<string, unknown>): BillingProfil
     phone: text('phone', 60),
     email: text('email'),
     bankInfo: text('bankInfo', 2000),
+    bankInfoUsd: text('bankInfoUsd', 2000),
     legalNote: text('legalNote', 3000),
     signatureName: text('signatureName'),
     signatureDoc: text('signatureDoc', 60),
@@ -1018,7 +1033,7 @@ export function saveBillingProfile(body: Record<string, unknown>): BillingProfil
 /** Lo que el cliente necesita para pagar: datos bancarios y QR. */
 export const paymentInstructions = () => {
   const p = billingProfile();
-  return { name: p.name, docType: p.docType, docNumber: p.docNumber, bankInfo: p.bankInfo, qr: p.qr };
+  return { name: p.name, docType: p.docType, docNumber: p.docNumber, bankInfo: p.bankInfo, bankInfoUsd: p.bankInfoUsd, qr: p.qr };
 };
 
 // ───────── Búsqueda en el contenido ─────────
@@ -1241,7 +1256,7 @@ export async function handleBilling(route: string, id: number, req: IncomingMess
         totalCop: current.currency === 'USD' ? cop(current.total_cop) : null,
         dueDate: current.due_date ? longDate(current.due_date) : null,
         projectName: current.project_id ? (db.getProject(current.project_id)?.name ?? null) : null,
-        bankInfo: profile.bankInfo,
+        bankInfo: current.currency === 'USD' && profile.bankInfoUsd ? profile.bankInfoUsd : profile.bankInfo,
         portal: !!db.getClientAccount(client.id)?.active,
         payUrl: payUrl(current),
         qr: !!qr,
