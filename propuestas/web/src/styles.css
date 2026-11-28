@@ -4580,12 +4580,54 @@ textarea:focus {
   padding: 18px 20px;
 }
 
-.how-to-pay img {
-  width: 140px;
-  height: 140px;
-  border-radius: 8px;
+.how-to-pay__qr {
+  flex-shrink: 0;
+  align-self: flex-start;
+  align-content: start;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+}
+
+.how-to-pay__qr img {
+  width: 260px;
+  max-width: 100%;
+  height: auto;
+  padding: 8px;
+  border-radius: 10px;
   background: #fff;
   object-fit: contain;
+}
+
+.how-to-pay__qr small {
+  color: var(--mute);
+  font-size: 0.76rem;
+}
+
+.modal.qr-zoom {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  width: min(92vw, 640px);
+  padding: 16px;
+  background: #fff;
+  cursor: zoom-out;
+}
+
+.modal.qr-zoom img {
+  width: 100%;
+  height: auto;
+  max-height: 80vh;
+  object-fit: contain;
+}
+
+.modal.qr-zoom small {
+  color: #555;
+  font-size: 0.8rem;
 }
 
 /* Datos del emisor */
@@ -4826,6 +4868,11 @@ textarea:focus {
 
   .how-to-pay {
     flex-direction: column;
+  }
+
+  .how-to-pay__qr img {
+    width: 100%;
+    max-width: 340px;
   }
 
   .cc-paper {

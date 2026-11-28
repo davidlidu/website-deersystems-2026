@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { accountSummary, docDate, formatDate, formatDateTime, formatMoney, PROJECT_STATUS, useApi, type Me, type ProjectSummary, type Statement } from '../lib';
 import { Empty, ErrorBox, Link, Loading, PageHead, ProgressBar } from '../ui';
 import { InvoiceStatus } from './billing/InvoiceStatus';
+import { PayQr } from './PayQr';
 import { MyMeetings } from '../MyMeetings';
 
 /** Clientes agrupa dos vistas para el administrador: clientes y proyectos, y reuniones. */
@@ -122,7 +123,7 @@ function MyAccount({ clientId }: { clientId: number }) {
             {howToPay.bankInfo && <p className="pre">{howToPay.bankInfo}</p>}
             {hasUsd && howToPay.bankInfoUsd && <p className="pre how-to-pay__usd">{howToPay.bankInfoUsd}</p>}
           </div>
-          {howToPay.qr && <img src={howToPay.qr} alt="Código QR para pagar" />}
+          {howToPay.qr && <PayQr src={howToPay.qr} />}
         </section>
       )}
     </section>
