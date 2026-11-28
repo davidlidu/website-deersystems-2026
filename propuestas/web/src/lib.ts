@@ -334,6 +334,8 @@ export interface Meeting {
   clientProposal?: { startAt: string; endAt: string; note: string; by: string; at: string } | null;
   /** El cliente puede confirmar esta reserva o proponer otro horario. */
   canRespond?: boolean;
+  /** Reunión confirmada que el cliente puede pedir reagendar. */
+  canReschedule?: boolean;
   attendees: { email: string; name: string; side: 'deersystems' | 'cliente' | 'otro' }[];
   summary?: string;
   agreements?: string[];
@@ -669,6 +671,14 @@ export interface Statement {
   totals: { invoiced: number; paid: number; balance: number; catchUp?: number };
   invoices: InvoiceSummary[];
   receipts: Receipt[];
+  /** El plan de pagos de los proyectos (en pesos): para clientes a los que no se les emite cuenta de cobro. */
+  plan?: {
+    total: number;
+    paid: number;
+    pending: number;
+    usdWithoutTrm: number;
+    upcoming: { label: string; projectName: string; dueDate: string | null; amount: number; currency: Currency; amountCop: number | null }[];
+  };
   howToPay?: { name: string; docType: string; docNumber: string; bankInfo: string; qr: string | null };
 }
 

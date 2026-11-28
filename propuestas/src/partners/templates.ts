@@ -1,8 +1,11 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { AiError, completeJson } from '../ai.ts';
+import { DATA_DIR } from '../config.ts';
 import { db as sqlite, getProposal, getProposalBySlug, type Proposal } from '../db.ts';
-import { HttpError, json, readJson } from '../http.ts';
+import { HttpError, json, readBody, readJson } from '../http.ts';
 import * as proposals from '../proposals.ts';
 import { slugify } from '../storage.ts';
 import { setProposalClient } from './approvals.ts';
@@ -480,7 +483,30 @@ patchSeeds();
  * (portada con ficha, contexto, alcance, inversión, adicionales, medios de pago, trayectoria y cierre) igual que
  * generar_propuesta.py, e incluye meta.aprobacion para que Partners lea los valores exactos al aprobar.
  */
-const PLANTILLA = readFileSync(new URL('./plantilla-propuesta.html', import.meta.url), 'utf8');
+const BUNDLED = readFileSync(new URL('./plantilla-propuesta.html', import.meta.url), 'utf8');
+/**
+ * El diseño se puede actualizar desde Partners (Propuestas → Plantillas → Diseño) subiendo la plantilla-propuesta.html
+ * del cotizador: queda en /data y tiene prioridad sobre la que viene con el código.
+ */
+const DESIGN_FILE = join(DATA_DIR, 'cotizador', 'plantilla-propuesta.html');
+let design: string | null = existsSync(DESIGN_FILE) ? readFileSync(DESIGN_FILE, 'utf8') : null;
+const plantilla = () => design ?? BUNDLED;
+
+/** Una plantilla del cotizador sirve si trae el bloque de datos y el de SEO que llena el generador. */
+function checkDesign(html: string): void {
+  if (!/<script type="application\/json" id="propuesta">[\s\S]*?<\/script>/.test(html)) {
+    throw new HttpError(400, 'Ese archivo no es la plantilla del cotizador: le falta el bloque <script type="application/json" id="propuesta">.');
+  }
+  if (!/<!--SEO:INICIO[\s\S]*?<!--SEO:FIN-->/.test(html)) throw new HttpError(400, 'Ese archivo no es la plantilla del cotizador: le falta el bloque SEO.');
+}
+
+function designInfo() {
+  return {
+    custom: !!design,
+    updatedAt: design && existsSync(DESIGN_FILE) ? statSync(DESIGN_FILE).mtime.toISOString() : null,
+    size: plantilla().length,
+  };
+}
 
 const CONTACTO = { name: 'David Lidueñas Gil', role: 'CEO', email: 'ceo@deersystems.net', web: 'deersystems.net', legal: 'NIT 1036658641-8 · Persona natural' };
 const ESLOGAN = 'Sistemas que conectan, soluciones que simplifican.';
@@ -757,7 +783,7 @@ function seoHtml(m: { seo: { titulo: string; descripcion: string } }): string {
 export function renderHtml(d: TemplateData, date = new Date()): string {
   const data = proposalData(d, date);
   const payload = JSON.stringify(data, null, 2).replace(/<\//g, '<\\/');
-  return PLANTILLA.replace(/(<script type="application\/json" id="propuesta">)[\s\S]*?(<\/script>)/, (_m, a: string, b: string) => `${a}\n${payload}\n${b}`).replace(
+  return plantilla().replace(/(<script type="application\/json" id="propuesta">)[\s\S]*?(<\/script>)/, (_m, a: string, b: string) => `${a}\n${payload}\n${b}`).replace(
     /<!--SEO:INICIO[\s\S]*?<!--SEO:FIN-->/,
     () => seoHtml(data.meta),
   );
@@ -851,6 +877,25 @@ export async function handleTemplates(
       return true;
 
     // Vista previa: el HTML tal como lo verá el cliente (con lo que hay en pantalla, guardado o no).
+    // El diseño de las propuestas (plantilla del cotizador): ver cuál se usa, subir una versión nueva o volver a la original.
+    case 'GET proposal-templates/design':
+      json(res, 200, designInfo());
+      return true;
+    case 'PUT proposal-templates/design': {
+      const html = (await readBody(req, 5 * 1024 * 1024)).toString('utf8');
+      checkDesign(html);
+      await mkdir(join(DATA_DIR, 'cotizador'), { recursive: true });
+      await writeFile(DESIGN_FILE, html);
+      design = html;
+      json(res, 200, designInfo());
+      return true;
+    }
+    case 'DELETE proposal-templates/design':
+      await rm(DESIGN_FILE, { force: true });
+      design = null;
+      json(res, 200, designInfo());
+      return true;
+
     case 'POST proposal-templates/preview': {
       const body = await readJson(req);
       json(res, 200, { html: renderHtml(cleanData(body.data)) });
